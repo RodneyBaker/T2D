@@ -57,9 +57,8 @@ void TFilmstripSelection::enableCommands() {
 
   bool doEnable =
       (type == PLI_XSHLEVEL || type == TZP_XSHLEVEL || type == MESH_XSHLEVEL ||
-       (type == OVL_XSHLEVEL && path.getType() != "psd" &&
-        path.getType() != "gif" && path.getType() != "mp4" &&
-        path.getType() != "webm" && path.getType() != "mov"));
+       (type == OVL_XSHLEVEL && !path.isUneditable()));
+
 
   TRasterImageP ri = (TRasterImageP)sl->getSimpleLevel()->getFrame(
       sl->getSimpleLevel()->getFirstFid(), false);
@@ -98,6 +97,13 @@ void TFilmstripSelection::enableCommands() {
 
   if (doEnable && !isNotEditableFullColorLevel)
     enableCommand(this, MI_Renumber, &TFilmstripSelection::renumberFrames);
+
+  if (type == PLI_XSHLEVEL) {
+    enableCommand(this, MI_InbetweenLinear, &TFilmstripSelection::inbetweenLinear);
+    enableCommand(this, MI_InbetweenEaseIn, &TFilmstripSelection::inbetweenEaseIn);
+    enableCommand(this, MI_InbetweenEaseOut, &TFilmstripSelection::inbetweenEaseOut);
+    enableCommand(this, MI_InbetweenEaseInOut, &TFilmstripSelection::inbetweenEaseInOut);
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -227,7 +233,10 @@ void TFilmstripSelection::cutFrames() {
   TXshSimpleLevel *sl = TApp::instance()->getCurrentLevel()->getSimpleLevel();
   if (sl) {
     int firstSelectedIndex = sl->fid2index(*m_selectedFrames.begin());
-    assert(firstSelectedIndex >= 0);
+    if(firstSelectedIndex < 0 || firstSelectedIndex > sl->getFrameCount()) {
+      selectNone();
+      return;
+    }
     FilmstripCmd::cut(sl, m_selectedFrames);
     selectNone();
     TFrameId fId = (firstSelectedIndex == 0)
@@ -388,4 +397,48 @@ void TFilmstripSelection::renumberFrames() {
   }
   FilmstripCmd::renumber(sl, m_selectedFrames, startFrame, stepFrame);
   updateInbetweenRange();
+}
+
+//-----------------------------------------------------------------------------
+
+void TFilmstripSelection::inbetweenLinear() {
+  TXshSimpleLevel *sl = TApp::instance()->getCurrentLevel()->getSimpleLevel();
+  if (!sl) return;
+  if (m_selectedFrames.size() < 3) return;
+  TFrameId fid1  = *m_selectedFrames.begin();
+  TFrameId fid2  = *m_selectedFrames.rbegin();
+  FilmstripCmd::inbetween(sl, fid1, fid2, FilmstripCmd::II_Linear);
+}
+
+//-----------------------------------------------------------------------------
+
+void TFilmstripSelection::inbetweenEaseIn() {
+  TXshSimpleLevel *sl = TApp::instance()->getCurrentLevel()->getSimpleLevel();
+  if (!sl) return;
+  if (m_selectedFrames.size() < 3) return;
+  TFrameId fid1 = *m_selectedFrames.begin();
+  TFrameId fid2 = *m_selectedFrames.rbegin();
+  FilmstripCmd::inbetween(sl, fid1, fid2, FilmstripCmd::II_EaseIn);
+}
+
+//-----------------------------------------------------------------------------
+
+void TFilmstripSelection::inbetweenEaseOut() {
+  TXshSimpleLevel *sl = TApp::instance()->getCurrentLevel()->getSimpleLevel();
+  if (!sl) return;
+  if (m_selectedFrames.size() < 3) return;
+  TFrameId fid1 = *m_selectedFrames.begin();
+  TFrameId fid2 = *m_selectedFrames.rbegin();
+  FilmstripCmd::inbetween(sl, fid1, fid2, FilmstripCmd::II_EaseOut);
+}
+
+//-----------------------------------------------------------------------------
+
+void TFilmstripSelection::inbetweenEaseInOut() {
+  TXshSimpleLevel *sl = TApp::instance()->getCurrentLevel()->getSimpleLevel();
+  if (!sl) return;
+  if (m_selectedFrames.size() < 3) return;
+  TFrameId fid1 = *m_selectedFrames.begin();
+  TFrameId fid2 = *m_selectedFrames.rbegin();
+  FilmstripCmd::inbetween(sl, fid1, fid2, FilmstripCmd::II_EaseInOut);
 }

@@ -132,9 +132,9 @@ public:
         next_stage(x, y, z);
       else {
         if (stage == 2) next_stage(x, y, z);
-        double l = fabs(ax + bx) > 1e-9
-                       ? -(ay - by) / (ax + bx)
-                       : fabs(ay + by) > 1e-9 ? (ax - bx) / (ay + by) : 0.0;
+        double l = fabs(ax + bx) > 1e-9   ? -(ay - by) / (ax + bx)
+                   : fabs(ay + by) > 1e-9 ? (ax - bx) / (ay + by)
+                                          : 0.0;
         if (fabs(l) > maxl || fabs(l) < 1.0 || l > 0.0) {
           vertices.resize(vertices.size() + 12);
           double *p = &vertices.back() - 11;
@@ -309,6 +309,21 @@ void drawAntialiasedOutline(const std::vector<TOutlinePoint> &_v,
   for (const TOutlinePoint *i = begin; i < end; i += 2) outline.add(i->x, i->y);
   for (const TOutlinePoint *i = end; i > begin; i -= 2) outline.add(i->x, i->y);
   outline.finish();
+}
+
+void drawAliasedOutline(const std::vector<TOutlinePoint> &_v,
+                        const TStroke *stroke) {
+  static const int stride = 2 * sizeof(TOutlinePoint);
+
+  glEnableClientState(GL_VERTEX_ARRAY);
+
+  glVertexPointer(2, GL_DOUBLE, stride, &_v[0]);
+  glDrawArrays(GL_LINE_STRIP, 0, _v.size() / 2);
+
+  glVertexPointer(2, GL_DOUBLE, stride, &_v[1]);
+  glDrawArrays(GL_LINE_STRIP, 0, _v.size() / 2);
+
+  glDisableClientState(GL_VERTEX_ARRAY);
 }
 
 }  // namespace
@@ -609,9 +624,10 @@ void TSolidColorStyle::drawRegion(const TColorFunction *cf,
 
 //=============================================================================
 
-void TSolidColorStyle::drawStroke(const TColorFunction *cf,
-                                  TStrokeOutline *outline,
-                                  const TStroke *stroke) const {
+void TSolidColorStyle::doDrawStroke(const TColorFunction *cf,
+                                    TStrokeOutline *outline,
+                                    const TStroke *stroke,
+                                    bool antialias) const {
   struct locals {
     static inline void fillOutlinedStroke(const std::vector<TOutlinePoint> &v) {
       static const int stride = sizeof(TOutlinePoint);
@@ -655,12 +671,20 @@ stencil->endMask();
       locals::fillOutlinedStroke(v);
       stencil->endMask();
       stencil->enableMask(TStencilControl::SHOW_OUTSIDE);
-      drawAntialiasedOutline(v, stroke);
+
+      if (antialias)
+        drawAntialiasedOutline(v, stroke);
+      else
+        drawAliasedOutline(v, stroke);
+
       stencil->disableMask();
 
     } else {
       // outline with antialiasing
-      drawAntialiasedOutline(v, stroke);
+      if (antialias)
+        drawAntialiasedOutline(v, stroke);
+      else
+        drawAliasedOutline(v, stroke);
 
       // center line
       locals::fillOutlinedStroke(v);
@@ -696,6 +720,19 @@ stencil->endMask();
 //-----------------------------------------------------------------------------
 
 QString TSolidColorStyle::getDescription() const { return "SolidColorStyle"; }
+
+//-----------------------------------------------------------------------------
+
+std::string TSolidColorStyle::getBrushIdName() const {
+  return "SolidColorStyle";
+}
+
+//-----------------------------------------------------------------------------
+
+std::size_t TSolidColorStyle::staticBrushIdHash() {
+  static std::size_t bidHash = TColorStyle::generateHash("SolidColorStyle");
+  return bidHash;
+}
 
 //-----------------------------------------------------------------------------
 
@@ -864,6 +901,12 @@ QString TCenterLineStrokeStyle::getDescription() const {
 
 //-----------------------------------------------------------------------------
 
+std::string TCenterLineStrokeStyle::getBrushIdName() const {
+  return "CenterLineStrokeStyle";
+}
+
+//-----------------------------------------------------------------------------
+
 int TCenterLineStrokeStyle::getTagId() const { return 2; }
 
 //-----------------------------------------------------------------------------
@@ -955,7 +998,37 @@ TRasterImagePatternStrokeStyle::TRasterImagePatternStrokeStyle(
 //-----------------------------------------------------------------------------
 
 TColorStyle *TRasterImagePatternStrokeStyle::clone() const {
-  return new TRasterImagePatternStrokeStyle(*this);
+  TRasterImagePatternStrokeStyle *theClone =
+      new TRasterImagePatternStrokeStyle();
+  theClone->m_level                                      = this->m_level;
+  theClone->m_name                                       = this->m_name;
+  theClone->m_space                                      = this->m_space;
+  theClone->m_rotation                                   = this->m_rotation;
+  if (!this->m_basePath.isEmpty()) theClone->m_basePath  = this->m_basePath;
+  return theClone;
+}
+
+//-----------------------------------------------------------------------------
+
+TColorStyle *TRasterImagePatternStrokeStyle::clone(
+    std::string brushIdName) const {
+  TRasterImagePatternStrokeStyle *style =
+      new TRasterImagePatternStrokeStyle(*this);
+  std::string patternName = getBrushIdNameParam(brushIdName);
+  if (patternName != "") style->loadLevel(patternName);
+  return style;
+}
+
+//-----------------------------------------------------------------------------
+
+QString TRasterImagePatternStrokeStyle::getDescription() const {
+  return "TRasterImagePatternStrokeStyle";
+}
+
+//-----------------------------------------------------------------------------
+
+std::string TRasterImagePatternStrokeStyle::getBrushIdName() const {
+  return "RasterImagePatternStrokeStyle:" + m_name;
 }
 
 //-----------------------------------------------------------------------------
@@ -1334,6 +1407,14 @@ void TRasterImagePatternStrokeStyle::getObsoleteTagIds(
   ids.push_back(100);
 }
 
+//-----------------------------------------------------------------------------
+
+TRectD TRasterImagePatternStrokeStyle::getStrokeBBox(
+    const TStroke *stroke) const {
+  TRectD rect = TColorStyle::getStrokeBBox(stroke);
+  return rect.enlarge(std::max(rect.getLx() * 0.25, rect.getLy() * 0.25));
+}
+
 //*************************************************************************************
 //    TVectorImagePatternStrokeStyle  implementation
 //*************************************************************************************
@@ -1367,7 +1448,37 @@ TVectorImagePatternStrokeStyle::TVectorImagePatternStrokeStyle(
 //-----------------------------------------------------------------------------
 
 TColorStyle *TVectorImagePatternStrokeStyle::clone() const {
-  return new TVectorImagePatternStrokeStyle(*this);
+  TVectorImagePatternStrokeStyle *theClone =
+      new TVectorImagePatternStrokeStyle();
+  theClone->m_level                                     = this->m_level;
+  theClone->m_name                                      = this->m_name;
+  theClone->m_space                                     = this->m_space;
+  theClone->m_rotation                                  = this->m_rotation;
+  if (!this->m_basePath.isEmpty()) theClone->m_basePath = this->m_basePath;
+  return theClone;
+}
+
+//-----------------------------------------------------------------------------
+
+TColorStyle *TVectorImagePatternStrokeStyle::clone(
+    std::string brushIdName) const {
+  TVectorImagePatternStrokeStyle *style =
+      new TVectorImagePatternStrokeStyle(*this);
+  std::string patternName = getBrushIdNameParam(brushIdName);
+  if (patternName != "") style->loadLevel(patternName);
+  return style;
+}
+
+//-----------------------------------------------------------------------------
+
+QString TVectorImagePatternStrokeStyle::getDescription() const {
+  return "TVectorImagePatternStrokeStyle";
+}
+
+//-----------------------------------------------------------------------------
+
+std::string TVectorImagePatternStrokeStyle::getBrushIdName() const {
+  return "VectorImagePatternStrokeStyle:" + m_name;
 }
 
 //-----------------------------------------------------------------------------
@@ -1756,6 +1867,14 @@ TStrokeProp *TVectorImagePatternStrokeStyle::makeStrokeProp(
 void TVectorImagePatternStrokeStyle::getObsoleteTagIds(
     std::vector<int> &ids) const {
   // ids.push_back(100);
+}
+
+//-----------------------------------------------------------------------------
+
+TRectD TVectorImagePatternStrokeStyle::getStrokeBBox(
+    const TStroke *stroke) const {
+  TRectD rect = TColorStyle::getStrokeBBox(stroke);
+  return rect.enlarge(std::max(rect.getLx() * 0.25, rect.getLy() * 0.25));
 }
 
 //*************************************************************************************

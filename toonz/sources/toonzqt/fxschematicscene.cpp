@@ -21,7 +21,6 @@
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshpalettecolumn.h"
 #include "toonz/txshzeraryfxcolumn.h"
-#include "toonz/fxcommand.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/tfxhandle.h"
 #include "toonz/tscenehandle.h"
@@ -323,7 +322,10 @@ FxSchematicScene::FxSchematicScene(QWidget *parent)
     , m_currentFxNode(0)
     , m_gridDimension(eSmall)
     , m_isNormalIconView(!IconifyFxSchematicNodes)
-    , m_viewer() {
+    , m_viewer()
+    , m_dragDropAction(DragDropAction::None)
+    , m_litLink(0)
+    , m_litNode(0) {
   m_viewer = (SchematicViewer *)parent;
 
   m_selection = new FxSelection();
@@ -462,7 +464,7 @@ void FxSchematicScene::updateScene() {
   }
 
   // sorting fxs so that fxs with specified positions are placed first
-  qSort(fxsToBePlaced.begin(), fxsToBePlaced.end(), nodePosDefined);
+  std::sort(fxsToBePlaced.begin(), fxsToBePlaced.end(), nodePosDefined);
 
   for (auto fx : fxsToBePlaced) {
     SchematicNode *node = addFxSchematicNode(fx);
@@ -1034,7 +1036,6 @@ QPointF FxSchematicScene::nearestPoint(const QPointF &point) {
     rect.adjust(-0.1, -0.1, 0.1, 0.1);
     itemList = items(rect);
   }
-#if QT_VERSION >= 0x050000
   /*
   FIXME: QTransform() のデフォルトは Qt4.8 の itemAt() と比べて equivant
   だろうか？
@@ -1046,15 +1047,6 @@ QPointF FxSchematicScene::nearestPoint(const QPointF &point) {
   item = itemAt(rect.topLeft(), QTransform());
   if (item) return rect.topLeft();
   item = itemAt(rect.topRight(), QTransform());
-#else
-  QGraphicsItem *item = itemAt(rect.bottomLeft());
-  if (item) return rect.bottomLeft();
-  item = itemAt(rect.bottomRight());
-  if (item) return rect.bottomRight();
-  item = itemAt(rect.topLeft());
-  if (item) return rect.topLeft();
-  item                = itemAt(rect.topRight());
-#endif
   if (item) return rect.topRight();
   return QPointF();
 }
@@ -1205,6 +1197,7 @@ void FxSchematicScene::onSelectionChanged() {
 
 void FxSchematicScene::reorderScene() {
   int step = m_gridDimension == eLarge ? 100 : 50;
+  if (!m_isNormalIconView) step += 10;
   m_placedFxs.clear();
   QPointF sceneCenter = sceneRect().center();
   double minY         = sceneCenter.y();
@@ -1297,7 +1290,7 @@ void FxSchematicScene::reorderScene() {
     TFx *fx = fxSet->getFx(i);
     if (m_placedFxs.contains(fx)) continue;
 
-    placeNodeAndParents(fx, (sceneCenter.x() + 120), maxX, minY);
+    placeNodeAndParents(fx, (sceneCenter.x() + 140), maxX, minY);
     y -= step;
     minY = std::min(y, minY);
   }
@@ -1315,8 +1308,8 @@ void FxSchematicScene::removeRetroLinks(TFx *fx, double &maxX) {
     TPointD fxPos   = fx->getAttributes()->getDagNodePos();
     if (inFxPos != TConst::nowhere && fxPos != TConst::nowhere &&
         fxPos.x <= inFxPos.x) {
-      while (fxPos.x <= inFxPos.x) fxPos.x += 150;
-      maxX = std::max(fxPos.x + 150, maxX);
+      while (fxPos.x <= inFxPos.x) fxPos.x += 170;
+      maxX = std::max(fxPos.x + 170, maxX);
       fx->getAttributes()->setDagNodePos(fxPos);
       for (int j = 0; j < fx->getOutputConnectionCount(); j++) {
         TFx *outFx = fx->getOutputConnection(j)->getOwnerFx();
@@ -1331,6 +1324,7 @@ void FxSchematicScene::removeRetroLinks(TFx *fx, double &maxX) {
 void FxSchematicScene::placeNodeAndParents(TFx *fx, double x, double &maxX,
                                            double &minY) {
   int step = m_gridDimension == eLarge ? 100 : 50;
+  if (!m_isNormalIconView) step += 10;
   if (!fx) return;
   m_placedFxs.append(fx);
   if (fx->getFxType() == "STD_particlesFx" ||
@@ -1364,7 +1358,7 @@ void FxSchematicScene::placeNodeAndParents(TFx *fx, double x, double &maxX,
   } else
     fx->getAttributes()->setDagNodePos(TPointD(x, y));
   if (fx->getOutputConnectionCount() == 0) minY -= step;
-  x += 120;
+  x += 140;
   maxX = std::max(maxX, x);
   int i;
   for (i = 0; i < fx->getOutputConnectionCount(); i++) {
@@ -1384,26 +1378,28 @@ void FxSchematicScene::placeNodeAndParents(TFx *fx, double x, double &maxX,
 //------------------------------------------------------------------
 
 void FxSchematicScene::onDisconnectFromXSheet() {
-  std::list<TFxP, std::allocator<TFxP>> list =
-      m_selection->getFxs().toStdList();
+  std::list<TFxP, std::allocator<TFxP>> list(m_selection->getFxs().begin(),
+                                             m_selection->getFxs().end());
   TFxCommand::disconnectNodesFromXsheet(list, m_xshHandle);
 }
 
 //------------------------------------------------------------------
 
 void FxSchematicScene::onConnectToXSheet() {
-  std::list<TFxP, std::allocator<TFxP>> list =
-      m_selection->getFxs().toStdList();
+  std::list<TFxP, std::allocator<TFxP>> list(m_selection->getFxs().begin(),
+                                             m_selection->getFxs().end());
   TFxCommand::connectNodesToXsheet(list, m_xshHandle);
 }
 
 //------------------------------------------------------------------
 
 void FxSchematicScene::onDeleteFx() {
-  std::list<TFxP, std::allocator<TFxP>> fxList =
-      m_selection->getFxs().toStdList();
-  std::list<TFxCommand::Link> linkList = m_selection->getLinks().toStdList();
-  std::list<int> columnIndexList = m_selection->getColumnIndexes().toStdList();
+  std::list<TFxP, std::allocator<TFxP>> fxList(m_selection->getFxs().begin(),
+                                               m_selection->getFxs().end());
+  std::list<TFxCommand::Link> linkList(m_selection->getLinks().begin(),
+                                       m_selection->getLinks().end());
+  std::list<int> columnIndexList(m_selection->getColumnIndexes().begin(),
+                                 m_selection->getColumnIndexes().end());
   TFxCommand::deleteSelection(fxList, linkList, columnIndexList, m_xshHandle,
                               m_fxHandle);
 }
@@ -1441,7 +1437,8 @@ void FxSchematicScene::onUnlinkFx() {
 //------------------------------------------------------------------
 
 void FxSchematicScene::onMacroFx() {
-  TFxCommand::makeMacroFx(m_selection->getFxs().toVector().toStdVector(),
+  TFxCommand::makeMacroFx(std::vector<TFxP>(m_selection->getFxs().begin(),
+                                            m_selection->getFxs().end()),
                           m_app);
 }
 
@@ -1465,12 +1462,6 @@ void FxSchematicScene::onOpenMacroFx() {
 
 void FxSchematicScene::onSavePresetFx() {
   CommandManager::instance()->getAction("MI_SavePreset")->trigger();
-}
-
-//------------------------------------------------------------------
-
-void FxSchematicScene::onRemoveOutput() {
-  TFxCommand::removeOutputFx(m_fxHandle->getFx(), m_xshHandle, m_fxHandle);
 }
 
 //------------------------------------------------------------------
@@ -1613,16 +1604,12 @@ TFx *FxSchematicScene::getCurrentFx() { return m_fxHandle->getFx(); }
 
 void FxSchematicScene::mousePressEvent(QGraphicsSceneMouseEvent *me) {
   QList<QGraphicsItem *> items = selectedItems();
-#if QT_VERSION >= 0x050000
-  QGraphicsItem *item = itemAt(me->scenePos(), QTransform());
-#else
-  QGraphicsItem *item = itemAt(me->scenePos());
-#endif
-  FxSchematicPort *port = dynamic_cast<FxSchematicPort *>(item);
-  FxSchematicLink *link = dynamic_cast<FxSchematicLink *>(item);
+  QGraphicsItem *item          = itemAt(me->scenePos(), QTransform());
+  FxSchematicPort *port        = dynamic_cast<FxSchematicPort *>(item);
+  FxSchematicLink *link        = dynamic_cast<FxSchematicLink *>(item);
   SchematicScene::mousePressEvent(me);
   onSelectionChanged();
-  if (me->button() == Qt::MidButton) {
+  if (me->button() == Qt::MiddleButton) {
     int i;
     for (i = 0; i < items.size(); i++) items[i]->setSelected(true);
   }
@@ -1632,7 +1619,7 @@ void FxSchematicScene::mousePressEvent(QGraphicsSceneMouseEvent *me) {
   not.
   */
   if (selectedItems().isEmpty()) {
-    if (me->button() != Qt::MidButton && !item) m_fxHandle->setFx(0, false);
+    if (me->button() != Qt::MiddleButton && !item) m_fxHandle->setFx(0, false);
     return;
   }
   m_isConnected = false;
@@ -1669,12 +1656,8 @@ void FxSchematicScene::mouseMoveEvent(QGraphicsSceneMouseEvent *me) {
     simulateDisconnectSelection(true);
     m_connectionLinks.showBridgeLinks();
 
-#if QT_VERSION >= 0x050000
     SchematicLink *link =
         dynamic_cast<SchematicLink *>(itemAt(m_lastPos, QTransform()));
-#else
-    SchematicLink *link = dynamic_cast<SchematicLink *>(itemAt(m_lastPos));
-#endif
     if (link && (link->getEndPort() && link->getStartPort())) {
       TFxCommand::Link fxLink = m_selection->getBoundingFxs(link);
       if (fxLink == TFxCommand::Link()) return;
@@ -1741,14 +1724,16 @@ void FxSchematicScene::mouseReleaseEvent(QGraphicsSceneMouseEvent *me) {
           fxLink.m_inputFx  = inputNode->getFx();
           if (!outputNode->isA(eXSheetFx)) fxLink.m_index = i;
 
-          TFxCommand::connectFxs(fxLink, m_selection->getFxs().toStdList(),
+          TFxCommand::connectFxs(fxLink,
+                                 std::list<TFxP>(m_selection->getFxs().begin(),
+                                                 m_selection->getFxs().end()),
                                  m_xshHandle, m_selectionOldPos);
         }
       }
     } else if (m_disconnectionLinks.size() > 0) {
-      QList<TFxP> fxs = m_selection->getFxs();
-      TFxCommand::disconnectFxs(fxs.toStdList(), m_xshHandle,
-                                m_selectionOldPos);
+      TFxCommand::disconnectFxs(std::list<TFxP>(m_selection->getFxs().begin(),
+                                                m_selection->getFxs().end()),
+                                m_xshHandle, m_selectionOldPos);
       m_selectionOldPos.clear();
     }
   }
@@ -1777,6 +1762,152 @@ bool FxSchematicScene::event(QEvent *e) {
     m_altPressed = altPressed;
   }
   return ret;
+}
+
+//------------------------------------------------------------------
+
+void FxSchematicScene::dragEnterEvent(QGraphicsSceneDragDropEvent *e) {
+  const QMimeData *mimeData = e->mimeData();
+  const FxsData *fxdata     = dynamic_cast<const FxsData *>(mimeData);
+  if (!fxdata)
+    e->ignore();
+  else
+    e->acceptProposedAction();
+}
+
+//------------------------------------------------------------------
+
+void FxSchematicScene::dragMoveEvent(QGraphicsSceneDragDropEvent *e) {
+  QGraphicsItem *item   = itemAt(e->scenePos(), QTransform());
+  FxSchematicLink *link = dynamic_cast<FxSchematicLink *>(item);
+  FxPainter *painter           = dynamic_cast<FxPainter *>(item);
+  FxSchematicNode *node = dynamic_cast<FxSchematicNode *>(item);
+
+  m_fxs.clear();
+  m_links.clear();
+  if (m_litLink) {
+    m_litLink->setDropHighlighted(false);
+    m_litLink->update();
+    m_litLink = 0;
+  }
+  if (m_litNode) {
+    m_litNode->setDropHighlighted(false);
+    m_litNode->update();
+    m_litNode = 0;
+  }
+
+  TFx *fx = 0;
+
+  if (!item) {
+    m_dragDropAction = DragDropAction::Add;
+  } else if (link) {
+    m_dragDropAction = DragDropAction::Insert;
+
+    m_selection->selectNone();
+
+    m_selection->select(link);
+    m_fxs   = m_selection->getFxs();
+    m_links = m_selection->getLinks();
+
+    link->setDropHighlighted(true);
+    link->update();
+    m_litLink = link;
+  } else {
+    m_dragDropAction = DragDropAction::Replace;
+
+    m_selection->selectNone();
+
+    if (painter) node = painter->getNode();
+
+    if (node) {
+      m_selection->select(node->getFx());
+      node->setDropHighlighted(true);
+      node->update();
+      m_litNode = node;
+    } else {
+      e->ignore();
+      return;
+    }
+
+    m_fxs = m_selection->getFxs();
+  }
+
+  e->acceptProposedAction();
+}
+
+//------------------------------------------------------------------
+
+void FxSchematicScene::dropEvent(QGraphicsSceneDragDropEvent *e) {
+  const QMimeData *mimeData = e->mimeData();
+  const FxsData *fxdata     = dynamic_cast<const FxsData *>(mimeData);
+  if (!fxdata) return;
+
+  QList<TFxP> dropFxs;
+  QMap<TFx *, int> dropFxsMap;
+  QList<TXshColumnP> cols;
+  fxdata->getFxs(dropFxs, dropFxsMap, cols);
+  TFx *dropFx = dropFxs[0].getPointer();
+
+  if (m_dragDropAction == DragDropAction::Replace) {
+    if (m_litNode) {
+      m_litNode->setDropHighlighted(false);
+      m_litNode->update();
+      m_litNode = 0;
+    }
+    TFxCommand::replaceFx(dropFx, m_fxs, m_app->getCurrentXsheet(),
+                          m_app->getCurrentFx());
+  } else {
+    dropFx->getAttributes()->setDagNodePos(
+        TPointD(e->scenePos().x(), e->scenePos().y()));
+
+    if (m_dragDropAction == DragDropAction::Insert) {
+      if (m_litLink) {
+        m_litLink->setDropHighlighted(false);
+        m_litLink->update();
+        m_litLink = 0;
+      }
+      TFxCommand::insertFx(dropFx, m_fxs, m_links, m_app,
+                           m_app->getCurrentColumn()->getColumnIndex(),
+                           m_app->getCurrentFrame()->getFrameIndex());
+    } else {  // DragDropAction::Add: {
+      TFxCommand::addFx(dropFx, QList<TFxP>(), m_app,
+                        m_app->getCurrentColumn()->getColumnIndex(),
+                        m_app->getCurrentFrame()->getFrameIndex());
+    }
+
+    // move the zerary fx node to the clicked position
+    if (dropFx->isZerary() &&
+        dropFx->getAttributes()->getDagNodePos() != TConst::nowhere) {
+      TXsheet *xsh               = m_app->getCurrentXsheet()->getXsheet();
+      int col                    = m_app->getCurrentColumn()->getColumnIndex();
+      if (col < 0) col           = 0;
+      TXshZeraryFxColumn *column = xsh->getColumn(col)->getZeraryFxColumn();
+      if (column)
+        column->getZeraryColumnFx()->getAttributes()->setDagNodePos(
+            dropFx->getAttributes()->getDagNodePos());
+    }
+  }
+  m_xshHandle->notifyXsheetChanged();
+
+  e->accept();
+}
+
+//------------------------------------------------------------------
+
+void FxSchematicScene::dragLeaveEvent(QGraphicsSceneDragDropEvent *e) {
+  m_dragDropAction = DragDropAction::None;
+  m_fxs.clear();
+  m_links.clear();
+  if (m_litLink) {
+    m_litLink->setDropHighlighted(false);
+    m_litLink->update();
+    m_litLink = 0;
+  }
+  if (m_litNode) {
+    m_litNode->setDropHighlighted(false);
+    m_litNode->update();
+    m_litNode = 0;
+  }
 }
 
 //------------------------------------------------------------------
@@ -1816,12 +1947,8 @@ void FxSchematicScene::onAltModifierChanged(bool altPressed) {
     if (m_disconnectionLinks.size() == 0 && m_linkUnlinkSimulation)
       simulateDisconnectSelection(altPressed);
     if (m_connectionLinks.size() == 0 && m_linkUnlinkSimulation) {
-#if QT_VERSION >= 0x050000
       SchematicLink *link =
           dynamic_cast<SchematicLink *>(itemAt(m_lastPos, QTransform()));
-#else
-      SchematicLink *link = dynamic_cast<SchematicLink *>(itemAt(m_lastPos));
-#endif
       if (link && (!link->getEndPort() || !link->getStartPort())) return;
       simulateInsertSelection(link, altPressed && !!link);
     }
@@ -2065,11 +2192,7 @@ void FxSchematicScene::updateNestedGroupEditors(FxSchematicNode *node,
       if (rect.isEmpty())
         rect = app;
       else
-#if QT_VERSION >= 0x050000
         rect = rect.united(app);
-#else
-        rect = rect.unite(app);
-#endif
     }
   }
   QMap<TMacroFx *, FxSchematicMacroEditor *>::iterator it;
@@ -2079,22 +2202,14 @@ void FxSchematicScene::updateNestedGroupEditors(FxSchematicNode *node,
       if (rect.isEmpty())
         rect = app;
       else
-#if QT_VERSION >= 0x050000
         rect = rect.united(app);
-#else
-        rect = rect.unite(app);
-#endif
     }
   }
   node->setPos(newPos);
   for (i = 0; i < groupIdStack.size(); i++) {
     if (!m_groupEditorTable.contains(groupIdStack[i])) continue;
-#if QT_VERSION >= 0x050000
     rect =
         rect.united(m_groupEditorTable[groupIdStack[i]]->sceneBoundingRect());
-#else
-    rect = rect.unite(m_groupEditorTable[groupIdStack[i]]->sceneBoundingRect());
-#endif
     QRectF app = m_groupEditorTable[groupIdStack[i]]->boundingSceneRect();
     if (m_groupEditorTable[groupIdStack[i]]->scenePos() != app.topLeft())
       m_groupEditorTable[groupIdStack[i]]->setPos(app.topLeft());
@@ -2103,12 +2218,8 @@ void FxSchematicScene::updateNestedGroupEditors(FxSchematicNode *node,
     FxSchematicMacroEditor *editor = it.value();
     if (editor->contains(node)) {
       QRectF app = editor->sceneBoundingRect();
-#if QT_VERSION >= 0x050000
-      rect = rect.united(app);
-#else
-      rect = rect.unite(app);
-#endif
-      app = editor->boundingSceneRect();
+      rect       = rect.united(app);
+      app        = editor->boundingSceneRect();
       if (editor->scenePos() != app.topLeft()) editor->setPos(app.topLeft());
     }
   }
@@ -2207,5 +2318,57 @@ bool FxSchematicScene::isAnEmptyZone_withParentFx(const QRectF &rect,
       }
     }
   }
-  return true;
+ return true;
+}
+
+//------------------------------------------------------------------
+// update snap targets on click node
+void FxSchematicScene::updateSnapTarget(QGraphicsItem *item) {
+  clearSnapTargets();
+  FxSchematicNode *node = dynamic_cast<FxSchematicNode *>(item);
+  if (!node) return;
+
+  // find input connections
+  int portCount = node->getInputPortCount();
+  for (int i = 0; i < portCount; i++) {
+    FxSchematicPort *port = node->getInputPort(i);
+    int j, linkCount = port->getLinkCount();
+    for (j = 0; j < linkCount; j++) {
+      SchematicLink *link = port->getLink(j);
+      if (!link) continue;
+      if (m_disconnectionLinks.isABridgeLink(link)) continue;
+      SchematicNode *otherNode = link->getOtherNode(node);
+      if (otherNode && !otherNode->isSelected()) {
+        QPointF targetPos =
+            otherNode->scenePos() + QPointF(otherNode->boundingRect().width() +
+                                                SchematicScene::snapHSpacing,
+                                            0);
+
+        addSnapTarget(targetPos, node->boundingRect(),
+                      link->getOtherPort(port)->getLinkEndPoint(),
+                      port->getLinkEndPoint() - node->scenePos());
+      }
+    }
+  }
+
+  // find output connections
+  FxSchematicPort *port = node->getOutputPort();
+  if (port) {
+    int linkCount = port->getLinkCount();
+    for (int i = 0; i < linkCount; i++) {
+      SchematicLink *link = port->getLink(i);
+      if (!link) continue;
+      if (m_disconnectionLinks.isABridgeLink(link)) continue;
+      SchematicNode *otherNode = link->getOtherNode(node);
+      if (otherNode && !otherNode->isSelected()) {
+        QPointF targetPos =
+            otherNode->scenePos() -
+            QPointF(node->boundingRect().width() + SchematicScene::snapHSpacing,
+                    0);
+        addSnapTarget(targetPos, node->boundingRect(),
+                      link->getOtherPort(port)->getLinkEndPoint(),
+                      port->getLinkEndPoint() - node->scenePos());
+      }
+    }
+  }
 }

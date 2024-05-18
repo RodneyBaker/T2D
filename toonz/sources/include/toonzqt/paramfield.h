@@ -389,6 +389,7 @@ public:
   void updateField(double value) override;
 
   QSize getPreferredSize() override { return QSize(260, 26); }
+
   void setPrecision(int precision) override;
 
 protected slots:
@@ -565,6 +566,8 @@ public:
 
   QSize getPreferredSize() override { return QSize(150, 20); }
 
+  int getValue() const;
+
 protected slots:
   void onChange(const QString &str);
 };
@@ -629,8 +632,7 @@ namespace component {
 class MyTextEdit : public QTextEdit {
   Q_OBJECT
 public:
-  MyTextEdit(const QString &text, QWidget *parent = Q_NULLPTR)
-      : QTextEdit(text, parent) {}
+  MyTextEdit(const QString &text, QWidget *parent = Q_NULLPTR);
 
 protected:
   void keyPressEvent(QKeyEvent *event) override;

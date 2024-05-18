@@ -65,6 +65,10 @@ QString removeZeros(QString srcStr) {
   }
   return srcStr;
 }
+
+// Preference values of the unit - translation text
+QMap<QString, QString> unitTrMap;
+
 }  // namespace
 
 //=============================================================================
@@ -174,7 +178,19 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
     : m_forCleanup(forCleanup)
     , m_arValue(0)
     , m_presetListFile("")
-    , m_currentLevel(0) {
+    , m_currentLevel(0)
+    , m_overlayLevel(0) {
+  bool showAdvancedOptions =
+      Preferences::instance()->isShowAdvancedOptionsEnabled();
+
+  if (unitTrMap.isEmpty()) {
+    unitTrMap["cm"]    = tr("cm");
+    unitTrMap["mm"]    = tr("mm");
+    unitTrMap["inch"]  = tr("inch");
+    unitTrMap["field"] = tr("field");
+    unitTrMap["pixel"] = tr("pixel");
+  }
+
   m_xPrev    = new QRadioButton();
   m_yPrev    = new QRadioButton();
   m_arPrev   = new QRadioButton();
@@ -192,16 +208,19 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
   m_yDpiFld   = new DoubleLineEdit();
   m_unitLabel = new QLabel();
   if (Preferences::instance()->getPixelsOnly())
-    m_unitLabel->setText(tr("Size"));
+    m_unitLabel->setText(showAdvancedOptions ? tr("Pixels") : tr("Size"));
   else
-    m_unitLabel->setText(Preferences::instance()->getCameraUnits());
+    m_unitLabel->setText(
+        unitTrMap.value(Preferences::instance()->getCameraUnits()));
   m_dpiLabel = new QLabel(tr("DPI"));
-  m_resLabel = new QLabel(tr("Size"));
+  m_resLabel = new QLabel(showAdvancedOptions ? tr("Pixels") : tr("Size"));
   m_xLabel   = new QLabel(tr("x"));
+  m_arLabel  = new QLabel(tr("A/R"));
 
   m_fspChk = new QPushButton("");
 
   m_useLevelSettingsBtn = new QPushButton(tr("Use Current Level Settings"));
+  m_useOverlaySettingsBtn = new QPushButton(tr("Use Scene Overlay Settings"));
 
   m_presetListOm    = new QComboBox();
   m_addPresetBtn    = new QPushButton(tr("Add"));
@@ -210,6 +229,8 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
   //----
   m_useLevelSettingsBtn->setEnabled(false);
   m_useLevelSettingsBtn->setFocusPolicy(Qt::NoFocus);
+  m_useOverlaySettingsBtn->setEnabled(false);
+  m_useOverlaySettingsBtn->setFocusPolicy(Qt::NoFocus);
   m_lxFld->installEventFilter(this);
   m_lyFld->installEventFilter(this);
   m_arFld->installEventFilter(this);
@@ -269,8 +290,13 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
   group = new QButtonGroup;
   group->addButton(m_inchPrev);
   group->addButton(m_dotPrev);
-  m_xPrev->setChecked(true);
-  m_inchPrev->setChecked(true);
+  if (showAdvancedOptions) {
+    m_arPrev->setChecked(true);
+    m_dotPrev->setChecked(true);
+  } else {
+    m_xPrev->setChecked(true);
+    m_inchPrev->setChecked(true);
+  }
 
   //------ layout
 
@@ -284,20 +310,25 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
     {
       gridLay->addWidget(m_xPrev, 0, 2, Qt::AlignCenter);
       gridLay->addWidget(m_yPrev, 0, 4, Qt::AlignCenter);
-      m_xPrev->hide();
-      m_yPrev->hide();
+      if (!showAdvancedOptions) {
+        m_xPrev->hide();
+        m_yPrev->hide();
+      }
       gridLay->addWidget(m_inchPrev, 1, 0, Qt::AlignRight | Qt::AlignVCenter);
-      m_inchPrev->hide();
+      if (!showAdvancedOptions) m_inchPrev->hide();
       gridLay->addWidget(m_unitLabel, 1, 1, Qt::AlignRight | Qt::AlignVCenter);
       gridLay->addWidget(m_lxFld, 1, 2);
       gridLay->addWidget(new QLabel("x"), 1, 3, Qt::AlignCenter);
       gridLay->addWidget(m_lyFld, 1, 4);
 
       gridLay->addWidget(m_arPrev, 2, 2, Qt::AlignRight | Qt::AlignVCenter);
-      // gridLay->addWidget(new QLabel(tr("A/R")), 2, 3, Qt::AlignCenter);
+      gridLay->addWidget(m_arLabel, 2, 3, Qt::AlignCenter);
       gridLay->addWidget(m_arFld, 2, 4);
-      m_arFld->hide();
-      m_arPrev->hide();
+      if (!showAdvancedOptions) {
+        m_arLabel->hide();
+        m_arFld->hide();
+        m_arPrev->hide();
+      }
 
       gridLay->addWidget(m_dotPrev, 3, 0, Qt::AlignRight | Qt::AlignVCenter);
       gridLay->addWidget(m_resLabel, 3, 1, Qt::AlignRight | Qt::AlignVCenter);
@@ -318,6 +349,7 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
     mainLay->addLayout(gridLay);
 
     mainLay->addWidget(m_useLevelSettingsBtn);
+    mainLay->addWidget(m_useOverlaySettingsBtn);
 
     QHBoxLayout *resListLay = new QHBoxLayout();
     resListLay->setSpacing(3);
@@ -363,6 +395,8 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
 
   ret = ret && connect(m_useLevelSettingsBtn, SIGNAL(clicked()), this,
                        SLOT(useLevelSettings()));
+  ret = ret && connect(m_useOverlaySettingsBtn, SIGNAL(clicked()), this,
+                       SLOT(useOverlaySettings()));
 
   ret = ret && connect(m_presetListOm, SIGNAL(activated(const QString &)),
                        SLOT(onPresetSelected(const QString &)));
@@ -373,7 +407,10 @@ CameraSettingsWidget::CameraSettingsWidget(bool forCleanup)
   assert(ret);
 }
 
-CameraSettingsWidget::~CameraSettingsWidget() { setCurrentLevel(0); }
+CameraSettingsWidget::~CameraSettingsWidget() {
+  setCurrentLevel(0);
+  setOverlayLevel(0);
+}
 
 void CameraSettingsWidget::showEvent(QShowEvent *e) {
   if (Preferences::instance()->getCameraUnits() == "pixel") {
@@ -386,7 +423,6 @@ void CameraSettingsWidget::showEvent(QShowEvent *e) {
     m_yDpiFld->hide();
     m_fspChk->hide();
     m_dotPrev->hide();
-    m_arFld->hide();
     m_lxFld->setDecimals(0);
     m_lyFld->setDecimals(0);
   } else {
@@ -405,7 +441,8 @@ void CameraSettingsWidget::showEvent(QShowEvent *e) {
   if (Preferences::instance()->getPixelsOnly())
     m_unitLabel->setText(tr("Pixels"));
   else
-    m_unitLabel->setText(Preferences::instance()->getCameraUnits());
+    m_unitLabel->setText(
+        unitTrMap.value(Preferences::instance()->getCameraUnits()));
 }
 
 void CameraSettingsWidget::loadPresetList() {
@@ -560,8 +597,30 @@ void CameraSettingsWidget::setCurrentLevel(TXshLevel *xshLevel) {
 }
 
 void CameraSettingsWidget::useLevelSettings() {
-  TXshSimpleLevel *sl = m_currentLevel;
-  if (!sl) return;
+  if (applyLevelSettings(m_currentLevel)) {
+    emit levelSettingsUsed();
+    emit changed();
+  }
+}
+
+void CameraSettingsWidget::setOverlayLevel(TXshLevel *xshLevel) {
+  TXshSimpleLevel *sl = xshLevel ? xshLevel->getSimpleLevel() : 0;
+  if (sl == m_overlayLevel) return;
+  if (sl) sl->addRef();
+  if (m_overlayLevel) m_overlayLevel->release();
+  m_overlayLevel = sl;
+  m_useOverlaySettingsBtn->setEnabled(m_overlayLevel != 0);
+}
+
+void CameraSettingsWidget::useOverlaySettings() {
+  if (applyLevelSettings(m_overlayLevel)) {
+    emit overlaySettingsUsed();
+    emit changed();
+  }
+}
+
+bool CameraSettingsWidget::applyLevelSettings(TXshSimpleLevel *sl) {
+  if (!sl) return false;
 
   // Build dpi
   TPointD dpi = sl->getDpi(TFrameId::NO_FRAME, 0);
@@ -569,7 +628,7 @@ void CameraSettingsWidget::useLevelSettings() {
   // Build physical size
   TDimensionD size(0, 0);
   TDimension res = sl->getResolution();
-  if (res.lx <= 0 || res.ly <= 0 || dpi.x <= 0 || dpi.y <= 0) return;
+  if (res.lx <= 0 || res.ly <= 0 || dpi.x <= 0 || dpi.y <= 0) return false;
 
   size.lx = res.lx / dpi.x;
   size.ly = res.ly / dpi.y;
@@ -579,8 +638,8 @@ void CameraSettingsWidget::useLevelSettings() {
   camera.setSize(size);
   camera.setRes(res);
   setFields(&camera);
-  emit levelSettingsUsed();
-  emit changed();
+
+  return true;
 }
 
 void CameraSettingsWidget::setFields(const TCamera *camera) {

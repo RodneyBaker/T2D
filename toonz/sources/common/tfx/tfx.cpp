@@ -611,7 +611,7 @@ TFxTimeRegion TFx::getTimeRegion() const {
     TFxPort *port = it->second;
     if (port && port->isConnected() && !port->isaControlPort()) {
       TFx *fx = port->getFx();
-      assert(fx);
+      std::wstring fxName = fx->getName();
       tr += fx->getTimeRegion();
     }
   }
@@ -934,7 +934,8 @@ void TFx::loadPreset(TIStream &is) {
             TParamP param = getParams()->getParam(paramName);
             param->loadData(is);
           } catch (TException &) { /*skip*/
-          }                        // il parametro non e' presente
+          } catch (...) {          // il parametro non e' presente
+          }
           is.closeChild();
         }
       }
@@ -1002,7 +1003,10 @@ TFx *TFx::getLinkedFx() const {
 
 //--------------------------------------------------
 
-void TFx::setFxVersion(int v) { m_imp->m_attributes.setFxVersion(v); }
+void TFx::setFxVersion(int v) {
+  m_imp->m_attributes.setFxVersion(v);
+  onFxVersionSet();
+}
 
 //--------------------------------------------------
 

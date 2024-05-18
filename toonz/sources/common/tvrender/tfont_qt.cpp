@@ -25,6 +25,11 @@
 #include "traster.h"
 #include "tmathutil.h"
 #include "tvectorimage.h"
+#include "trasterimage.h"
+#include "toonz/trasterimageutils.h"
+
+#include "trop.h"
+
 using namespace std;
 
 //=============================================================================
@@ -171,15 +176,20 @@ TPoint TFont::drawChar(QImage &outImage, TPoint &unused, wchar_t charcode,
   // alphaMapForGlyph with a space character returns an invalid
   // QImage for some reason.
   // Bug 3604: https://github.com/opentoonz/opentoonz/issues/3604
-#ifdef Q_OS_UNIX
-  if (chars[0] == L' ') {
-      outImage = QImage(raw.averageCharWidth(), raw.ascent() + raw.descent(),
-                        QImage::Format_Grayscale8);
-      outImage.fill(255);
-      return getDistance(charcode, nextCharCode);
-  }
+  // (21/1/2022) Use this workaround for all platforms as the crash also
+  // occurred in windows when the display is scaled up.
+  if (chars[0].isSpace()) {
+#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
+    int w = QFontMetrics(m_pimpl->m_font).horizontalAdvance(chars[0]);
+#else
+    int w = raw.averageCharWidth();
 #endif
 
+    outImage =
+        QImage(w, raw.ascent() + raw.descent(), QImage::Format_Grayscale8);
+    outImage.fill(255);
+    return getDistance(charcode, nextCharCode);
+  }
   QImage image = raw.alphaMapForGlyph(indices[0], QRawFont::PixelAntialiasing);
   if (image.format() != QImage::Format_Indexed8 &&
       image.format() != QImage::Format_Alpha8)
@@ -235,9 +245,51 @@ TPoint TFont::drawChar(TRasterCM32P &outImage, TPoint &unused, int inkId,
 
 //-----------------------------------------------------------------------------
 
+TPoint TFont::drawChar(TRaster32P &outImage, TPoint &unused, TPixel32 color,
+                       wchar_t charcode, wchar_t nextCharCode) const {
+  QImage grayAppImage;
+  this->drawChar(grayAppImage, unused, charcode, nextCharCode);
+
+  int lx = grayAppImage.width();
+  int ly = grayAppImage.height();
+
+  TRaster32P ras(lx, ly, lx, (TPixelRGBM32 *)grayAppImage.bits(), false);
+
+  outImage = TRaster32P(lx, ly);
+  outImage->lock();
+
+  TPixel32 bgColor(0, 0, 0, 0);
+  int ty = 0;
+
+  for (int gy = ly - 1; gy >= 0; --gy, ++ty) {
+    uchar *srcPix    = grayAppImage.scanLine(gy);
+    TPixel32 *tarPix = outImage->pixels(ty);
+    for (int x = 0; x < lx; ++x) {
+      int m = (int)(*srcPix);
+
+      if (m == 255)
+        *tarPix = bgColor;
+      else
+        *tarPix = color;
+
+      ++srcPix;
+      ++tarPix;
+    }
+  }
+  outImage->unlock();
+
+  return getDistance(charcode, nextCharCode);
+}
+
+//-----------------------------------------------------------------------------
+
 TPoint TFont::getDistance(wchar_t firstChar, wchar_t secondChar) const {
   QFontMetrics metrics(m_pimpl->m_font);
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
+  return TPoint(metrics.horizontalAdvance(QChar(firstChar)), 0);
+#else
   return TPoint(metrics.width(QChar(firstChar)), 0);
+#endif
 }
 
 //-----------------------------------------------------------------------------

@@ -451,7 +451,8 @@ TStroke *ToolUtils::merge(const ArrayOfStroke &a) {
 
 ToolUtils::TToolUndo::TToolUndo(TXshSimpleLevel *level, const TFrameId &frameId,
                                 bool createdFrame, bool createdLevel,
-                                const TPaletteP &oldPalette)
+                                const TPaletteP &oldPalette,
+                                bool renumberedLevel)
     : TUndo()
     , m_level(level)
     , m_frameId(frameId)
@@ -461,7 +462,7 @@ ToolUtils::TToolUndo::TToolUndo(TXshSimpleLevel *level, const TFrameId &frameId,
     , m_isEditingLevel(false)
     , m_createdFrame(createdFrame)
     , m_createdLevel(createdLevel)
-    , m_renumberedLevel(TTool::m_isLevelRenumbererd)
+    , m_renumberedLevel(renumberedLevel)
     , m_imageId("") {
   TTool::Application *app = TTool::getApplication();
   m_isEditingLevel        = app->getCurrentFrame()->isEditingLevel();
@@ -552,7 +553,6 @@ void ToolUtils::TToolUndo::removeLevelAndFrameIfNeeded() const {
         app->getCurrentScene()->notifyCastChange();
       }
     }
-    app->getCurrentLevel()->notifyLevelChange();
   }
   if (m_oldPalette.getPointer()) {
     m_level->getPalette()->assign(m_oldPalette->clone());
@@ -568,6 +568,8 @@ void ToolUtils::TToolUndo::removeLevelAndFrameIfNeeded() const {
     m_level->renumber(m_oldFids);
     app->getCurrentXsheet()->notifyXsheetChanged();
   }
+  if (m_createdFrame || m_createdLevel)
+    app->getCurrentLevel()->notifyLevelChange();
 }
 
 //------------------------------------------------------------------------------------------
@@ -605,7 +607,16 @@ void ToolUtils::TToolUndo::notifyImageChanged() const {
     ImageManager::instance()->invalidate(id);
   }
 }
+//------------------------------------------------------------------------------------------
 
+ void ToolUtils::TToolUndo::onAdd() {
+   // clean up the flags after registering undo
+   TTool::m_isLevelCreated     = false;
+   TTool::m_isFrameCreated     = false;
+   TTool::m_isLevelRenumbererd = false;
+ }
+
+ //------------------------------------------------------------------------------------------
 int ToolUtils::TToolUndo::m_idCount = 0;
 
 //================================================================================================
@@ -1316,8 +1327,10 @@ int ToolUtils::UndoPath::getSize() const { return sizeof(*this) + 500; }
 //
 
 ToolUtils::UndoControlPointEditor::UndoControlPointEditor(
-    TXshSimpleLevel *level, const TFrameId &frameId)
-    : TToolUndo(level, frameId), m_isStrokeDelete(false) {
+    TXshSimpleLevel *level, const TFrameId &frameId, bool clearSelection)
+    : TToolUndo(level, frameId)
+    , m_isStrokeDelete(false)
+    , m_clearSelection(clearSelection) {
   TVectorImageP image = level->getFrame(frameId, true);
   assert(image);
   if (!image) return;
@@ -1363,8 +1376,10 @@ void ToolUtils::UndoControlPointEditor::undo() const {
   } else
     app->getCurrentFrame()->setFid(m_frameId);
 
-  TSelection *selection = app->getCurrentSelection()->getSelection();
-  if (selection) selection->selectNone();
+  if (m_clearSelection) {
+    TSelection *selection = app->getCurrentSelection()->getSelection();
+    if (selection) selection->selectNone();
+  }
   TVectorImageP image = m_level->getFrame(m_frameId, true);
   assert(image);
   if (!image) return;
@@ -1394,8 +1409,10 @@ void ToolUtils::UndoControlPointEditor::redo() const {
     app->getCurrentFrame()->setFrame(m_row);
   } else
     app->getCurrentFrame()->setFid(m_frameId);
-  TSelection *selection = app->getCurrentSelection()->getSelection();
-  if (selection) selection->selectNone();
+  if (m_clearSelection) {
+    TSelection *selection = app->getCurrentSelection()->getSelection();
+    if (selection) selection->selectNone();
+  }
   TVectorImageP image = m_level->getFrame(m_frameId, true);
   assert(image);
   if (!image) return;
@@ -1481,7 +1498,7 @@ double ToolUtils::ConeSubVolume::compute(double cover) {
   if (i == 20)
     return m_values[i];
   else
-    // Interpolazione lineare.
+    // Linear interpolation.
     return (-(x - (i + 1)) * m_values[i]) - (-(x - i) * m_values[i + 1]);
 }
 
@@ -1496,7 +1513,9 @@ void ToolUtils::drawBalloon(const TPointD &pos, std::string text,
                             const TPixel32 &color, TPoint delta,
                             double pixelSize, bool isPicking,
                             std::vector<TRectD> *otherBalloons) {
-  int devPixRatio = getDevPixRatio();
+  TTool::Viewer *viewer =
+      TTool::getApplication()->getCurrentTool()->getTool()->getViewer();
+  int devPixRatio = getDevicePixelRatio(viewer->viewerWidget());
   QString qText   = QString::fromStdString(text);
   QFont font("Arial");  // ,QFont::Bold);
   font.setPixelSize(13 * devPixRatio);
@@ -1549,9 +1568,6 @@ void ToolUtils::drawBalloon(const TPointD &pos, std::string text,
   int y1 = textRect.bottom() + mrg;
 
   if (isPicking) {
-    TTool::Viewer *viewer =
-        TTool::getApplication()->getCurrentTool()->getTool()->getViewer();
-
     if (viewer->is3DView()) {
       double x0 = pos.x + textRect.left() * pixelSize,
              y0 = pos.y + delta.y * pixelSize;
@@ -1604,14 +1620,14 @@ void ToolUtils::drawBalloon(const TPointD &pos, std::string text,
   pp.moveTo(x0, y - 8 * devPixRatio);
   pp.lineTo(0, y + delta.y);
   pp.lineTo(x0, y);
-  /* bordi arrotondati
+  /* rounded edges
   int arcSize = 10;
   pp.arcTo(x0,y1-arcSize,arcSize,arcSize,180,90);
   pp.arcTo(x1-arcSize,y1-arcSize,arcSize,arcSize,270,90);
   pp.arcTo(x1-arcSize,y0,arcSize,arcSize,0,90);
   pp.arcTo(x0,y0,arcSize,arcSize,90,90);
   */
-  // bordi acuti
+  // sharp edges
   pp.lineTo(x0, y1);
   pp.lineTo(x1, y1);
   pp.lineTo(x1, y0);
@@ -1641,7 +1657,9 @@ void ToolUtils::drawBalloon(const TPointD &pos, std::string text,
 
 void ToolUtils::drawHook(const TPointD &pos, ToolUtils::HookType type,
                          bool highlighted, bool onionSkin) {
-  int devPixRatio = getDevPixRatio();
+  TTool::Viewer *viewer =
+      TTool::getApplication()->getCurrentTool()->getTool()->getViewer();
+  int devPixRatio = getDevicePixelRatio(viewer->viewerWidget());
   int r = 10, d = r + r;
   QImage image(d * devPixRatio, d * devPixRatio, QImage::Format_ARGB32);
   image.fill(Qt::transparent);

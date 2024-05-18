@@ -70,6 +70,7 @@ public:
   void removeListener(Listener *);
 
   TRasterP getRaster(int frame, bool renderIfNeeded = true) const;
+  void addFramesToRenderQueue(const std::vector<int> frames) const;
   bool isFrameReady(int frame) const;
 
   bool doSaveRenderedFrames(TFilePath fp);
@@ -86,6 +87,8 @@ public:
   void clear();
 
   std::vector<UCHAR> &getProgressBarStatus() const;
+
+  void clearAllUnfinishedFrames();
 
 private:
   friend class Imp;

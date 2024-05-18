@@ -23,12 +23,14 @@
 #include "canon.h"
 #include "stopmotionserial.h"
 #include "stopmotionlight.h"
+#include "gphotocam.h"
 
 #include "toonz/namebuilder.h"
 #include "toonz/txshsimplelevel.h"
 
 #include <QObject>
 #include <QThread>
+#include <QSound>
 
 class QCamera;
 class QCameraInfo;
@@ -50,6 +52,8 @@ public:
 
 enum ASPECT_RATIO { FOUR_THREE = 0, THREE_TWO, SIXTEEN_NINE, OTHER_RATIO };
 
+enum CameraType { None = 0, Web, CanonDSLR, GPhoto };
+
 class StopMotion : public QObject {  // Singleton
   Q_OBJECT
 
@@ -69,7 +73,6 @@ private:
   int m_captureNumberOfFrames = 1;
   QString m_levelName         = "";
   QString m_fileType          = "jpg";
-  QString m_filePath          = "+stopmotion";
   QString m_frameInfoText     = "";
   QString m_infoColorName     = "";
   QString m_frameInfoToolTip  = "";
@@ -85,6 +88,9 @@ private:
   std::map<std::string, QAction*> m_oldActionMap;
   std::map<int, TRaster32P> m_liveViewImageMap;
 
+  bool m_playCaptureSound = false;
+  QSound* m_camSnapSound  = 0;
+
 public:
   enum LiveViewStatus {
     LiveViewClosed = 0,
@@ -95,23 +101,27 @@ public:
 
   Webcam* m_webcam;
   Canon* m_canon;
+  GPhotoCam* m_gphotocam;
   StopMotionSerial* m_serial;
   StopMotionLight* m_light;
 
-  bool m_usingWebcam       = false;
+  CameraType m_currentCameraType = CameraType::None;
+  int m_currentCameraTypeIndex   = -1;
+
   bool m_placeOnXSheet     = true;
   bool m_alwaysLiveView    = false;
   bool m_userCalledPause   = false;
   bool m_drawBeneathLevels = true;
   bool m_isTimeLapse       = false;
-  int m_reviewTime         = 2;
+  int m_reviewTimeDSec     = 20;
   bool m_isTestShot        = false;
+  QString m_filePath       = "+stopmotion";
   QString m_tempFile, m_tempRaw;
   TXshSimpleLevel* m_sl;
 
   // timers
   QTimer* m_timer;
-  int m_intervalTime     = 10;
+  int m_intervalDSec     = 100;
   bool m_intervalStarted = false;
   QTimer* m_reviewTimer;
   QTimer *m_intervalTimer, *m_countdownTimer, *m_webcamOverlayTimer;
@@ -126,6 +136,18 @@ public:
   // Live view for DSLR needs to be scaled to match the camera or
   // captured images.
   TPointD m_liveViewDpi = TPointD(0.0, 0.0);
+
+  struct CalibrationData {
+    // Parameters
+    QString filePath;
+    bool captureCue    = false;
+    cv::Size boardSize = {10, 7};
+    int refCaptured    = 0;
+    std::vector<std::vector<cv::Point3f>> obj_points;
+    std::vector<std::vector<cv::Point2f>> image_points;
+    bool isValid   = false;
+    bool isEnabled = false;
+  } m_calibration;
 
   // files and frames
   void setXSheetFrameNumber(int frameNumber);
@@ -159,7 +181,7 @@ public:
   std::string getTEnvCameraResolution();
   void setTEnvCameraResolution(std::string resolution);
   void disconnectAllCameras();
-  void changeCameras(int index);
+  void changeCameras(int comboIndex, CameraType cameraType, int cameraIndex);
   void refreshCameraList();
 
   // commands
@@ -183,7 +205,8 @@ public:
   void toggleInterval(bool on);
   void startInterval();
   void stopInterval();
-  void setIntervalAmount(int value);
+  void setIntervalDSec(int value);
+  int getIntervalDSec() { return m_intervalDSec; };
   void restartInterval();
 
   // options
@@ -200,12 +223,14 @@ public:
   void toggleNumpadShortcuts(bool on);
   void toggleNumpadForFocusCheck(bool on);
   void setDrawBeneathLevels(bool on);
-  void setReviewTime(int time);
-  int getReviewTime() { return m_reviewTime; }
+  void setReviewTimeDSec(int timeDSec);
+  int getReviewTimeDSec() { return m_reviewTimeDSec; }
   void getSubsampling();
   void setSubsampling();
   int getSubsamplingValue() { return m_subsampling; }
   void setSubsamplingValue(int subsampling);
+  void setPlayCaptureSound(bool on);
+  bool getPlayCaptureSound() { return m_playCaptureSound; }
 
   // saving and loading
   void saveXmlFile();
@@ -216,6 +241,18 @@ public:
   void takeTestShot();
   void saveTestShot();
   void saveTestXml(TFilePath testsXml, int number);
+
+  bool isPickLiveViewZoom();
+  bool isZooming();
+  bool isLiveViewZoomReadyToPick();
+  void makeZoomPoint(TPointD pickPos);
+  TRect getZoomRect();
+  void toggleZoomPicking();
+  void calculateZoomPoint();
+  void setZoomPoint();
+  void adjustLiveViewZoomPickPoint(int x, int y);
+
+  void stopLiveView();
 
 public slots:
   // timers
@@ -228,15 +265,19 @@ public slots:
   void directDslrImage();
   void onSceneSwitched();
   void onPlaybackChanged();
-  void onCanonCameraChanged(QString);
+  void onCameraChanged(QString);
 
 signals:
   // camera stuff
   void cameraChanged(QString);
-  void newCameraSelected(int, bool);
+  void newCameraSelected(int);
   void webcamResolutionsChanged();
   void newWebcamResolutionSelected(int);
   void updateCameraList(QString);
+  void changeCameraIndex(int);
+  void updateStopMotionControls();
+  void captureStarted();
+  void captureComplete();
 
   // live view and images
   void newLiveViewImageReady();
@@ -264,6 +305,7 @@ signals:
   void useNumpadSignal(bool);
   void drawBeneathLevelsSignal(bool);
   void reviewTimeChangedSignal(int);
+  void playCaptureSignal(bool);
 
   // time lapse
   void intervalToggled(bool);
@@ -273,6 +315,9 @@ signals:
 
   // test shots
   void updateTestShots();
+
+  // Calibration
+  void calibrationImageCaptured();
 };
 
 #endif  // STOPMOTION_H

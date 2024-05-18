@@ -68,6 +68,7 @@ public:
     eChannels,
     eSampleRate,
     eSampleSize,
+    eSampleType,
     eHowMany
   };
 
@@ -222,8 +223,9 @@ InfoViewerImp::InfoViewerImp()
   create(eChannels, QObject::tr("Channels: "));
   create(eSampleRate, QObject::tr("Sample Rate: "));
   create(eSampleSize, QObject::tr("Sample Size:      "));
+  create(eSampleType, QObject::tr("Sample Type: "));
 
-  m_historyLabel.setStyleSheet("color: rgb(0, 0, 200);");
+  setLabelStyle(&m_historyLabel);
   m_history.setStyleSheet("font-size: 12px; font-family: \"courier\";");
   // m_history.setStyleSheet("font-family: \"courier\";");
   m_history.setReadOnly(true);
@@ -267,7 +269,7 @@ QString InfoViewerImp::getTypeString() {
     return "Smart Raster Level";
   else if (ext == "pli" || ext == "svg")
     return "Vector Level";
-  else if (ext == "avi")
+  else if (ext == "mov" || ext == "avi" || ext == "3gp")
     return "Movie File";
   else if (ext == "tnz")
     return "Tahoma2D Scene";
@@ -275,7 +277,8 @@ QString InfoViewerImp::getTypeString() {
     return "Tab Scene";
   else if (ext == "plt")
     return "Tahoma2D Palette";
-  else if (ext == "wav" || ext == "aiff" || ext == "mp3")
+  else if (ext == "wav" || ext == "aiff" || ext == "aif" || ext == "raw" ||
+           ext == "mp3" || ext == "ogg" || ext == "flac")
     return "Audio File";
   else if (ext == "mesh")
     return "Mesh Level";
@@ -299,7 +302,11 @@ void InfoViewerImp::setGeneralFileInfo(const TFilePath &path) {
   setVal(eFileType, getTypeString());
   if (fi.owner() != "") setVal(eOwner, fi.owner());
   setVal(eSize, fileSizeString(fi.size()));
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 10, 0))
+  setVal(eCreated, fi.birthTime().toString());
+#else
   setVal(eCreated, fi.created().toString());
+#endif
   setVal(eModified, fi.lastModified().toString());
   setVal(eLastAccess, fi.lastRead().toString());
   m_separator1.show();
@@ -337,6 +344,12 @@ void InfoViewerImp::setImageInfo() {
   } catch (...) {
     return;
   }
+  if (lr && m_path.getType() == "pli") {
+    try {
+      lr->loadInfo();
+    } catch (...) {
+    }
+  }
   if (!m_fids.empty() && lr && ii) {
     setVal(eImageSize,
            QString::number(ii->m_lx) + " X " + QString::number(ii->m_ly));
@@ -349,9 +362,11 @@ void InfoViewerImp::setImageInfo() {
       setVal(eBitsSample, QString::number(ii->m_bitsPerSample));
     if (ii->m_samplePerPixel > 0)
       setVal(eSamplePixel, QString::number(ii->m_samplePerPixel));
-    // if (ii->m_dpix > 0 || ii->m_dpiy > 0)
-    //  setVal(eDpi, "(" + QString::number(ii->m_dpix) + ", " +
-    //                   QString::number(ii->m_dpiy) + ")");
+    bool showAdvancedOptions =
+        Preferences::instance()->isShowAdvancedOptionsEnabled();
+    if (showAdvancedOptions && (ii->m_dpix > 0 || ii->m_dpiy > 0))
+      setVal(eDpi, "(" + QString::number(ii->m_dpix) + ", " +
+                       QString::number(ii->m_dpiy) + ")");
     TPropertyGroup *pg = ii->m_properties;
     if (pg) {
       setLabel(pg, eOrientation, "Orientation");
@@ -394,21 +409,25 @@ void InfoViewerImp::setImageInfo() {
                  QString::number(r.x1) + ", " + QString::number(r.y1) + ")");
   }
 
-  // double dpix, dpiy;
+  double dpix, dpiy;
 
   if (timg) {
-    // setVal(eHPos, QString::number(timg->gethPos()));
-    // timg->getDpi(dpix, dpiy);
-    // setVal(eDpi,
-    //       "(" + QString::number(dpix) + ", " + QString::number(dpiy) + ")");
+    if (showAdvancedOptions) {
+      // setVal(eHPos, QString::number(timg->gethPos()));
+      timg->getDpi(dpix, dpiy);
+      setVal(eDpi,
+             "(" + QString::number(dpix) + ", " + QString::number(dpiy) + ")");
+    }
     TDimension dim = timg->getRaster()->getSize();
     setVal(eImageSize,
            QString::number(dim.lx) + " X " + QString::number(dim.ly));
     m_palette = timg->getPalette();
   } else if (rimg) {
-    /*rimg->getDpi(dpix, dpiy);
-    setVal(eDpi,
-           "(" + QString::number(dpix) + ", " + QString::number(dpiy) + ")");*/
+    if (showAdvancedOptions) {
+      rimg->getDpi(dpix, dpiy);
+      setVal(eDpi,
+             "(" + QString::number(dpix) + ", " + QString::number(dpiy) + ")");
+    }
     TDimension dim = rimg->getRaster()->getSize();
     setVal(eImageSize,
            QString::number(dim.lx) + " X " + QString::number(dim.ly));
@@ -448,6 +467,22 @@ void InfoViewerImp::setSoundInfo() {
 
   label = QString::number(sndTrack->getBitPerSample()) + " bit";
   setVal(eSampleSize, label);
+
+  switch (sndTrack->getSampleType()) {
+  case TSound::INT:
+    label = "Signed integer";
+    break;
+  case TSound::UINT:
+    label = "Unsigned integer";
+    break;
+  case TSound::FLOAT:
+    label = "Floating-point";
+    break;
+  default:
+    label = "Unknown";
+    break;
+  }
+  setVal(eSampleType, label);
 }
 
 //----------------------------------------------------------------
@@ -493,8 +528,9 @@ void InfoViewerImp::setToonzSceneInfo() {
 
   setVal(eCamera, QString::number(cam->getRes().lx) + " X " +
                       QString::number(cam->getRes().ly));
-  // setVal(eCameraDpi, QString::number(cam->getDpi().x) + ", " +
-  //                       QString::number(cam->getDpi().y));
+  if (Preferences::instance()->isShowAdvancedOptionsEnabled())
+    setVal(eCameraDpi, QString::number(cam->getDpi().x) + ", " +
+                           QString::number(cam->getDpi().y));
   setVal(eFrameCount, QString::number(scene.getFrameCount()));
   if (set) setVal(eLevelCount, QString::number(set->getLevelCount()));
 

@@ -11,6 +11,7 @@
 #include "toonz/txshzeraryfxcolumn.h"
 #include "toonz/txshsoundtextcolumn.h"
 #include "toonz/txshmeshcolumn.h"
+#include "toonz/txshfoldercolumn.h"
 #include "toonz/txshcell.h"
 #include "toonz/txsheet.h"
 #include "toonz/fxdag.h"
@@ -36,7 +37,7 @@ TXshCellColumn::~TXshCellColumn() { m_cells.clear(); }
 
 //-----------------------------------------------------------------------------
 
-int TXshCellColumn::getRange(int &r0, int &r1) const {
+int TXshCellColumn::getRange(int &r0, int &r1, bool ignoreLastStop) const {
   int cellCount = m_cells.size();
   r0            = m_first;
   r1            = r0 + cellCount - 1;
@@ -51,8 +52,10 @@ int TXshCellColumn::getRange(int &r0, int &r1) const {
   r0 = m_first + i;
   for (i = cellCount - 1; i >= 0 && m_cells[i].isEmpty(); i--) {
   }
-
   r1 = m_first + i;
+  if (r1 < m_cells.size() && r1 > r0 && ignoreLastStop &&
+      m_cells[r1].getFrameId().isStopFrame())
+    r1--;
   return r1 - r0 + 1;
 }
 
@@ -70,9 +73,9 @@ int TXshCellColumn::getRowCount() const {
 
 //-----------------------------------------------------------------------------
 
-int TXshCellColumn::getMaxFrame() const {
+int TXshCellColumn::getMaxFrame(bool ignoreLastStop) const {
   int r0, r1;
-  getRange(r0, r1);
+  getRange(r0, r1, ignoreLastStop);
   return r1;
 }
 
@@ -82,17 +85,55 @@ int TXshCellColumn::getFirstRow() const { return m_first; }
 
 //-----------------------------------------------------------------------------
 
-const TXshCell &TXshCellColumn::getCell(int row) const {
+const TXshCell &TXshCellColumn::getCell(int row, bool implicitLookup) const {
   static TXshCell emptyCell;
-  if (row < 0 || row < m_first || row >= m_first + (int)m_cells.size())
-    return emptyCell;
-  return m_cells[row - m_first];
+
+  if (row < 0 || row < m_first || !m_cells.size()) return emptyCell;
+
+  bool implicitEnabled = Preferences::instance()->isImplicitHoldEnabled() &&
+                         implicitLookup &&
+                         getColumnType() != ColumnType::eSoundTextType &&
+                         getColumnType() != ColumnType::eSoundType;
+
+  int r = row - m_first;
+
+  if (r >= m_cells.size()) {
+    if (!implicitEnabled) return emptyCell;
+    r = m_cells.size() - 1;
+    if (m_cells[r].getFrameId().isStopFrame()) return emptyCell;
+  }
+
+  if (m_cells[r].isEmpty() && implicitEnabled) {
+    for (; r >= 0; r--) {
+      if (m_cells[r].isEmpty()) continue;
+      if (m_cells[r].getFrameId().isStopFrame()) return emptyCell;
+      break;
+    }
+    if (r < 0) return emptyCell;
+  }
+
+  return m_cells[r];
 }
 
 //-----------------------------------------------------------------------------
 
 bool TXshCellColumn::isCellEmpty(int row) const {
   return getCell(row).isEmpty();
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshCellColumn::isCellImplicit(int row) const {
+  if (!Preferences::instance()->isImplicitHoldEnabled() ||
+      getColumnType() == ColumnType::eSoundType ||
+      getColumnType() == ColumnType::eSoundTextType || row < 0 ||
+      row < m_first || getCell(row).isEmpty())
+    return false;
+
+  // If we got here, the cell is technically not empty
+  // If it is truely empty in the array, then it is implicit
+  int r = row - m_first;
+  return r >= m_cells.size() || m_cells[r].isEmpty();
 }
 
 //-----------------------------------------------------------------------------
@@ -122,7 +163,8 @@ void TXshCellColumn::checkColumn() const {
 
 //-----------------------------------------------------------------------------
 
-void TXshCellColumn::getCells(int row, int rowCount, TXshCell cells[]) {
+void TXshCellColumn::getCells(int row, int rowCount, TXshCell cells[],
+                              bool implicitLookup) {
   const TXshCell emptyCell;
   int first = m_first;
   int i;
@@ -149,9 +191,20 @@ void TXshCellColumn::getCells(int row, int rowCount, TXshCell cells[]) {
   TXshCell *endDstCell = dstCell + dst;
   while (dstCell < endDstCell) *dstCell++ = emptyCell;
   endDstCell += n;
-  while (dstCell < endDstCell) *dstCell++ = m_cells[src++];
+  while (dstCell < endDstCell) {
+    TXshCell cell = m_cells[src];
+    if (cell.isEmpty() && implicitLookup) cell = getCell(src + dst);
+    *dstCell++ = cell;
+    src++;
+  }
   endDstCell = cells + rowCount;
-  while (dstCell < endDstCell) *dstCell++ = emptyCell;
+  while (dstCell < endDstCell) {
+    TXshCell cell = m_cells[cellCount - 1];
+    if (implicitLookup && !cell.getFrameId().isStopFrame())
+      *dstCell++ = cell;
+    else
+      *dstCell++ = emptyCell;
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -420,10 +473,11 @@ bool TXshCellColumn::getLevelRange(int row, int &r0, int &r1) const {
   r0 = r1       = row;
   TXshCell cell = getCell(row);
   if (cell.isEmpty()) return false;
-  while (r0 > 0 &&
+  while (r0 > 0 && !isCellImplicit(r0 - 1) &&
          getCell(r0 - 1).m_level.getPointer() == cell.m_level.getPointer())
     r0--;
-  while (getCell(r1 + 1).m_level.getPointer() == cell.m_level.getPointer())
+  while (!isCellImplicit(r1 + 1) &&
+         getCell(r1 + 1).m_level.getPointer() == cell.m_level.getPointer())
     r1++;
   return true;
 }
@@ -511,6 +565,8 @@ TXshColumn *TXshColumn::createEmpty(int type) {
     return new TXshSoundTextColumn;
   case eMeshType:
     return new TXshMeshColumn;
+  case eFolderType:
+    return new TXshFolderColumn;
   }
 
   assert(type == eLevelType);
@@ -534,10 +590,30 @@ TXshColumn::ColumnType TXshColumn::toColumnType(int levelType) {
     colType = TXshColumn::eSoundTextType;
   else if (levelType == MESH_XSHLEVEL)
     colType = TXshColumn::eMeshType;
+  else if (levelType == FOLDER_XSHLEVEL)
+    colType = TXshColumn::eFolderType;
   else
     assert(!"Unknown level type!");
 
   return colType;
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshColumn::canBeParent() const {
+  switch (getColumnType()) {
+  case eLevelType:
+  case eZeraryFxType:
+  case ePaletteType:
+  case eMeshType:
+    return true;
+  case eSoundType:
+  case eSoundTextType:
+    return false;
+  default:
+    assert(!"Unknown level type!");
+    return false;
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -606,6 +682,7 @@ void TXshColumn::setCamstandNextState() {
 //-----------------------------------------------------------------------------
 
 bool TXshColumn::isCamstandVisible() const {
+  if (!isFolderCamstandVisible()) return false;
   return (m_status & eCamstandVisible) == 0;
 }
 
@@ -636,9 +713,24 @@ void TXshColumn::setCamstandVisible(bool on) {
 
 //-----------------------------------------------------------------------------
 
+UCHAR TXshColumn::getOpacity() const {
+  UCHAR folderOpacity = getFolderOpacity();
+
+  return folderOpacity == 255 ? m_opacity : folderOpacity;
+}
+
+//-----------------------------------------------------------------------------
+
+int TXshColumn::getColorFilterId() const {
+  int folderColorFilterId = getFolderColorFilterId();
+
+  return !folderColorFilterId ? m_colorFilterId : folderColorFilterId;
+}
+
 //-----------------------------------------------------------------------------
 
 bool TXshColumn::isPreviewVisible() const {
+  if (!isFolderPreviewVisible()) return false;
   return (m_status & ePreviewVisible) == 0;
 }
 
@@ -654,7 +746,10 @@ void TXshColumn::setPreviewVisible(bool on) {
 
 //-----------------------------------------------------------------------------
 
-bool TXshColumn::isLocked() const { return (m_status & eLocked) != 0; }
+bool TXshColumn::isLocked() const {
+  if (isFolderLocked()) return true;
+  return (m_status & eLocked) != 0;
+}
 
 //-----------------------------------------------------------------------------
 
@@ -672,6 +767,18 @@ bool TXshColumn::isMask() const { return (m_status & eMasked) != 0; }
 
 //-----------------------------------------------------------------------------
 
+bool TXshColumn::isInvertedMask() const {
+  return (m_status & eInvertedMask) != 0;
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshColumn::canRenderMask() const {
+  return (m_status & eRenderMask) != 0;
+}
+
+//-----------------------------------------------------------------------------
+
 void TXshColumn::setIsMask(bool on) {
   const int mask = eMasked;
   if (on)
@@ -682,40 +789,22 @@ void TXshColumn::setIsMask(bool on) {
 
 //-----------------------------------------------------------------------------
 
-void TXshColumn::initColorFilters() {
-  static bool _firstTime = true;
-  if (!_firstTime) return;
-  filterColors[TXshColumn::FilterNone] =
-      QPair<QString, TPixel32>(QObject::tr("None"), TPixel::Black);
-  filterColors[TXshColumn::FilterRed] =
-      QPair<QString, TPixel32>(QObject::tr("Red"), TPixel::Red);
-  filterColors[TXshColumn::FilterGreen] =
-      QPair<QString, TPixel32>(QObject::tr("Green"), TPixel::Green);
-  filterColors[TXshColumn::FilterBlue] =
-      QPair<QString, TPixel32>(QObject::tr("Blue"), TPixel::Blue);
-  filterColors[TXshColumn::FilterDarkYellow] =
-      QPair<QString, TPixel32>(QObject::tr("DarkYellow"), TPixel(128, 128, 0));
-  filterColors[TXshColumn::FilterDarkCyan] =
-      QPair<QString, TPixel32>(QObject::tr("DarkCyan"), TPixel(0, 128, 128));
-  filterColors[TXshColumn::FilterDarkMagenta] =
-      QPair<QString, TPixel32>(QObject::tr("DarkMagenta"), TPixel(128, 0, 128));
-  _firstTime = false;
+void TXshColumn::setInvertedMask(bool on) {
+  const int mask = eInvertedMask;
+  if (on)
+    m_status |= mask;
+  else
+    m_status &= ~mask;
 }
 
 //-----------------------------------------------------------------------------
 
-TPixel32 TXshColumn::getFilterColor() {
-  return TXshColumn::getFilterInfo(m_filterColorId).second;
-}
-
-//-----------------------------------------------------------------------------
-
-QPair<QString, TPixel32> TXshColumn::getFilterInfo(
-    TXshColumn::FilterColor key) {
-  TXshColumn::initColorFilters();
-  if (!filterColors.contains(key))
-    return QPair<QString, TPixel32>(QObject::tr("None"), TPixel::Black);
-  return filterColors.value(key);
+void TXshColumn::setCanRenderMask(bool on) {
+  const int mask = eRenderMask;
+  if (on)
+    m_status |= mask;
+  else
+    m_status &= ~mask;
 }
 
 //-----------------------------------------------------------------------------
@@ -724,5 +813,167 @@ void TXshColumn::resetColumnProperties() {
   setStatusWord(0);
   setOpacity(255);
   setColorTag(0);
-  setFilterColorId(FilterNone);
+  setColorFilterId(0);  // None
+}
+
+
+// Folder management
+
+//-----------------------------------------------------------------------------
+
+int TXshColumn::setFolderId(int value) {
+  m_folderSelector++;
+  m_folderId.insert(m_folderSelector, value);
+  return m_folderSelector;
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::setFolderId(int value, int position) {
+  assert(position >= 0 && position <= m_folderId.size());
+  m_folderId.insert(position, value);
+  if (m_folderSelector + 1 >= position) m_folderSelector++;
+}
+
+//-----------------------------------------------------------------------------
+
+int TXshColumn::getFolderId(int position) const {
+  int pos = position < 0 ? m_folderSelector : position;
+  return m_folderId.isEmpty() || pos < 0 || pos >= m_folderId.size()
+             ? 0
+             : m_folderId[pos];
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::setFolderIdStack(QStack<int> folderIdStack) {
+  m_folderId = folderIdStack;
+  m_folderSelector = folderIdStack.size() - 1;
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::removeFolderId(int position) {
+  if (!isInFolder()) return;
+  assert(position >= 0 && position <= m_folderId.size());
+  m_folderId.remove(position);
+  if (m_folderSelector + 1 >= position && m_folderSelector > -1)
+    m_folderSelector--;
+}
+
+//-----------------------------------------------------------------------------
+
+int TXshColumn::removeFolderId() {
+  m_folderId.remove(m_folderSelector);
+  if (m_folderSelector > -1) m_folderSelector--;
+  return m_folderSelector + 1;
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshColumn::isInFolder() { return !m_folderId.isEmpty(); }
+
+//-----------------------------------------------------------------------------
+
+bool TXshColumn::isContainedInFolder(int folderId) {
+  return m_folderId.contains(folderId);
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::removeFromAllFolders() {
+  m_folderId.clear();
+  m_folderSelector = -1;
+}
+
+//-----------------------------------------------------------------------------
+
+int TXshColumn::folderDepth() { return m_folderId.size(); }
+
+//-----------------------------------------------------------------------------
+
+TXshColumn *TXshColumn::getFolderColumn() const {
+  TXsheet *xsh = getXsheet();
+  if (!xsh) return 0;
+
+  if (m_folderId.isEmpty()) return 0;
+
+  for (int i = getIndex() + 1; i < xsh->getColumnCount(); i++) {
+    TXshColumn *folderColumn = xsh->getColumn(i);
+    if (folderColumn->getFolderColumn() &&
+        folderColumn->getFolderColumn()->getFolderColumnFolderId() ==
+            getFolderId())
+      return folderColumn;
+    if (!folderColumn->isInFolder()) break;
+  }
+  return 0;
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshColumn::isFolderCamstandVisible() const {
+  if (m_folderId.isEmpty()) return true;
+  TXshColumn *column = getFolderColumn();
+
+  return column ? column->isCamstandVisible() : true;
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshColumn::isFolderPreviewVisible() const {
+  if (m_folderId.isEmpty()) return true;
+  TXshColumn *column = getFolderColumn();
+
+  return column ? column->isPreviewVisible() : true;
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshColumn::isFolderLocked() const {
+  if (m_folderId.isEmpty()) return false;
+  TXshColumn *column = getFolderColumn();
+
+  return column ? column->isLocked() : false;
+}
+
+//-----------------------------------------------------------------------------
+
+UCHAR TXshColumn::getFolderOpacity() const {
+  if (m_folderId.isEmpty()) return 255;
+  TXshColumn *column = getFolderColumn();
+
+  return column ? column->getOpacity() : 255;
+}
+
+//-----------------------------------------------------------------------------
+
+int TXshColumn::getFolderColorFilterId() const {
+  if (m_folderId.isEmpty()) return 0;
+  TXshColumn *column = getFolderColumn();
+
+  return column ? column->getColorFilterId() : 0;
+}
+
+//-----------------------------------------------------------------------------
+
+bool TXshColumn::loadFolderInfo(std::string tagName, TIStream &is) {
+  if (tagName != "folderIds") return false;
+  m_folderId.clear();
+  int folderId;
+  while (!is.eos()) {
+    is >> folderId;
+    m_folderId.push_back(folderId);
+    m_folderSelector++;
+  }
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+
+void TXshColumn::saveFolderInfo(TOStream &os) {
+  if (m_folderId.isEmpty()) return;
+
+  os.openChild("folderIds");
+  for (int i = 0; i < m_folderId.size(); i++) os << m_folderId[i];
+  os.closeChild();  // folderIds
 }

@@ -531,22 +531,14 @@ void StageSchematicScene::updateNestedGroupEditors(StageSchematicNode *node,
       if (rect.isEmpty())
         rect = app;
       else
-#if QT_VERSION >= 0x050000
         rect = rect.united(app);
-#else
-        rect = rect.unite(app);
-#endif
     }
   }
   node->setPos(newPos);
   for (i = 0; i < groupIdStack.size(); i++) {
     if (!m_groupEditorTable.contains(groupIdStack[i])) continue;
-#if QT_VERSION >= 0x050000
     rect =
         rect.united(m_groupEditorTable[groupIdStack[i]]->sceneBoundingRect());
-#else
-    rect = rect.unite(m_groupEditorTable[groupIdStack[i]]->sceneBoundingRect());
-#endif
     QRectF app = m_groupEditorTable[groupIdStack[i]]->boundingSceneRect();
     if (m_groupEditorTable[groupIdStack[i]]->scenePos() != app.topLeft())
       m_groupEditorTable[groupIdStack[i]]->setPos(app.topLeft());
@@ -650,7 +642,8 @@ StageSchematicNode *StageSchematicScene::createStageSchematicNode(
       return 0;
     } else {
       TXshColumn *column = m_xshHandle->getXsheet()->getColumn(columnIndex);
-      if (!column || column->getSoundColumn() || column->getSoundTextColumn())
+      if (!column || column->getSoundColumn() || column->getSoundTextColumn() ||
+          column->getFolderColumn())
         return 0;
     }
   }
@@ -727,7 +720,7 @@ void StageSchematicScene::placeNodes() {
   for (i = 0; i < pegTree->getSplineCount(); i++) {
     TStageObjectSpline *spline = pegTree->getSpline(i);
     spline->setDagNodePos(TPointD(maxXPos, yFirstPos + step));
-    maxXPos += (m_showLetterOnPortFlag) ? 150 : 120;
+    maxXPos += (m_showLetterOnPortFlag) ? 170 : 140;
   }
 
   // delete the tree
@@ -783,7 +776,7 @@ void StageSchematicScene::makeTree(TreeStageNode *treeNode) {
 void StageSchematicScene::placeChildren(TreeStageNode *treeNode, double &xPos,
                                         double &yPos, bool isCameraTree) {
   int i;
-  xPos += (m_showLetterOnPortFlag) ? 150 : 120;
+  xPos += (m_showLetterOnPortFlag) ? 170 : 140;
   double xChildPos = xPos;
   double xRefPos   = xPos;
   bool firstChild  = true;
@@ -815,7 +808,7 @@ void StageSchematicScene::placeNode(StageSchematicNode *node) {
   double xPos      = xFirstPos;
   double yPos      = yFirstPos;
   int step         = m_gridDimension == eLarge ? 100 : 50;
-  int hStep        = (m_showLetterOnPortFlag) ? 150 : 120;
+  int hStep        = (m_showLetterOnPortFlag) ? 170 : 140;
 
   TStageObjectTree *pegTree = m_xshHandle->getXsheet()->getStageObjectTree();
   QRectF nodeRect           = node->boundingRect();
@@ -923,7 +916,7 @@ void StageSchematicScene::placeSplineNode(
     StageSchematicSplineNode *splineNode) {
   double xFirstPos           = m_firstPos.x - 500;
   double yFirstPos           = m_firstPos.y + 500;
-  int hStep                  = (m_showLetterOnPortFlag) ? 150 : 120;
+  int hStep                  = (m_showLetterOnPortFlag) ? 170 : 140;
   double xPos                = xFirstPos + (hStep * 2);
   int step                   = m_gridDimension == eLarge ? 100 : 50;
   double yPos                = yFirstPos + step;
@@ -1217,7 +1210,7 @@ void StageSchematicScene::contextMenuEvent(
 void StageSchematicScene::mousePressEvent(QGraphicsSceneMouseEvent *me) {
   QList<QGraphicsItem *> items = selectedItems();
   SchematicScene::mousePressEvent(me);
-  if (me->button() == Qt::MidButton) {
+  if (me->button() == Qt::MiddleButton) {
     int i;
     for (i = 0; i < items.size(); i++) items[i]->setSelected(true);
   }
@@ -1311,4 +1304,51 @@ TStageObjectId StageSchematicScene::getCurrentObject() {
 void StageSchematicScene::onNodeChangedSize() {
   if (resizingNodes) return;
   updateScene();
+}
+
+//------------------------------------------------------------------
+// snap to neighbor nodes on dragging
+void StageSchematicScene::updateSnapTarget(QGraphicsItem *item) {
+  clearSnapTargets();
+  StageSchematicNode *node = dynamic_cast<StageSchematicNode *>(item);
+  if (!node) return;
+
+  int portCount = node->getChildCount();
+  for (int i = 0; i < portCount; i++) {
+    StageSchematicNodePort *port = node->getChildPort(i);
+    int j, linkCount = port->getLinkCount();
+    for (j = 0; j < linkCount; j++) {
+      SchematicLink *link = port->getLink(j);
+      if (!link) continue;
+      SchematicNode *otherNode = link->getOtherNode(node);
+      if (otherNode && !otherNode->isSelected()) {
+        QPointF targetPos =
+            otherNode->scenePos() -
+            QPointF(node->boundingRect().width() + SchematicScene::snapHSpacing,
+                    0);
+        addSnapTarget(targetPos, node->boundingRect(),
+                      link->getOtherPort(port)->getLinkEndPoint(),
+                      port->getLinkEndPoint() - node->scenePos());
+      }
+    }
+  }
+
+  StageSchematicNodePort *port = node->getParentPort();
+  if (port) {
+    int linkCount = port->getLinkCount();
+    for (int i = 0; i < linkCount; i++) {
+      SchematicLink *link = port->getLink(i);
+      if (!link) continue;
+      SchematicNode *otherNode = link->getOtherNode(node);
+      if (otherNode && !otherNode->isSelected()) {
+        QPointF targetPos =
+            otherNode->scenePos() + QPointF(otherNode->boundingRect().width() +
+                                                SchematicScene::snapHSpacing,
+                                            0);
+        addSnapTarget(targetPos, node->boundingRect(),
+                      link->getOtherPort(port)->getLinkEndPoint(),
+                      port->getLinkEndPoint() - node->scenePos());
+      }
+    }
+  }
 }

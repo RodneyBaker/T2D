@@ -18,6 +18,7 @@
 #include "flipbook.h"
 #include "castviewer.h"
 #include "filebrowser.h"
+#include "scenebrowser.h"
 #include "filmstrip.h"
 #include "previewfxmanager.h"
 #include "comboviewerpane.h"
@@ -27,6 +28,7 @@
 #include "expressionreferencemanager.h"
 #include "stopmotioncontroller.h"
 #include "motionpathpanel.h"
+#include "alignmentpane.h"
 
 #include "tasksviewer.h"
 #include "batchserversviewer.h"
@@ -80,6 +82,10 @@
 #include "toonz/fxcommand.h"
 #include "toonz/tstageobjectcmd.h"
 
+#include "toonzqt/insertfxpopup.h"
+#include "../../toonz/locatorpopup.h"
+#include "../toonz/outputsettingspopup.h"
+
 // TnzBase includes
 #include "trasterfx.h"
 #include "toutputproperties.h"
@@ -95,38 +101,76 @@
 #include <QAction>
 
 //=============================================================================
-// XsheetViewer
+// XsheetViewerFactory
 //-----------------------------------------------------------------------------
 
-class XsheetViewerFactory final : public TPanelFactory {
+class XsheetViewerFactory : public TPanelFactory {
 public:
   XsheetViewerFactory() : TPanelFactory("Xsheet") {}
-  void initialize(TPanel *panel) override {
-    panel->setWidget(new XsheetViewer(panel));
+
+  TPanel *createPanel(QWidget *parent) override {
+    XsheetViewerPanel *panel = new XsheetViewerPanel(parent);
+    panel->setObjectName(getPanelType());
+    panel->reset();
     panel->resize(500, 300);
     panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
     connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
             SLOT(showTitleBar(bool)));
+    return panel;
   }
+
+  void initialize(TPanel *panel) override {}
 } xsheetViewerFactory;
 
 //=============================================================================
-// XsheetViewer - Timeline mode
+// XsheetViewer
+//-----------------------------------------------------------------------------
+
+XsheetViewerPanel::XsheetViewerPanel(QWidget *parent) : TPanel(parent) {
+  m_xsheetViewer = new XsheetViewer(this);
+  setWidget(m_xsheetViewer);
+}
+
+void XsheetViewerPanel::reset() {
+  if (!m_xsheetViewer->orientation()->isVerticalTimeline())
+    m_xsheetViewer->flipOrientation();
+}
+
+//=============================================================================
+// TimelineViewerFactory
 //-----------------------------------------------------------------------------
 
 class TimelineViewerFactory final : public TPanelFactory {
 public:
   TimelineViewerFactory() : TPanelFactory("Timeline") {}
-  void initialize(TPanel *panel) override {
-    panel->setWidget(new XsheetViewer(panel));
-    XsheetViewer *xsh = (XsheetViewer *)panel->widget();
-    xsh->flipOrientation();
+
+  TPanel *createPanel(QWidget *parent) override {
+    TimelineViewerPanel *panel = new TimelineViewerPanel(parent);
+    panel->setObjectName(getPanelType());
+    panel->reset();
     panel->resize(500, 300);
     panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
     connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
             SLOT(showTitleBar(bool)));
+    return panel;
   }
+
+  void initialize(TPanel *panel) override {}
 } timelineViewerFactory;
+
+//=============================================================================
+// TimelineViewer
+//-----------------------------------------------------------------------------
+
+TimelineViewerPanel::TimelineViewerPanel(QWidget *parent) : TPanel(parent) {
+  m_timelineViewer = new XsheetViewer(this);
+  setWidget(m_timelineViewer);
+}
+
+void TimelineViewerPanel::reset() {
+  if (m_timelineViewer->orientation()->isVerticalTimeline())
+    m_timelineViewer->flipOrientation();
+}
 
 //=============================================================================
 // SchematicSceneViewer
@@ -638,8 +682,8 @@ void PaletteViewerPanel::showEvent(QShowEvent *) {
   TSceneHandle *sceneHandle = TApp::instance()->getCurrentScene();
   bool ret = connect(sceneHandle, SIGNAL(preferenceChanged(const QString &)),
                      this, SLOT(onPreferenceChanged(const QString &)));
-  ret = ret && connect(sceneHandle, SIGNAL(sceneSwitched()), this,
-                       SLOT(onSceneSwitched()));
+  ret      = ret && connect(sceneHandle, SIGNAL(sceneSwitched()), this,
+                            SLOT(onSceneSwitched()));
   assert(ret);
 }
 
@@ -979,8 +1023,8 @@ public:
     panel->setWidget(toolbar);
     panel->setIsMaximizable(false);
     // panel->setAllowedAreas(Qt::LeftDockWidgetArea|Qt::RightDockWidgetArea);
-    panel->setFixedWidth(44);  // 35
-    toolbar->setFixedWidth(34);
+    //    panel->setFixedWidth(44);  // 35
+    //    toolbar->setFixedWidth(34);
     panel->setWindowTitle(QString(""));
     panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
     connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
@@ -994,8 +1038,8 @@ public:
 
 //-----------------------------------------------------------------------------
 CommandBarPanel::CommandBarPanel(QWidget *parent)
-    : TPanel(parent, 0, TDockWidget::horizontal) {
-  CommandBar *xsheetToolbar = new CommandBar();
+    : TPanel(parent, Qt::WindowFlags(), TDockWidget::horizontal) {
+  CommandBar *xsheetToolbar = new CommandBar(this);
   setWidget(xsheetToolbar);
   setIsMaximizable(false);
   setFixedHeight(36);
@@ -1025,7 +1069,7 @@ OpenFloatingPanel openCommandBarCommand(MI_OpenCommandToolbar, "CommandBar",
 //---------------------------------------------------------
 
 ToolOptionPanel::ToolOptionPanel(QWidget *parent)
-    : TPanel(parent, 0, TDockWidget::horizontal) {
+    : TPanel(parent, Qt::WindowFlags(), TDockWidget::horizontal) {
   TApp *app    = TApp::instance();
   m_toolOption = new ToolOptions;
 
@@ -1090,8 +1134,7 @@ void FlipbookPanel::initializeTitleBar(TPanelTitleBar *titleBar) {
   int iconWidth = 20;
   // safe area button
   TPanelTitleBarButtonForSafeArea *safeAreaButton =
-      new TPanelTitleBarButtonForSafeArea(
-          titleBar, getIconThemePath("actions/20/pane_safe.svg"));
+      new TPanelTitleBarButtonForSafeArea(titleBar, getIconPath("pane_safe"));
   safeAreaButton->setToolTip(tr("Safe Area (Right Click to Select)"));
   titleBar->add(QPoint(x, 0), safeAreaButton);
   ret = ret && connect(safeAreaButton, SIGNAL(toggled(bool)),
@@ -1106,8 +1149,7 @@ void FlipbookPanel::initializeTitleBar(TPanelTitleBar *titleBar) {
 
   x += 28 + iconWidth;
   // minimize button
-  m_button = new TPanelTitleBarButton(
-      titleBar, getIconThemePath("actions/20/pane_minimize.svg"));
+  m_button = new TPanelTitleBarButton(titleBar, getIconPath("pane_minimize"));
   m_button->setToolTip(tr("Minimize"));
   m_button->setPressed(false);
 
@@ -1184,7 +1226,7 @@ class BrowserFactory final : public TPanelFactory {
 public:
   BrowserFactory() : TPanelFactory("Browser") {}
   void initialize(TPanel *panel) override {
-    FileBrowser *browser = new FileBrowser(panel, 0, false, true);
+    FileBrowser *browser = new FileBrowser(panel, Qt::WindowFlags(), false, true);
     panel->setWidget(browser);
     panel->setWindowTitle(QObject::tr("File Browser"));
     panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
@@ -1196,6 +1238,26 @@ public:
     browser->enableDoubleClickToOpenScenes();
   }
 } browserFactory;
+
+//=============================================================================
+// PreproductionBoardFactory
+//-----------------------------------------------------------------------------
+class PreproductionBoardFactory final : public TPanelFactory {
+public:
+  PreproductionBoardFactory() : TPanelFactory("PreproductionBoard") {}
+  void initialize(TPanel *panel) override {
+    SceneBrowser *browser = new SceneBrowser(panel, Qt::WindowFlags(), false, true);
+    panel->setWidget(browser);
+    panel->setWindowTitle(QObject::tr("Preproduction Board"));
+    panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
+    connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
+            SLOT(showTitleBar(bool)));
+    TFilePath scenesFolder =
+        TProjectManager::instance()->getCurrentProject()->getScenesPath();
+    browser->setFolder(scenesFolder, true);
+    browser->enableSingleClickToOpenScenes();
+  }
+} PreproductionBoardFactory;
 
 //=============================================================================
 // CastViewerFactory
@@ -1631,8 +1693,8 @@ public:
   TPanel *createPanel(QWidget *parent) override {
     TPanel *panel = new VectorGuidedDrawingPanel(parent);
     panel->setObjectName(getPanelType());
-    panel->setWindowTitle(QObject::tr("Vector Guided Drawing Controls"));
-    panel->setMinimumSize(387, 265);
+    panel->setWindowTitle(QObject::tr("Vector Guided Tweening Controls"));
+    panel->setMinimumSize(405, 265);
     panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
     connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
             SLOT(showTitleBar(bool)));
@@ -1645,4 +1707,194 @@ public:
 //=============================================================================
 OpenFloatingPanel openVectorGuidedDrawingPanelCommand(
     MI_OpenGuidedDrawingControls, "VectorGuidedDrawingPanel",
-    QObject::tr("Vector Guided Drawing"));
+    QObject::tr("Vector Guided Tweening Controls"));
+
+//=========================================================
+// AlignmentPanel
+//---------------------------------------------------------
+
+AlignmentPanel::AlignmentPanel(QWidget *parent) : TPanel(parent) {
+  AlignmentPane *pane = new AlignmentPane(this);
+  setWidget(pane);
+  setIsMaximizable(false);
+}
+
+//=============================================================================
+// AlignmentFactory
+//-----------------------------------------------------------------------------
+
+class AlignmentFactory final : public TPanelFactory {
+public:
+  AlignmentFactory() : TPanelFactory("AlignmentPanel") {}
+  TPanel *createPanel(QWidget *parent) override {
+    TPanel *panel = new AlignmentPanel(parent);
+    panel->setObjectName(getPanelType());
+    panel->setWindowTitle(QObject::tr("Align and Distribute"));
+    panel->setMinimumSize(235, 198);
+    panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
+    connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
+            SLOT(showTitleBar(bool)));
+
+    return panel;
+  }
+  void initialize(TPanel *panel) override {}
+} AlignmentFactory;
+
+//=============================================================================
+OpenFloatingPanel openVectorAlignmentPanelCommand(
+    MI_OpenAlignmentPanel, "AlignmentPanel",
+    QObject::tr("Align and Distribute"));
+
+//-----------------------------------------------------------------------------
+
+//=============================================================================
+// FxBrowserPanel
+//-----------------------------------------------------------------------------
+
+FxBrowserPanel::FxBrowserPanel(QWidget *parent) : TPanel(parent) {
+  TApp *app   = TApp::instance();
+  m_fxBrowser = new InsertFxPopup(parent);
+  m_fxBrowser->setApplication(app);
+
+  setWidget(m_fxBrowser);
+}
+
+//=============================================================================
+// FxSettingsFactory
+//-----------------------------------------------------------------------------
+
+class FxBrowserFactory final : public TPanelFactory {
+public:
+  FxBrowserFactory() : TPanelFactory("FxBrowser") {}
+
+  TPanel *createPanel(QWidget *parent) override {
+    FxBrowserPanel *panel = new FxBrowserPanel(parent);
+    panel->move(qApp->desktop()->screenGeometry(panel).center());
+    panel->setObjectName(getPanelType());
+    panel->setWindowTitle(QObject::tr("Fx Browser"));
+    panel->setMinimumWidth(233);
+    panel->allowMultipleInstances(true);
+    panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
+    connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
+            SLOT(showTitleBar(bool)));
+    return panel;
+  }
+
+  void initialize(TPanel *panel) override { assert(0); }
+
+} FxBrowserFactory;
+
+//=============================================================================
+OpenFloatingPanel openFxBrowserCommand(MI_InsertFx, "FxBrowser",
+                                        QObject::tr("Fx Browser"));
+
+//-----------------------------------------------------------------------------
+
+//=============================================================================
+// LocatorPanel
+//-----------------------------------------------------------------------------
+
+LocatorPanel::LocatorPanel(QWidget *parent) : TPanel(parent) {
+  m_locator = new LocatorPopup(parent);
+
+  setWidget(m_locator);
+}
+
+//=============================================================================
+// LocatorFactory
+//-----------------------------------------------------------------------------
+
+class LocatorFactory final : public TPanelFactory {
+public:
+  LocatorFactory() : TPanelFactory("Locator") {}
+
+  TPanel *createPanel(QWidget *parent) override {
+    LocatorPanel *panel = new LocatorPanel(parent);
+    panel->move(qApp->desktop()->screenGeometry(panel).center());
+    panel->setObjectName(getPanelType());
+    panel->setWindowTitle(QObject::tr("Locator"));
+    panel->allowMultipleInstances(false);
+    panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
+    connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
+            SLOT(showTitleBar(bool)));
+    return panel;
+  }
+
+  void initialize(TPanel *panel) override { assert(0); }
+
+} LocatorFactory;
+
+//=============================================================================
+OpenFloatingPanel openLocatorCommand(MI_OpenLocator, "Locator",
+                                       QObject::tr("Locator"));
+
+//=========================================================
+// OutputSettingsPanel
+//---------------------------------------------------------
+
+OutputSettingsPanel::OutputSettingsPanel(QWidget *parent) : TPanel(parent) {
+  OutputSettingsPopup *pane = new OutputSettingsPopup(this);
+  setWidget(pane);
+  setIsMaximizable(false);
+}
+
+//=============================================================================
+// OutputSettingsFactory
+//-----------------------------------------------------------------------------
+
+class OutputSettingsFactory final : public TPanelFactory {
+public:
+  OutputSettingsFactory() : TPanelFactory("OutputSettingsPanel") {}
+  TPanel *createPanel(QWidget *parent) override {
+    TPanel *panel = new OutputSettingsPanel(parent);
+    panel->setObjectName(getPanelType());
+    panel->setWindowTitle(QObject::tr("Output Settings"));
+    panel->setMinimumWidth(378);
+    panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
+    connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
+            SLOT(showTitleBar(bool)));
+
+    return panel;
+  }
+  void initialize(TPanel *panel) override {}
+} OutputSettingsFactory;
+
+//=============================================================================
+OpenFloatingPanel openOutputSettingsPanelCommand(
+    MI_OutputSettings, "OutputSettingsPanel",
+    QObject::tr("Output Settings"));
+
+//=========================================================
+// PreviewSettingsPanel
+//---------------------------------------------------------
+
+PreviewSettingsPanel::PreviewSettingsPanel(QWidget *parent) : TPanel(parent) {
+  PreviewSettingsPopup *pane = new PreviewSettingsPopup(this);
+  setWidget(pane);
+  setIsMaximizable(false);
+}
+
+//=============================================================================
+// PreviewSettingsFactory
+//-----------------------------------------------------------------------------
+
+class PreviewSettingsFactory final : public TPanelFactory {
+public:
+  PreviewSettingsFactory() : TPanelFactory("PreviewSettingsPanel") {}
+  TPanel *createPanel(QWidget *parent) override {
+    TPanel *panel = new PreviewSettingsPanel(parent);
+    panel->setObjectName(getPanelType());
+    panel->setWindowTitle(QObject::tr("Preview Settings"));
+    panel->setMinimumWidth(321);
+    panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
+    connect(TApp::instance(), SIGNAL(showTitleBars(bool)), panel->getTitleBar(),
+            SLOT(showTitleBar(bool)));
+
+    return panel;
+  }
+  void initialize(TPanel *panel) override {}
+} PreviewSettingsFactory;
+
+//=============================================================================
+OpenFloatingPanel openPreviewSettingsPanelCommand(
+    MI_PreviewSettings, "PreviewSettingsPanel", QObject::tr("Preview Settings"));

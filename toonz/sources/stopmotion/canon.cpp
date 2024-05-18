@@ -7,6 +7,7 @@
 #include "toonz/tscenehandle.h"
 #include "toonz/tcamera.h"
 #include "toonz/toonzscene.h"
+#include "tsystem.h"
 
 #include <QCoreApplication>
 #include <QFile>
@@ -89,6 +90,8 @@ EdsError Canon::releaseCameraList() {
 //-----------------------------------------------------------------
 
 int Canon::getCameraCount() {
+  m_count = 0;
+
   if (m_cameraList == NULL) {
     getCameraList();
   }
@@ -101,9 +104,9 @@ int Canon::getCameraCount() {
         m_sessionOpen                            = false;
       }
     }
-    return m_count;
-  } else
-    return -1;
+  }
+
+  return m_count;
 }
 
 //-----------------------------------------------------------------
@@ -157,7 +160,7 @@ void Canon::resetCanon(bool liveViewOpen) {
 
   if (m_sessionOpen && getCameraCount() > 0) {
     if (liveViewOpen) {
-      endCanonLiveView();
+      endLiveView();
     }
     closeCameraSession();
   }
@@ -938,6 +941,14 @@ bool Canon::downloadImage(EdsBaseRef object) {
     imgBuf = NULL;
   }
 
+  // perform calibration
+  if (m_useCalibration) {
+    cv::remap(imgOriginal, imgOriginal, m_calibrationMapX, m_calibrationMapY,
+              cv::INTER_LINEAR);
+  }
+
+  m_canonImage = imgOriginal;
+
   // calculate the size of the new image
   // and resize it down
   double r = (double)width / (double)height;
@@ -960,12 +971,26 @@ bool Canon::downloadImage(EdsBaseRef object) {
 
   // write out the full res file
   if (!isRaw) {
+    TFilePath parentDir =
+        TApp::instance()->getCurrentScene()->getScene()->decodeFilePath(
+            TFilePath(StopMotion::instance()->m_filePath));
+    TFilePath tempFile = parentDir + "temp.jpg";
+
+    StopMotion::instance()->m_tempFile = tempFile.getQString();
+
     QFile fullImage(StopMotion::instance()->m_tempFile);
     fullImage.open(QIODevice::WriteOnly);
     QDataStream dataStream(&fullImage);
     dataStream.writeRawData((const char*)jpgStreamData, jpgStreamSize);
     fullImage.close();
   } else {
+    TFilePath parentDir =
+        TApp::instance()->getCurrentScene()->getScene()->decodeFilePath(
+            TFilePath(StopMotion::instance()->m_filePath));
+    TFilePath tempRaw = parentDir + "temp.cr2";
+
+    StopMotion::instance()->m_tempRaw = tempRaw.getQString();
+
     QFile fullImage(StopMotion::instance()->m_tempRaw);
     fullImage.open(QIODevice::WriteOnly);
     QDataStream dataStream(&fullImage);
@@ -1033,7 +1058,7 @@ void Canon::extendCameraOnTime() {
 
 //-----------------------------------------------------------------
 
-EdsError Canon::startCanonLiveView() {
+EdsError Canon::startLiveView() {
   if (m_camera && m_sessionOpen) {
     EdsError err = EDS_ERR_OK;
     // Get the output device for the live view image
@@ -1060,7 +1085,7 @@ EdsError Canon::startCanonLiveView() {
 
 //-----------------------------------------------------------------
 
-EdsError Canon::endCanonLiveView() {
+EdsError Canon::endLiveView() {
   EdsError err = EDS_ERR_OK;
   // Get the output device for the live view image
   EdsUInt32 device;
@@ -1327,7 +1352,25 @@ bool Canon::downloadEVFData() {
 
     l_quitLoop                                 = false;
     StopMotion::instance()->m_liveViewImage    = converter->getImage();
+
+    if (!StopMotion::instance()->m_liveViewImage)
+      return false;
+
     StopMotion::instance()->m_hasLiveViewImage = true;
+
+    uchar* imgBuf = StopMotion::instance()->m_liveViewImage->getRawData();
+    int height    = StopMotion::instance()->m_liveViewImage->getLy();
+    int width     = StopMotion::instance()->m_liveViewImage->getLx();
+    cv::Mat imgData(height, width, CV_8UC4, (void*)imgBuf);
+
+    // perform calibration
+    if (m_useCalibration) {
+      cv::remap(imgData, imgData, m_calibrationMapX, m_calibrationMapY,
+                cv::INTER_LINEAR);
+    }
+
+    m_canonImage = imgData;
+
     delete converter;
     if (stream != NULL) {
       EdsRelease(stream);
@@ -1517,7 +1560,7 @@ EdsError Canon::handleStateEvent(EdsStateEvent event, EdsUInt32 parameter,
     if (instance()->m_sessionOpen && instance()->getCameraCount() > 0) {
       // instance()->closeCameraSession();
     }
-    StopMotion::instance()->m_liveViewStatus = 0;
+    StopMotion::instance()->stopLiveView();
     emit(instance()->canonCameraChanged(QString("")));
   }
   if (event == kEdsStateEvent_WillSoonShutDown) {

@@ -502,10 +502,21 @@ protected slots:
 class FullColorFillToolOptionsBox final : public ToolOptionsBox {
   Q_OBJECT
 
+  ToolOptionCombo *m_rasterGapSettings;
+  ToolOptionSlider *m_rasterGapSlider;
+  StyleIndexFieldAndChip *m_styleIndex;
+
+  QLabel *m_gapSliderLabel, *m_styleIndexLabel, *m_rasterGapLabel;
+
 public:
   FullColorFillToolOptionsBox(QWidget *parent, TTool *tool,
                               TPaletteHandle *pltHandle,
                               ToolHandle *toolHandle);
+
+  void checkGapSettingsVisibility();
+
+protected slots:
+  void onGapSettingChanged(int);
 };
 
 //=============================================================================
@@ -519,9 +530,9 @@ class FillToolOptionsBox final : public ToolOptionsBox {
 
   int m_targetType;
   QLabel *m_fillDepthLabel;
-  ToolOptionCombo *m_colorMode, *m_toolType, *m_rasterGapSettings;
-  ToolOptionCheckbox *m_selectiveMode, *m_segmentMode, *m_onionMode,
-      *m_multiFrameMode, *m_autopaintMode;
+  ToolOptionCombo *m_colorMode, *m_toolType, *m_rasterGapSettings,
+      *m_multiFrameMode;
+  ToolOptionCheckbox *m_selectiveMode, *m_segmentMode, *m_onionMode, *m_autopaintMode;
   ToolOptionPairSlider *m_fillDepthField;
   ToolOptionSlider *m_rasterGapSlider;
   StyleIndexFieldAndChip *m_styleIndex;
@@ -539,7 +550,7 @@ protected slots:
   void onColorModeChanged(int);
   void onToolTypeChanged(int);
   void onOnionModeToggled(bool);
-  void onMultiFrameModeToggled(bool);
+  void onMultiFrameModeChanged(int);
   void onGapSettingChanged(int);
 };
 
@@ -593,9 +604,9 @@ protected slots:
 class EraserToolOptionsBox final : public ToolOptionsBox {
   Q_OBJECT
 
-  ToolOptionCheckbox *m_pencilMode, *m_invertMode, *m_multiFrameMode,
-      *m_eraseOnlySavebox;
-  ToolOptionCombo *m_toolType, *m_colorMode;
+  ToolOptionCheckbox *m_pencilMode, *m_invertMode, *m_eraseOnlySavebox,
+      *m_pressure;
+  ToolOptionCombo *m_toolType, *m_colorMode, *m_multiFrameMode;
   QLabel *m_hardnessLabel, *m_colorModeLabel;
   ToolOptionSlider *m_hardnessField;
 
@@ -654,7 +665,7 @@ class TapeToolOptionsBox final : public ToolOptionsBox {
   Q_OBJECT
 
   ToolOptionCheckbox *m_smoothMode, *m_joinStrokesMode;
-  ToolOptionCombo *m_toolMode, *m_typeMode;
+  ToolOptionCombo *m_toolMode, *m_typeMode, *m_multiFrameMode;
   QLabel *m_autocloseLabel;
   ToolOptionSlider *m_autocloseField;
 
@@ -787,6 +798,51 @@ protected slots:
   void onRotationChange(TMeasuredValue *fld);
   void onRotateLeft();
   void onRotateRight();
+};
+
+//=============================================================================
+//
+// SymmetryToolOptionBox
+// shown only when "Edit Perspective" mode is active
+//
+//=============================================================================
+
+class SymmetryToolOptionBox final : public ToolOptionsBox {
+  Q_OBJECT
+
+  TTool *m_tool;
+
+  ToolOptionIntSlider *m_lines;
+  ToolOptionSlider *m_opacity;
+  ColorChipCombo *m_color;
+  ToolOptionCheckbox *m_useLineSymmetry;
+  ClickableLabel *m_rotationLabel;
+  MeasuredValueField *m_rotation;
+  QPushButton *m_leftRotateButton, *m_rightRotateButton;
+  ToolOptionCombo *m_presetCombo;
+  QPushButton *m_addPresetButton;
+  QPushButton *m_removePresetButton;
+
+private:
+  class PresetNamePopup;
+  PresetNamePopup *m_presetNamePopup;
+  void filterControls();
+
+public:
+  SymmetryToolOptionBox(QWidget *parent, TTool *tool, TPaletteHandle *pltHandle,
+                        ToolHandle *toolHandle);
+  void updateStatus();
+  void updateMeasuredValues(double rotation);
+
+protected slots:
+
+  void onLinesChanged();
+  void onRotationChange(TMeasuredValue *fld);
+  void onRotateLeft();
+  void onRotateRight();
+  void onResetPosition();
+  void onAddPreset();
+  void onRemovePreset();
 };
 
 //=============================================================================

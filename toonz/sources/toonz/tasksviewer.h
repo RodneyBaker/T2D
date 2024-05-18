@@ -126,6 +126,8 @@ class TaskSheet final : public QScrollArea {
   QListWidget *m_addedBox;
   QListWidget *m_notAddedBox;
   DVGui::CheckBox *m_visible;
+  DVGui::CheckBox *m_renderKeysOnly;
+  DVGui::CheckBox *m_renderToFolders;
   QComboBox *m_overwrite;
   QComboBox *m_multimedia;
   QComboBox *m_threadsCombo;
@@ -148,6 +150,8 @@ protected slots:
   void setVisible(int);
   void setOverwrite(int);
   void setMultimedia(int);
+  void setRenderKeysOnly(int);
+  void setRenderToFolders(int);
   void setThreadsCombo(int);
   void setGranularityCombo(int);
   void setPriority();
@@ -169,11 +173,7 @@ public:
   TaskTreeView *m_treeView;
   QTimer *m_timer;
 
-#if QT_VERSION >= 0x050500
-  TasksViewer(QWidget *parent = 0, Qt::WindowFlags flags = 0);
-#else
-  TasksViewer(QWidget *parent = 0, Qt::WFlags flags = 0);
-#endif
+  TasksViewer(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
   ~TasksViewer();
 
   void update() override;

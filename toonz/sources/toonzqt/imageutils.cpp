@@ -592,7 +592,8 @@ static void convertFromVector(const TLevelReaderP &lr, const TLevelWriterP &lw,
 void convert(const TFilePath &source, const TFilePath &dest,
              const TFrameId &from, const TFrameId &to, double framerate,
              TPropertyGroup *prop, FrameTaskNotifier *frameNotifier,
-             const TPixel &bgColor, bool removeDotBeforeFrameNumber) {
+             const TPixel &bgColor, bool removeDotBeforeFrameNumber,
+             const TFrameId &tmplFId) {
   std::string dstExt = dest.getType(), srcExt = source.getType();
 
   // Load source level structure
@@ -621,6 +622,7 @@ void convert(const TFilePath &source, const TFilePath &dest,
   // Write the destination level
   TLevelWriterP lw(dest, prop);
   lw->setFrameRate(framerate);
+  lw->setFrameFormatTemplateFId(tmplFId);
 
   if (srcExt == "tlv")
     convertFromCM(lr, level->getPalette(), lw, frames, TAffine(),
@@ -758,16 +760,22 @@ void convertOldLevel2Tlv(const TFilePath &source, const TFilePath &dest,
     if (TSystem::doesExistFileOrLevel(dest)) TSystem::removeFileOrLevel(dest);
     frameNotifier->notifyError();
     return;
+  } catch (...) {
+    DVGui::warning("Unknown exception encountered");
+    lw = TLevelWriterP();
+    if (TSystem::doesExistFileOrLevel(dest)) TSystem::removeFileOrLevel(dest);
+    frameNotifier->notifyError();
+    return;
   }
   lw = TLevelWriterP();
 }
 
 //=============================================================================
 
-#define ZOOMLEVELS 13
+#define ZOOMLEVELS 17
 #define NOZOOMINDEX 6
 double ZoomFactors[ZOOMLEVELS] = {
-    0.015625, 0.03125, 0.0625, 0.125, 0.25, 0.5, 1, 2, 4, 8, 16, 32, 64};
+    0.015625, 0.03125, 0.0625, 0.125, 0.25, 0.375, 0.5, 0.625, 1, 1.5, 2, 2.5, 4, 8, 16, 32, 64};
 
 double getQuantizedZoomFactor(double zf, bool forward) {
   if (forward && (zf > ZoomFactors[ZOOMLEVELS - 1] ||

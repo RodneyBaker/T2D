@@ -8,14 +8,19 @@
 #include <stdexcept>
 
 namespace {
-const int KEY_ICON_WIDTH      = 11;
-const int KEY_ICON_HEIGHT     = 11;
-const int EASE_TRIANGLE_SIZE  = 4;
-const int PLAY_MARKER_SIZE    = 10;
-const int PINNED_SIZE         = 10;
-const int FRAME_MARKER_SIZE   = 4;
-const int FOLDED_CELL_SIZE    = 9;
-const int SHIFTTRACE_DOT_SIZE = 12;
+const int KEY_ICON_WIDTH           = 11;
+const int KEY_ICON_HEIGHT          = 11;
+const int EASE_TRIANGLE_SIZE       = 5;
+const int EASE_TRIANGLE_SIZE_LARGE = EASE_TRIANGLE_SIZE + 2;
+const int PLAY_MARKER_SIZE         = 10;
+const int PINNED_SIZE              = 11;
+const int NAV_TAG_WIDTH            = 7;
+const int NAV_TAG_HEIGHT           = 13;
+const int FRAME_MARKER_SIZE_SMALL  = 4;
+const int FRAME_MARKER_SIZE        = FRAME_MARKER_SIZE_SMALL + 1;
+const int FRAME_MARKER_SIZE_LARGE  = FRAME_MARKER_SIZE_SMALL + 2;
+const int FOLDED_CELL_SIZE         = 9;
+const int SHIFTTRACE_DOT_SIZE      = 12;
 
 QRect iconRect(const QRect &areaRect, const int iconWidth, const int iconHeight,
                const int xOffset = 0) {
@@ -94,7 +99,7 @@ public:
 
 class LeftToRightOrientation : public Orientation {
   const int CELL_WIDTH           = 50;
-  const int CELL_HEIGHT          = 24;
+  int BASE_CELL_HEIGHT           = 24;
   const int CELL_DRAG_HEIGHT     = 7;
   const int EXTENDER_WIDTH       = 8;
   const int EXTENDER_HEIGHT      = 12;
@@ -104,25 +109,28 @@ class LeftToRightOrientation : public Orientation {
   const int ONION_SIZE         = 19;
   const int ONION_DOT_SIZE     = 8;
   const int PLAY_RANGE_Y       = ONION_SIZE;
-  const int ICON_WIDTH         = 20;
-  const int ICON_HEIGHT        = 20;
-  const int ICON_OFFSET        = ICON_WIDTH;
-  const int ICONS_WIDTH        = ICON_OFFSET * 4;  // 88
+  int BASE_ICON_WIDTH          = 20;
+  int BASE_ICON_HEIGHT         = 20;
+  int BASE_ICON_OFFSET         = BASE_ICON_WIDTH;
+  int BASE_ICONS_WIDTH         = BASE_ICON_OFFSET * 4;  // 88
   const int THUMBNAIL_WIDTH    = 43;
   const int LAYER_NUMBER_WIDTH = 20;
   const int LAYER_NAME_WIDTH   = 150;
-  const int LAYER_HEADER_WIDTH =
-      ICONS_WIDTH + THUMBNAIL_WIDTH + LAYER_NUMBER_WIDTH + LAYER_NAME_WIDTH;
+  int BASE_LAYER_HEADER_WIDTH =
+      BASE_ICONS_WIDTH + THUMBNAIL_WIDTH + LAYER_NUMBER_WIDTH + LAYER_NAME_WIDTH;
   const int FOLDED_LAYER_HEADER_HEIGHT = 8;
-  const int FOLDED_LAYER_HEADER_WIDTH  = LAYER_HEADER_WIDTH;
+  int BASE_FOLDED_LAYER_HEADER_WIDTH  = BASE_LAYER_HEADER_WIDTH;
   const int TRACKLEN                   = 60;
   const int SHIFTTRACE_DOT_OFFSET      = 5;
   const int LAYER_HEADER_PANEL_HEIGHT  = 20;
   const int LAYER_FOOTER_PANEL_HEIGHT  = 16;
-  const int CAMERA_CELL_HEIGHT         = CELL_HEIGHT;
+  int BASE_CAMERA_CELL_HEIGHT          = BASE_CELL_HEIGHT;
+
+  int CELL_HEIGHT, CAMERA_CELL_HEIGHT, ICON_WIDTH, ICON_HEIGHT, ICON_OFFSET,
+      ICONS_WIDTH, LAYER_HEADER_WIDTH, FOLDED_LAYER_HEADER_WIDTH;
 
 public:
-  LeftToRightOrientation();
+  LeftToRightOrientation(QString layout);
   virtual ~LeftToRightOrientation(){};
 
   virtual CellPosition xyToPosition(const QPoint &xy,
@@ -181,18 +189,30 @@ double NumberRange::ratio(int at) const {
 
 // const int Orientations::COUNT = 2;
 
-Orientations::Orientations() : _topToBottom(nullptr), _leftToRight(nullptr) {
-  _topToBottom = new TopToBottomOrientation();
-  _leftToRight = new LeftToRightOrientation();
+Orientations::Orientations()
+    : _topToBottom(nullptr)
+    , _leftToRight_roomy(nullptr)
+    , _leftToRight_nodragcompact(nullptr)
+    , _leftToRight_nodragminimum(nullptr) {
+  _topToBottom               = new TopToBottomOrientation();
+  _leftToRight_roomy         = new LeftToRightOrientation("Roomy");
+  _leftToRight_nodragcompact = new LeftToRightOrientation("NoDragCompact");
+  _leftToRight_nodragminimum = new LeftToRightOrientation("NoDragMinimum");
 
   _all.push_back(_topToBottom);
-  _all.push_back(_leftToRight);
+  _all.push_back(_leftToRight_roomy);
+  _all.push_back(_leftToRight_nodragcompact);
+  _all.push_back(_leftToRight_nodragminimum);
 }
 Orientations::~Orientations() {
   delete _topToBottom;
   _topToBottom = nullptr;
-  delete _leftToRight;
-  _leftToRight = nullptr;
+  delete _leftToRight_roomy;
+  _leftToRight_roomy = nullptr;
+  delete _leftToRight_nodragcompact;
+  _leftToRight_nodragcompact = nullptr;
+  delete _leftToRight_nodragminimum;
+  _leftToRight_nodragminimum = nullptr;
 }
 
 const Orientations &Orientations::instance() {
@@ -204,15 +224,38 @@ const Orientation *Orientations::topToBottom() {
   return instance()._topToBottom;
 }
 const Orientation *Orientations::leftToRight() {
-  return instance()._leftToRight;
+  bool showDragBars = Preferences::instance()->isShowDragBarsEnabled();
+  QString timelineLayout =
+      showDragBars ? "Roomy"
+                   : Preferences::instance()->getTimelineLayoutPreference();
+
+  if (timelineLayout == "NoDragCompact")
+    return instance()._leftToRight_nodragcompact;
+  else if (timelineLayout == "NoDragMinimum")
+    return instance()._leftToRight_nodragminimum;
+
+  return instance()._leftToRight_roomy;
 }
 const std::vector<const Orientation *> &Orientations::all() {
   return instance()._all;
 }
 const Orientation *Orientations::byName(const QString &name) {
   std::vector<const Orientation *> m_all = all();
-  for (auto it = m_all.begin(); it != m_all.end(); it++)
-    if ((*it)->name() == name) return *it;
+
+  bool showDragBars = Preferences::instance()->isShowDragBarsEnabled();
+  QString timelineLayout =
+      showDragBars ? "Roomy"
+                   : Preferences::instance()->getTimelineLayoutPreference();
+
+  for (auto it = m_all.begin(); it != m_all.end(); it++) {
+    if ((*it)->name() != name) continue;
+
+    // Currently only 1 option for vertical
+    if ((*it)->isVerticalTimeline()) return *it;
+
+    if (!(*it)->isVerticalTimeline() && (*it)->layoutName() == timelineLayout)
+      return *it;
+  }
   throw std::runtime_error(
       (QString("no such orientation: ") + name).toStdString().c_str());
 }
@@ -332,8 +375,8 @@ TopToBottomOrientation::TopToBottomOrientation() {
   addRect(PredefinedRect::BEGIN_EXTENDER,
           QRect(-EXTENDER_WIDTH - KEY_ICON_WIDTH, -EXTENDER_HEIGHT,
                 EXTENDER_WIDTH, EXTENDER_HEIGHT));
-  addRect(PredefinedRect::KEYFRAME_AREA,
-          QRect(CELL_WIDTH - KEY_ICON_WIDTH, 0, KEY_ICON_WIDTH, CELL_HEIGHT));
+  addRect(PredefinedRect::KEYFRAME_AREA, QRect(CELL_WIDTH - KEY_ICON_WIDTH - 2,
+                                               0, KEY_ICON_WIDTH, CELL_HEIGHT));
   addRect(PredefinedRect::DRAG_AREA, QRect(0, 0, CELL_DRAG_WIDTH, CELL_HEIGHT));
   int markSize = CELL_HEIGHT * 8 / 10;  // 80% size
   addRect(PredefinedRect::CELL_MARK_AREA,
@@ -415,6 +458,10 @@ TopToBottomOrientation::TopToBottomOrientation() {
                 SHIFTTRACE_DOT_SIZE, SHIFTTRACE_DOT_SIZE));
   addRect(PredefinedRect::SHIFTTRACE_DOT_AREA,
           QRect(SHIFTTRACE_DOT_OFFSET, 0, SHIFTTRACE_DOT_SIZE, CELL_HEIGHT));
+  addRect(
+      PredefinedRect::NAVIGATION_TAG_AREA,
+      QRect((FRAME_HEADER_WIDTH - NAV_TAG_HEIGHT) / 2,
+            (CELL_HEIGHT - NAV_TAG_WIDTH) / 2, NAV_TAG_HEIGHT, NAV_TAG_WIDTH));
 
   // Column viewer
   addRect(PredefinedRect::LAYER_HEADER,
@@ -443,8 +490,8 @@ TopToBottomOrientation::TopToBottomOrientation() {
     THUMBNAIL_HEIGHT = -1;
     HDRROW_HEIGHT    = CELL_HEIGHT - 1;
     INDENT           = 0;
-    HDRROW1          = 1;                        // Name, number
-    HDRROW2          = HDRROW1 + HDRROW_HEIGHT;  // eye, preview, config
+    HDRROW2 = use_header_height - HDRROW_HEIGHT - 2;  // pegbar, parent handle
+    HDRROW1 = 1;                                      // Name, number
 
     addRect(PredefinedRect::DRAG_LAYER, QRect(0, 0, -1, -1));
 
@@ -479,10 +526,17 @@ TopToBottomOrientation::TopToBottomOrientation() {
     addRect(PredefinedRect::CONFIG_AREA, configArea);
     addRect(PredefinedRect::CONFIG,
             iconRect(configArea, ICON_WIDTH - 1, ICON_HEIGHT - 1));
+
     cameraConfigArea = QRect(INDENT, HDRROW2, CAMERA_CELL_WIDTH, HDRROW_HEIGHT);
     addRect(PredefinedRect::CAMERA_CONFIG_AREA, cameraConfigArea);
     addRect(PredefinedRect::CAMERA_CONFIG,
             iconRect(cameraConfigArea, ICON_WIDTH - 1, ICON_HEIGHT - 1));
+
+    addRect(PredefinedRect::BUTTONS_AREA,
+            QRect(INDENT, HDRROW2, INDENT + eyeArea.width() +
+                                       previewArea.width() + configArea.width(),
+                  HDRROW_HEIGHT));
+
     addRect(PredefinedRect::THUMBNAIL_AREA, QRect(0, 0, -1, -1));
     addRect(PredefinedRect::THUMBNAIL, QRect(0, 0, -1, -1));
     cameraIconArea = QRect(INDENT, HDRROW1, CAMERA_CELL_WIDTH, HDRROW_HEIGHT);
@@ -491,10 +545,15 @@ TopToBottomOrientation::TopToBottomOrientation() {
             iconRect(cameraIconArea, ICON_WIDTH, ICON_HEIGHT));
 
     addRect(PredefinedRect::FILTER_COLOR, rect(PredefinedRect::CONFIG));
+
+    addRect(PredefinedRect::CLIPPING_MASK_AREA, QRect(0, 0, -1, -1));
+
     addRect(PredefinedRect::SOUND_ICON, QRect(0, 0, -1, -1));
     addRect(PredefinedRect::VOLUME_AREA, QRect(0, 0, -1, -1));
     addRect(PredefinedRect::PEGBAR_NAME, QRect(0, 0, -1, -1));
     addRect(PredefinedRect::PARENT_HANDLE_NAME, QRect(0, 0, -1, -1));
+
+    addRect(PredefinedRect::FOLDER_TOGGLE_ICON, QRect(0, 0, -1, -1));
 
     addFlag(PredefinedFlag::DRAG_LAYER_BORDER, false);
     addFlag(PredefinedFlag::DRAG_LAYER_VISIBLE, false);
@@ -525,10 +584,10 @@ TopToBottomOrientation::TopToBottomOrientation() {
     THUMBNAIL_HEIGHT = 44;
     HDRROW_HEIGHT    = CELL_HEIGHT - 2;
     INDENT           = 0;
-    HDRROW1          = 1;                        // Name, number
-    HDRROW2          = HDRROW1 + HDRROW_HEIGHT;  // eye, preview, lock, config
-    HDRROW3          = HDRROW2 + HDRROW_HEIGHT;  // thumbnail
-    HDRROW4          = HDRROW3 + THUMBNAIL_HEIGHT;  // pegbar, parent handle
+    HDRROW4 = use_header_height - HDRROW_HEIGHT - 2;  // pegbar, parent handle
+    HDRROW3 = HDRROW4 - THUMBNAIL_HEIGHT;             // thumbnail
+    HDRROW2 = HDRROW3 - HDRROW_HEIGHT;  // eye, preview, lock, config
+    HDRROW1 = 1;                        // Name, number
 
     addRect(PredefinedRect::DRAG_LAYER, QRect(0, 0, -1, -1));
 
@@ -576,6 +635,12 @@ TopToBottomOrientation::TopToBottomOrientation() {
     addRect(PredefinedRect::CAMERA_CONFIG,
             iconRect(cameraConfigArea, ICON_WIDTH - 1, ICON_HEIGHT - 1));
 
+    addRect(
+        PredefinedRect::BUTTONS_AREA,
+        QRect(INDENT, HDRROW2, INDENT + eyeArea.width() + previewArea.width() +
+                                   lockArea.width() + configArea.width(),
+              HDRROW_HEIGHT));
+
     thumbnailArea = QRect(INDENT, HDRROW3, CELL_WIDTH, THUMBNAIL_HEIGHT);
     addRect(PredefinedRect::THUMBNAIL_AREA, thumbnailArea);
     thumbnail = thumbnailArea.adjusted(1, 1, 0, 0);
@@ -586,6 +651,10 @@ TopToBottomOrientation::TopToBottomOrientation() {
 
     addRect(PredefinedRect::FILTER_COLOR,
             QRect(thumbnail.right() - 14, thumbnail.top() + 3, 12, 12));
+
+    addRect(PredefinedRect::CLIPPING_MASK_AREA,
+            QRect(thumbnail.right() - ICON_WIDTH, thumbnail.top() + 2, ICON_WIDTH,
+                  ICON_HEIGHT));
 
     addRect(PredefinedRect::SOUND_ICON,
             QRect(thumbnailArea.topLeft(), QSize(40, 30))
@@ -604,6 +673,13 @@ TopToBottomOrientation::TopToBottomOrientation() {
     addRect(
         PredefinedRect::PARENT_HANDLE_NAME,
         QRect(INDENT + pegbarname.width() - 20, HDRROW4, 20, HDRROW_HEIGHT));
+
+    addRect(PredefinedRect::FOLDER_TOGGLE_ICON,
+            QRect(thumbnailArea.topLeft(), QSize(40, 30))
+                .adjusted((thumbnailArea.width() / 2) - (40 / 2),
+                          (thumbnailArea.height() / 2) - (30 / 2),
+                          (thumbnailArea.width() / 2) - (40 / 2),
+                          (thumbnailArea.height() / 2) - (30 / 2)));
 
     addFlag(PredefinedFlag::DRAG_LAYER_BORDER, false);
     addFlag(PredefinedFlag::DRAG_LAYER_VISIBLE, false);
@@ -634,11 +710,11 @@ TopToBottomOrientation::TopToBottomOrientation() {
     THUMBNAIL_HEIGHT = 44;
     HDRROW_HEIGHT    = CELL_HEIGHT - 2;
     INDENT           = 0;
-    HDRROW1          = 1;                           // Name, number
-    HDRROW2          = HDRROW1 + HDRROW_HEIGHT;     // eye, lock
-    HDRROW3          = HDRROW2 + HDRROW_HEIGHT;     // preview, config
-    HDRROW4          = HDRROW3 + HDRROW_HEIGHT;     // thumbnail
-    HDRROW5          = HDRROW4 + THUMBNAIL_HEIGHT;  // pegbar, parent handle
+    HDRROW5 = use_header_height - HDRROW_HEIGHT - 2;  // pegbar, parent handle
+    HDRROW4 = HDRROW5 - THUMBNAIL_HEIGHT;             // thumbnail
+    HDRROW3 = HDRROW4 - HDRROW_HEIGHT;                // preview, config
+    HDRROW2 = HDRROW3 - HDRROW_HEIGHT;                // eye, lock
+    HDRROW1 = 1;                                      // Name, number
 
     addRect(PredefinedRect::DRAG_LAYER,
             QRect(0, 0, -1, -1));  // hide - Theme/Compact
@@ -686,6 +762,12 @@ TopToBottomOrientation::TopToBottomOrientation() {
     addRect(PredefinedRect::CAMERA_CONFIG,
             iconRect(cameraConfigArea, ICON_WIDTH - 1, ICON_HEIGHT - 1));
 
+    addRect(
+        PredefinedRect::BUTTONS_AREA,
+        QRect(INDENT, HDRROW2, INDENT + eyeArea.width() + previewArea.width() +
+                                   lockArea.width() + configArea.width(),
+              HDRROW_HEIGHT));
+
     thumbnailArea = QRect(INDENT, HDRROW4, CELL_WIDTH, THUMBNAIL_HEIGHT);
     addRect(PredefinedRect::THUMBNAIL_AREA, thumbnailArea);
     thumbnail = thumbnailArea.adjusted(1, 1, 0, 0);
@@ -698,6 +780,10 @@ TopToBottomOrientation::TopToBottomOrientation() {
 
     addRect(PredefinedRect::FILTER_COLOR,
             QRect(thumbnail.right() - 14, thumbnail.top() + 3, 12, 12));
+
+    addRect(PredefinedRect::CLIPPING_MASK_AREA,
+            QRect(thumbnail.right() - ICON_WIDTH, thumbnail.top() + 2,
+                  ICON_WIDTH, ICON_HEIGHT));
 
     addRect(PredefinedRect::SOUND_ICON,
             QRect(thumbnailArea.topLeft(), QSize(40, 30))
@@ -716,6 +802,13 @@ TopToBottomOrientation::TopToBottomOrientation() {
     addRect(
         PredefinedRect::PARENT_HANDLE_NAME,
         QRect(INDENT + pegbarname.width() - 20, HDRROW5, 20, HDRROW_HEIGHT));
+
+    addRect(PredefinedRect::FOLDER_TOGGLE_ICON,
+            QRect(thumbnailArea.topLeft(), QSize(40, 30))
+                .adjusted((thumbnailArea.width() / 2) - (40 / 2),
+                          (thumbnailArea.height() / 2) - (30 / 2),
+                          (thumbnailArea.width() / 2) - (40 / 2),
+                          (thumbnailArea.height() / 2) - (30 / 2)));
 
     addFlag(PredefinedFlag::DRAG_LAYER_BORDER, false);
     addFlag(PredefinedFlag::DRAG_LAYER_VISIBLE, false);
@@ -746,10 +839,10 @@ TopToBottomOrientation::TopToBottomOrientation() {
     THUMBNAIL_HEIGHT = 43;
     HDRROW_HEIGHT    = CELL_HEIGHT - 2;
     INDENT           = CELL_DRAG_WIDTH + 2;
-    HDRROW1          = 7;                               // Name/eye
-    HDRROW2          = HDRROW1 + CELL_HEIGHT;           // lock, preview
-    HDRROW3          = HDRROW2 + CELL_HEIGHT;           // thumbnail
-    HDRROW4          = HDRROW3 + THUMBNAIL_HEIGHT + 5;  // pegbar, parenthandle
+    HDRROW4 = use_header_height - HDRROW_HEIGHT - 2;  // pegbar, parent handle
+    HDRROW3 = HDRROW4 - THUMBNAIL_HEIGHT - 5;         // thumbnail
+    HDRROW2 = HDRROW3 - CELL_HEIGHT;                  // lock, preview
+    HDRROW1 = 7;                                      // Name, eye
 
     addRect(PredefinedRect::DRAG_LAYER,
             QRect(0, 0, CELL_DRAG_WIDTH, use_header_height - 3));
@@ -793,6 +886,11 @@ TopToBottomOrientation::TopToBottomOrientation() {
     addRect(PredefinedRect::CAMERA_CONFIG,
             iconRect(cameraConfigArea, ICON_WIDTH - 1, ICON_HEIGHT - 1));
 
+    addRect(PredefinedRect::BUTTONS_AREA,
+            QRect(INDENT, HDRROW2, INDENT + eyeArea.width() +
+                                       previewArea.width() + lockArea.width(),
+                  HDRROW_HEIGHT));
+
     thumbnailArea =
         QRect(INDENT - 1, HDRROW3, CELL_WIDTH - INDENT - 1, THUMBNAIL_HEIGHT);
     addRect(PredefinedRect::THUMBNAIL_AREA, thumbnailArea);
@@ -806,6 +904,10 @@ TopToBottomOrientation::TopToBottomOrientation() {
 
     addRect(PredefinedRect::FILTER_COLOR,
             QRect(thumbnail.right() - 14, thumbnail.top() + 3, 12, 12));
+
+    addRect(PredefinedRect::CLIPPING_MASK_AREA,
+            QRect(thumbnail.right() - ICON_WIDTH, thumbnail.top() + 2,
+                  ICON_WIDTH, ICON_HEIGHT));
 
     addRect(
         PredefinedRect::SOUND_ICON,
@@ -822,6 +924,10 @@ TopToBottomOrientation::TopToBottomOrientation() {
     addRect(PredefinedRect::PARENT_HANDLE_NAME,
             QRect(INDENT + pegbarname.width() - 20, HDRROW4, 20,
                   HDRROW_HEIGHT - 1));
+
+    addRect(
+        PredefinedRect::FOLDER_TOGGLE_ICON,
+        QRect(thumbnailArea.topLeft(), QSize(40, 30)).adjusted(21, 19, 21, 19));
 
     addFlag(PredefinedFlag::DRAG_LAYER_BORDER, false);
     addFlag(PredefinedFlag::DRAG_LAYER_VISIBLE, true);
@@ -850,6 +956,9 @@ TopToBottomOrientation::TopToBottomOrientation() {
     addFlag(PredefinedFlag::VOLUME_AREA_VERTICAL, true);
     addFlag(PredefinedFlag::NOTE_AREA_IN_POPUP, false);
   }
+
+  addRect(PredefinedRect::FOLDER_INDICATOR_AREA,
+          layername.adjusted(-1, -1, 0, -((layername.height() * 5)/ 6)));
 
   if (flag(PredefinedFlag::VOLUME_AREA_VERTICAL)) {
     soundTopLeft = QPoint(volumeArea.left() + 4, volumeArea.top() + 4);
@@ -925,6 +1034,7 @@ TopToBottomOrientation::TopToBottomOrientation() {
   addDimension(PredefinedDimension::CENTER_ALIGN, Qt::AlignHCenter);
   addDimension(PredefinedDimension::CAMERA_LAYER, CAMERA_CELL_WIDTH);
   addDimension(PredefinedDimension::SCALE_THRESHOLD, 57);
+  addDimension(PredefinedDimension::FRAME_AREA_EXPANSION, PLAY_RANGE_X);
 
   //
   // Paths
@@ -935,12 +1045,26 @@ TopToBottomOrientation::TopToBottomOrientation() {
   corner.lineTo(QPointF(0, CELL_HEIGHT));
   addPath(PredefinedPath::DRAG_HANDLE_CORNER, corner);
 
-  QPainterPath diamond(QPointF(0, -4));
-  diamond.lineTo(4, 0);
-  diamond.lineTo(0, 4);
-  diamond.lineTo(-4, 0);
-  diamond.lineTo(0, -4);
+  QPainterPath diamondSmall(QPointF(0, -FRAME_MARKER_SIZE_SMALL));
+  diamondSmall.lineTo(FRAME_MARKER_SIZE_SMALL, 0);
+  diamondSmall.lineTo(0, FRAME_MARKER_SIZE_SMALL);
+  diamondSmall.lineTo(-FRAME_MARKER_SIZE_SMALL, 0);
+  diamondSmall.lineTo(0, -FRAME_MARKER_SIZE_SMALL);
+  addPath(PredefinedPath::FRAME_MARKER_DIAMOND_SMALL, diamondSmall);
+
+  QPainterPath diamond(QPointF(0, -FRAME_MARKER_SIZE));
+  diamond.lineTo(FRAME_MARKER_SIZE, 0);
+  diamond.lineTo(0, FRAME_MARKER_SIZE);
+  diamond.lineTo(-FRAME_MARKER_SIZE, 0);
+  diamond.lineTo(0, -FRAME_MARKER_SIZE);
   addPath(PredefinedPath::FRAME_MARKER_DIAMOND, diamond);
+
+  QPainterPath diamondLarge(QPointF(0, -FRAME_MARKER_SIZE_LARGE));
+  diamondLarge.lineTo(FRAME_MARKER_SIZE_LARGE, 0);
+  diamondLarge.lineTo(0, FRAME_MARKER_SIZE_LARGE);
+  diamondLarge.lineTo(-FRAME_MARKER_SIZE_LARGE, 0);
+  diamondLarge.lineTo(0, -FRAME_MARKER_SIZE_LARGE);
+  addPath(PredefinedPath::FRAME_MARKER_DIAMOND_LARGE, diamondLarge);
 
   QPainterPath fromTriangle(QPointF(0, EASE_TRIANGLE_SIZE / 2));
   fromTriangle.lineTo(QPointF(EASE_TRIANGLE_SIZE, -EASE_TRIANGLE_SIZE / 2));
@@ -948,11 +1072,27 @@ TopToBottomOrientation::TopToBottomOrientation() {
   fromTriangle.lineTo(QPointF(0, EASE_TRIANGLE_SIZE / 2));
   addPath(PredefinedPath::BEGIN_EASE_TRIANGLE, fromTriangle);
 
+  QPainterPath fromTriangleLarge(QPointF(0, EASE_TRIANGLE_SIZE_LARGE / 2));
+  fromTriangleLarge.lineTo(
+      QPointF(EASE_TRIANGLE_SIZE_LARGE, -EASE_TRIANGLE_SIZE_LARGE / 2));
+  fromTriangleLarge.lineTo(
+      QPointF(-EASE_TRIANGLE_SIZE_LARGE, -EASE_TRIANGLE_SIZE_LARGE / 2));
+  fromTriangleLarge.lineTo(QPointF(0, EASE_TRIANGLE_SIZE_LARGE / 2));
+  addPath(PredefinedPath::BEGIN_EASE_TRIANGLE_LARGE, fromTriangleLarge);
+
   QPainterPath toTriangle(QPointF(0, -EASE_TRIANGLE_SIZE / 2));
   toTriangle.lineTo(QPointF(EASE_TRIANGLE_SIZE, EASE_TRIANGLE_SIZE / 2));
   toTriangle.lineTo(QPointF(-EASE_TRIANGLE_SIZE, EASE_TRIANGLE_SIZE / 2));
   toTriangle.lineTo(QPointF(0, -EASE_TRIANGLE_SIZE / 2));
   addPath(PredefinedPath::END_EASE_TRIANGLE, toTriangle);
+
+  QPainterPath toTriangleLarge(QPointF(0, -EASE_TRIANGLE_SIZE_LARGE / 2));
+  toTriangleLarge.lineTo(
+      QPointF(EASE_TRIANGLE_SIZE_LARGE, EASE_TRIANGLE_SIZE_LARGE / 2));
+  toTriangleLarge.lineTo(
+      QPointF(-EASE_TRIANGLE_SIZE_LARGE, EASE_TRIANGLE_SIZE_LARGE / 2));
+  toTriangleLarge.lineTo(QPointF(0, -EASE_TRIANGLE_SIZE_LARGE / 2));
+  addPath(PredefinedPath::END_EASE_TRIANGLE_LARGE, toTriangleLarge);
 
   QPainterPath playFrom(QPointF(0, 0));
   playFrom.lineTo(QPointF(PLAY_MARKER_SIZE, 0));
@@ -1003,6 +1143,14 @@ TopToBottomOrientation::TopToBottomOrientation() {
     head.lineTo(QPointF(0, 0));
   }
   addPath(PredefinedPath::VOLUME_SLIDER_HEAD, head);
+
+  QPainterPath tag(QPointF(0, -3));
+  tag.lineTo(QPointF(9, -3));
+  tag.lineTo(QPointF(13, 0));
+  tag.lineTo(QPointF(9, 3));
+  tag.lineTo(QPointF(0, 3));
+  tag.lineTo(QPointF(0, -3));
+  addPath(PredefinedPath::NAVIGATION_TAG, tag);
 
   //
   // Points
@@ -1088,7 +1236,38 @@ CellPosition TopToBottomOrientation::arrowShift(int direction) const {
 
 /// --------------------------------------------------------------------------------
 
-LeftToRightOrientation::LeftToRightOrientation() {
+LeftToRightOrientation::LeftToRightOrientation(QString layout) {
+  setLayoutName(layout);
+
+  CELL_HEIGHT               = BASE_CELL_HEIGHT;
+  CAMERA_CELL_HEIGHT        = BASE_CAMERA_CELL_HEIGHT;
+  ICON_WIDTH                = BASE_ICON_WIDTH;
+  ICON_HEIGHT               = BASE_ICON_HEIGHT;
+  ICON_OFFSET               = BASE_ICON_OFFSET;
+  ICONS_WIDTH               = BASE_ICONS_WIDTH;
+  LAYER_HEADER_WIDTH        = BASE_LAYER_HEADER_WIDTH;
+  FOLDED_LAYER_HEADER_WIDTH = BASE_FOLDED_LAYER_HEADER_WIDTH;
+
+  //  if (!Preferences::instance()->isShowDragBarsEnabled()) {
+  if (layout == QString("NoDragCompact")) {
+    addDimension(PredefinedDimension::INDEX, 2);
+    CELL_HEIGHT -= 4;
+    CAMERA_CELL_HEIGHT -= 4;
+  } else if (layout == QString("NoDragMinimum")) {
+    addDimension(PredefinedDimension::INDEX, 3);
+    CELL_HEIGHT -= CELL_DRAG_HEIGHT;
+    CAMERA_CELL_HEIGHT -= CELL_DRAG_HEIGHT;
+    ICON_WIDTH -= 1;
+    ICON_HEIGHT -= 1;
+    ICON_OFFSET = ICON_WIDTH;
+    ICONS_WIDTH = ICON_OFFSET * 4;
+    LAYER_HEADER_WIDTH =
+        ICONS_WIDTH + THUMBNAIL_WIDTH + LAYER_NUMBER_WIDTH + LAYER_NAME_WIDTH + 4;
+    FOLDED_LAYER_HEADER_WIDTH = LAYER_HEADER_WIDTH;
+  } else
+    addDimension(PredefinedDimension::INDEX, 1);
+
+
   //
   // Ranges
   //
@@ -1202,6 +1381,11 @@ LeftToRightOrientation::LeftToRightOrientation() {
   addRect(PredefinedRect::SHIFTTRACE_DOT_AREA,
           QRect(0, SHIFTTRACE_DOT_OFFSET, CELL_WIDTH, SHIFTTRACE_DOT_SIZE));
 
+  addRect(PredefinedRect::NAVIGATION_TAG_AREA,
+          QRect((CELL_WIDTH - NAV_TAG_WIDTH) / 2,
+                (FRAME_HEADER_HEIGHT - NAV_TAG_HEIGHT) / 2, NAV_TAG_WIDTH,
+                NAV_TAG_HEIGHT));
+
   // Column viewer
   addRect(PredefinedRect::LAYER_HEADER,
           QRect(1, 0, LAYER_HEADER_WIDTH - 2, CELL_HEIGHT));
@@ -1231,9 +1415,13 @@ LeftToRightOrientation::LeftToRightOrientation() {
   addRect(PredefinedRect::CONFIG_AREA, eyeArea.translated(3 * ICON_OFFSET, 0));
   addRect(PredefinedRect::CONFIG,
           eye.translated(3 * ICON_OFFSET, 0).adjusted(1, 1, -1, -1));
+  addRect(PredefinedRect::BUTTONS_AREA,
+          eye.adjusted(1, 1, (3 * ICON_OFFSET), -1));
+
   addRect(PredefinedRect::CAMERA_CONFIG_AREA,
           rect(PredefinedRect::CONFIG_AREA));
   addRect(PredefinedRect::CAMERA_CONFIG, rect(PredefinedRect::CONFIG));
+
   addRect(PredefinedRect::DRAG_LAYER,
           QRect(ICONS_WIDTH + THUMBNAIL_WIDTH + 1, 0,
                 LAYER_HEADER_WIDTH - ICONS_WIDTH - THUMBNAIL_WIDTH - 3,
@@ -1253,10 +1441,21 @@ LeftToRightOrientation::LeftToRightOrientation() {
 
   addRect(PredefinedRect::FILTER_COLOR,
           QRect(thumbnail.right() - 14, thumbnail.top() + 3, 12, 12));
+
+  addRect(PredefinedRect::CLIPPING_MASK_AREA,
+          QRect(thumbnail.right() - 14, thumbnail.top() + 3, 12, 12));
+
   addRect(PredefinedRect::PEGBAR_NAME, QRect(0, 0, -1, -1));         // hide
   addRect(PredefinedRect::PARENT_HANDLE_NAME, QRect(0, 0, -1, -1));  // hide
 
   addRect(PredefinedRect::SOUND_ICON,
+          QRect(thumbnailArea.topLeft(), QSize(27, thumbnailArea.height()))
+              .adjusted((thumbnailArea.width() / 2) - (27 / 2), 0,
+                        (thumbnailArea.width() / 2) - (27 / 2), 0));
+
+  addRect(PredefinedRect::FOLDER_INDICATOR_AREA,
+      QRect(ICONS_WIDTH + 1, 0, ICON_WIDTH/3, CELL_HEIGHT));
+  addRect(PredefinedRect::FOLDER_TOGGLE_ICON,
           QRect(thumbnailArea.topLeft(), QSize(27, thumbnailArea.height()))
               .adjusted((thumbnailArea.width() / 2) - (27 / 2), 0,
                         (thumbnailArea.width() / 2) - (27 / 2), 0));
@@ -1343,7 +1542,7 @@ LeftToRightOrientation::LeftToRightOrientation() {
   //
   addDimension(PredefinedDimension::LAYER, CELL_HEIGHT);
   addDimension(PredefinedDimension::FRAME, CELL_WIDTH);
-  addDimension(PredefinedDimension::INDEX, 1);
+//  addDimension(PredefinedDimension::INDEX, 1);
   addDimension(PredefinedDimension::SOUND_AMPLITUDE, soundRect.height() / 2);
   addDimension(PredefinedDimension::FRAME_LABEL_ALIGN,
                Qt::AlignHCenter | Qt::AlignBottom | Qt::TextWordWrap);
@@ -1353,6 +1552,7 @@ LeftToRightOrientation::LeftToRightOrientation() {
   addDimension(PredefinedDimension::CENTER_ALIGN, Qt::AlignVCenter);
   addDimension(PredefinedDimension::CAMERA_LAYER, CAMERA_CELL_HEIGHT);
   addDimension(PredefinedDimension::SCALE_THRESHOLD, 50);
+  addDimension(PredefinedDimension::FRAME_AREA_EXPANSION, 0);  // not used
 
   //
   // Paths
@@ -1363,12 +1563,26 @@ LeftToRightOrientation::LeftToRightOrientation() {
   corner.lineTo(QPointF(CELL_WIDTH, 0));
   addPath(PredefinedPath::DRAG_HANDLE_CORNER, corner);
 
-  QPainterPath diamond(QPointF(0, -4));
-  diamond.lineTo(4, 0);
-  diamond.lineTo(0, 4);
-  diamond.lineTo(-4, 0);
-  diamond.lineTo(0, -4);
+  QPainterPath diamondSmall(QPointF(0, -FRAME_MARKER_SIZE_SMALL));
+  diamondSmall.lineTo(FRAME_MARKER_SIZE_SMALL, 0);
+  diamondSmall.lineTo(0, FRAME_MARKER_SIZE_SMALL);
+  diamondSmall.lineTo(-FRAME_MARKER_SIZE_SMALL, 0);
+  diamondSmall.lineTo(0, -FRAME_MARKER_SIZE_SMALL);
+  addPath(PredefinedPath::FRAME_MARKER_DIAMOND_SMALL, diamondSmall);
+
+  QPainterPath diamond(QPointF(0, -FRAME_MARKER_SIZE));
+  diamond.lineTo(FRAME_MARKER_SIZE, 0);
+  diamond.lineTo(0, FRAME_MARKER_SIZE);
+  diamond.lineTo(-FRAME_MARKER_SIZE, 0);
+  diamond.lineTo(0, -FRAME_MARKER_SIZE);
   addPath(PredefinedPath::FRAME_MARKER_DIAMOND, diamond);
+
+  QPainterPath diamondLarge(QPointF(0, -FRAME_MARKER_SIZE_LARGE));
+  diamondLarge.lineTo(FRAME_MARKER_SIZE_LARGE, 0);
+  diamondLarge.lineTo(0, FRAME_MARKER_SIZE_LARGE);
+  diamondLarge.lineTo(-FRAME_MARKER_SIZE_LARGE, 0);
+  diamondLarge.lineTo(0, -FRAME_MARKER_SIZE_LARGE);
+  addPath(PredefinedPath::FRAME_MARKER_DIAMOND_LARGE, diamondLarge);
 
   QPainterPath fromTriangle(QPointF(EASE_TRIANGLE_SIZE / 2, 0));
   fromTriangle.lineTo(QPointF(-EASE_TRIANGLE_SIZE / 2, EASE_TRIANGLE_SIZE));
@@ -1376,11 +1590,27 @@ LeftToRightOrientation::LeftToRightOrientation() {
   fromTriangle.lineTo(QPointF(EASE_TRIANGLE_SIZE / 2, 0));
   addPath(PredefinedPath::BEGIN_EASE_TRIANGLE, fromTriangle);
 
+  QPainterPath fromTriangleLarge(QPointF(EASE_TRIANGLE_SIZE_LARGE / 2, 0));
+  fromTriangleLarge.lineTo(
+      QPointF(-EASE_TRIANGLE_SIZE_LARGE / 2, EASE_TRIANGLE_SIZE_LARGE));
+  fromTriangleLarge.lineTo(
+      QPointF(-EASE_TRIANGLE_SIZE_LARGE / 2, -EASE_TRIANGLE_SIZE_LARGE));
+  fromTriangleLarge.lineTo(QPointF(EASE_TRIANGLE_SIZE_LARGE / 2, 0));
+  addPath(PredefinedPath::BEGIN_EASE_TRIANGLE_LARGE, fromTriangleLarge);
+
   QPainterPath toTriangle(QPointF(-EASE_TRIANGLE_SIZE / 2, 0));
   toTriangle.lineTo(QPointF(EASE_TRIANGLE_SIZE / 2, EASE_TRIANGLE_SIZE));
   toTriangle.lineTo(QPointF(EASE_TRIANGLE_SIZE / 2, -EASE_TRIANGLE_SIZE));
   toTriangle.lineTo(QPointF(-EASE_TRIANGLE_SIZE / 2, 0));
   addPath(PredefinedPath::END_EASE_TRIANGLE, toTriangle);
+
+  QPainterPath toTriangleLarge(QPointF(-EASE_TRIANGLE_SIZE_LARGE / 2, 0));
+  toTriangleLarge.lineTo(
+      QPointF(EASE_TRIANGLE_SIZE_LARGE / 2, EASE_TRIANGLE_SIZE_LARGE));
+  toTriangleLarge.lineTo(
+      QPointF(EASE_TRIANGLE_SIZE_LARGE / 2, -EASE_TRIANGLE_SIZE_LARGE));
+  toTriangleLarge.lineTo(QPointF(-EASE_TRIANGLE_SIZE_LARGE / 2, 0));
+  addPath(PredefinedPath::END_EASE_TRIANGLE_LARGE, toTriangleLarge);
 
   QPainterPath playFrom(QPointF(0, 0));
   playFrom.lineTo(QPointF(PLAY_MARKER_SIZE, 0));
@@ -1421,6 +1651,14 @@ LeftToRightOrientation::LeftToRightOrientation() {
   timeIndicator.lineTo(QPointF(9, -4));
   timeIndicator.lineTo(QPointF(0, 0));
   addPath(PredefinedPath::TIME_INDICATOR_HEAD, timeIndicator);
+
+  QPainterPath tag(QPointF(-3, 0));
+  tag.lineTo(QPointF(3, 0));
+  tag.lineTo(QPointF(3, 9));
+  tag.lineTo(QPointF(0, 13));
+  tag.lineTo(QPointF(-3, 9));
+  tag.lineTo(QPointF(-3, 0));
+  addPath(PredefinedPath::NAVIGATION_TAG, tag);
 
   //
   // Points

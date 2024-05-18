@@ -21,6 +21,7 @@
 #include "orientation.h"
 #include "toonz/preferences.h"
 #include "toonz/txshchildlevel.h"
+#include "toonz/tcolumnhandle.h"
 
 // TnzCore includes
 #include "tvectorimage.h"
@@ -67,7 +68,9 @@ void getLevelSetFromColumnIndices(const std::set<int>& indices,
 // TColumnSelection
 //-----------------------------------------------------------------------------
 
-TColumnSelection::TColumnSelection() : m_reframePopup(0) {}
+TColumnSelection::TColumnSelection() : m_reframePopup(0) {
+  setAlternativeCommandNames();
+}
 
 //-----------------------------------------------------------------------------
 
@@ -94,6 +97,19 @@ void TColumnSelection::enableCommands() {
   enableCommand(this, MI_Reframe4, &TColumnSelection::reframe4Cells);
   enableCommand(this, MI_ReframeWithEmptyInbetweens,
                 &TColumnSelection::reframeWithEmptyInbetweens);
+  enableCommand(this, MI_Autorenumber, &TColumnSelection::renumberColumns);
+  enableCommand(this, MI_Group, &TColumnSelection::groupColumns);
+  enableCommand(this, MI_Ungroup, &TColumnSelection::ungroupColumns);
+}
+//-----------------------------------------------------------------------------
+
+void TColumnSelection::setAlternativeCommandNames() {
+  m_alternativeCommandNames = {
+      {MI_Copy, QObject::tr("Copy Columns", "TColumnSelection")},
+      {MI_Paste, QObject::tr("Paste Columns", "TColumnSelection")},
+      {MI_Cut, QObject::tr("Cut Columns", "TColumnSelection")},
+      {MI_Clear, QObject::tr("Delete Columns", "TColumnSelection")},
+      {MI_Insert, QObject::tr("Insert Columns", "TColumnSelection")}};
 }
 
 //-----------------------------------------------------------------------------
@@ -177,13 +193,34 @@ void TColumnSelection::cutColumns() {
 //-----------------------------------------------------------------------------
 
 void TColumnSelection::insertColumnsBelow() {
+  if (m_indices.empty()) {
+    int col = TApp::instance()->getCurrentColumn()->getColumnIndex();
+    if (col < 0) return;
+    selectColumn(col, true);
+  }
   ColumnCmd::insertEmptyColumns(m_indices);
 }
 
 //-----------------------------------------------------------------------------
 
 void TColumnSelection::insertColumns() {
+  if (m_indices.empty()) {
+    int col = TApp::instance()->getCurrentColumn()->getColumnIndex();
+    selectColumn(col, true);
+  }
   ColumnCmd::insertEmptyColumns(m_indices, true);
+}
+
+//-----------------------------------------------------------------------------
+
+void TColumnSelection::groupColumns() {
+  ColumnCmd::groupColumns(m_indices);
+}
+
+//-----------------------------------------------------------------------------
+
+void TColumnSelection::ungroupColumns() {
+  ColumnCmd::ungroupColumns(m_indices);
 }
 
 //-----------------------------------------------------------------------------
@@ -217,8 +254,8 @@ static bool canMergeColumns(int column, int mColumn, bool forMatchlines) {
   std::vector<TXshCell> cell(end - start + 1);
   std::vector<TXshCell> mCell(end - start + 1);
 
-  xsh->getCells(start, column, cell.size(), &(cell[0]));
-  xsh->getCells(start, mColumn, cell.size(), &(mCell[0]));
+  xsh->getCells(start, column, cell.size(), &(cell[0]), true);
+  xsh->getCells(start, mColumn, cell.size(), &(mCell[0]), true);
 
   TXshSimpleLevel *level = 0, *mLevel = 0;
   TXshLevelP xl;
@@ -248,11 +285,7 @@ static bool canMergeColumns(int column, int mColumn, bool forMatchlines) {
         return false;
       // Check level type write support. Based on TTool::updateEnabled()
       if (level->getType() == OVL_XSHLEVEL &&
-          (level->getPath().getType() == "psd" ||  // PSD files.
-           level->getPath().getType() == "gif" ||
-           level->getPath().getType() == "mp4" ||
-           level->getPath().getType() == "webm" ||
-           level->getPath().getType() == "mov" ||
+          (level->getPath().isUneditable() ||
            level->is16BitChannelLevel() ||            // 16bpc images.
            level->getProperties()->getBpp() == 1)) {  // Black & White images.
         return false;

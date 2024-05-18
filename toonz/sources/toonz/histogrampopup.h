@@ -13,7 +13,7 @@ class ComboHistogram;
 // HistogramPopup
 //-----------------------------------------------------------------------------
 
-class HistogramPopup : public QDialog {
+class HistogramPopup : public DVGui::Dialog {
   Q_OBJECT
 
 protected:
@@ -28,11 +28,14 @@ public:
 
   void updateInfo(const TPixel32 &pix, const TPointD &imagePos);
   void updateInfo(const TPixel64 &pix, const TPointD &imagePos);
+  void updateInfo(const TPixelF &pix, const TPointD &imagePos);
   void updateAverageColor(const TPixel32 &pix);
   void updateAverageColor(const TPixel64 &pix);
+  void updateAverageColor(const TPixelF &pix);
   void setShowCompare(bool on);
   void invalidateCompHisto();
-};
+  void moveNextToWidget(QWidget *widget);
+ };
 
 //=============================================================================
 // ViewerHistogramPopup

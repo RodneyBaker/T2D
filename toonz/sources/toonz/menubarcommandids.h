@@ -15,6 +15,7 @@
 #define MI_LoadScene "MI_LoadScene"
 #define MI_SaveScene "MI_SaveScene"
 #define MI_SaveSceneAs "MI_SaveSceneAs"
+#define MI_SaveSceneVersion "MI_SaveSceneVersion"
 #define MI_SaveAll "MI_SaveAll"
 #define MI_SaveAllLevels "MI_SaveAllLevels"
 #define MI_RevertScene "MI_RevertScene"
@@ -44,6 +45,8 @@
 #define MI_ImportMagpieFile "MI_ImportMagpieFile"
 #define MI_NewNoteLevel "MI_NewNoteLevel"
 #define MI_RemoveEmptyColumns "MI_RemoveEmptyColumns"
+#define MI_ConvertToImplicitHolds "MI_ConvertToImplicitHolds"
+#define MI_ConvertToExplicitHolds "MI_ConvertToExplicitHolds"
 #define MI_NewProject "MI_NewProject"
 #define MI_OpenRecentProject "MI_OpenRecentProject"
 #define MI_LoadProject "MI_LoadProject"
@@ -61,7 +64,9 @@
 #define MI_ClonePreview "MI_ClonePreview"
 #define MI_FreezePreview "MI_FrezzePreview"
 #define MI_SavePreviewedFrames "MI_SavePreviewedFrames"
-//#define MI_SavePreview         "MI_SavePreview"
+// #define MI_SavePreview         "MI_SavePreview"
+#define MI_ToggleViewerPreview "MI_ToggleViewerPreview"
+#define MI_ToggleViewerSubCameraPreview "MI_ToggleViewerSubCameraPreview"
 #define MI_Print "MI_Print"
 #define MI_Preferences "MI_Preferences"
 #define MI_SavePreset "MI_SavePreset"
@@ -84,8 +89,9 @@
 #define MI_CanvasSize "MI_CanvasSize"
 #define MI_RemoveUnused "MI_RemoveUnused"
 
-//#define MI_OpenCurrentScene  "MI_OpenCurrentScene"
+// #define MI_OpenCurrentScene  "MI_OpenCurrentScene"
 #define MI_OpenFileBrowser "MI_OpenFileBrowser"
+#define MI_OpenPreproductionBoard "MI_OpenPreproductionBoard"
 #define MI_OpenFileViewer "MI_OpenFileViewer"
 #define MI_OpenFilmStrip "MI_OpenFilmStrip"
 #define MI_OpenPalette "MI_OpenPalette"
@@ -135,6 +141,8 @@
 
 #define MI_InsertGlobalKeyframe "MI_InsertGlobalKeyframe"
 #define MI_RemoveGlobalKeyframe "MI_RemoveGlobalKeyframe"
+#define MI_SetGlobalStopframe "MI_SetGlobalStopframe"
+#define MI_RemoveGlobalStopframe "MI_RemoveGlobalStopframe"
 #define MI_DrawingSubForward "MI_DrawingSubForward"
 #define MI_DrawingSubBackward "MI_DrawingSubBackward"
 #define MI_DrawingSubGroupForward "MI_DrawingSubGroupForward"
@@ -148,11 +156,13 @@
 #define MI_ClearMarkers "MI_ClearMarkers"
 #define MI_SetAutoMarkers "MI_SetAutoMarkers"
 #define MI_PreviewThis "MI_PreviewThis"
+#define MI_PreviewSelected "MI_PreviewSelected"
 
 #define MI_PasteNew "MI_PasteNew"
 #define MI_Autorenumber "MI_Autorenumber"
 #define MI_CreateBlankDrawing "MI_CreateBlankDrawing"
 #define MI_FillEmptyCell "MI_FillEmptyCell"
+#define MI_StopFrameHold "MI_StopFrameHold"
 
 #define MI_MergeFrames "MI_MergeFrames"
 #define MI_Reverse "MI_Reverse"
@@ -197,13 +207,16 @@
 #define MI_EditShift "MI_EditShift"
 #define MI_NoShift "MI_NoShift"
 #define MI_ResetShift "MI_ResetShift"
+#define MI_ShowShiftOrigin "MI_ShowShiftOrigin"
 #define MI_Histogram "MI_Histogram"
+#define MI_ViewerHistogram "MI_ViewerHistogram"
 #define MI_FxParamEditor "MI_FxParamEditor"
 
 #define MI_Link "MI_Link"
 #define MI_Play "MI_Play"
 #define MI_ShortPlay "MI_ShortPlay"
 #define MI_Loop "MI_Loop"
+#define MI_PingPong "MI_PingPong"
 #define MI_Pause "MI_Pause"
 #define MI_FirstFrame "MI_FirstFrame"
 #define MI_LastFrame "MI_LastFrame"
@@ -215,6 +228,8 @@
 #define MI_PrevStep "MI_PrevStep"
 #define MI_NextKeyframe "MI_NextKeyframe"
 #define MI_PrevKeyframe "MI_PrevKeyframe"
+#define MI_ToggleBlankFrames "MI_ToggleBlankFrames"
+#define MI_InbetweenFlip "MI_InbetweenFlip"
 
 #define MI_RedChannel "MI_RedChannel"
 #define MI_GreenChannel "MI_GreenChannel"
@@ -246,7 +261,7 @@
 #define MI_CursorOutline "MI_CursorOutline"
 #define MI_ViewerIndicator "MI_ViewerIndicator"
 
-//#define MI_LoadResourceFile       "MI_LoadResourceFile"
+// #define MI_LoadResourceFile       "MI_LoadResourceFile"
 #define MI_DuplicateFile "MI_DuplicateFile"
 #define MI_ViewFile "MI_ViewFile"
 #define MI_ConvertFiles "MI_ConvertFiles"
@@ -317,9 +332,11 @@
 #define MI_UnlockAllColumns "MI_UnlockAllColumns"
 #define MI_ToggleColumnLocks "MI_ToggleColumnLocks"
 #define MI_ToggleQuickToolbar "MI_ToggleQuickToolbar"
+#define MI_ToggleXsheetBreadcrumbs "MI_ToggleXsheetBreadcrumbs"
 #define MI_FoldColumns "MI_FoldColumns"
 #define MI_ToggleXsheetCameraColumn "MI_ToggleXsheetCameraColumn"
 #define MI_ToggleCurrentTimeIndicator "MI_ToggleCurrentTimeIndicator"
+#define MI_ToggleOpenCloseFolder "MI_ToggleOpenCloseFolder"
 
 #define MI_LoadIntoCurrentPalette "MI_LoadIntoCurrentPalette"
 #define MI_AdjustCurrentLevelToPalette "MI_AdjustCurrentLevelToPalette"
@@ -368,11 +385,17 @@
 #define MI_TypeBoldOblique "MI_TypeBoldOblique"
 #define MI_TypeBold "MI_TypeBold"
 
+#define MI_PaintBrushNextMode "MI_PaintBrushNextMode"
+#define MI_PaintBrushAreas "MI_PaintBrushAreas"
+#define MI_PaintBrushLines "MI_PaintBrushLines"
+#define MI_PaintBrushLinesAndAreas "MI_PaintBrushLinesAndAreas"
+
 #define MI_FillNextType "MI_FillNextType"
 #define MI_FillNormal "MI_FillNormal"
 #define MI_FillRectangular "MI_FillRectangular"
 #define MI_FillFreehand "MI_FillFreehand"
 #define MI_FillPolyline "MI_FillPolyline"
+#define MI_FillFreepick "MI_FillFreepick"
 #define MI_FillNextMode "MI_FillNextMode"
 #define MI_FillAreas "MI_FillAreas"
 #define MI_FillLines "MI_FillLines"
@@ -468,14 +491,48 @@
 #define MI_FlipPrevGuideStroke "MI_FlipPrevGuideStroke"
 
 #define MI_ExportXDTS "MI_ExportXDTS"
+#define MI_ExportOCA "MI_ExportOCA"
+#define MI_ImportOCA "MI_ImportOCA"
 #define MI_ExportTvpJson "MI_ExportTvpJson"
 #define MI_ExportXsheetPDF "MI_ExportXsheetPDF"
+#define MI_ExportCameraTrack "MI_ExportCameraTrack"
 
 // mark id is added for each actual command (i.g. MI_SetCellMark1)
 #define MI_SetCellMark "MI_SetCellMark"
+
+#define MI_OpenCustomPanels "MI_OpenCustomPanels"
+#define MI_CustomPanelEditor "MI_CustomPanelEditor"
+
+#define MI_ConvertTZPInFolder "MI_ConvertTZPInFolder"
 
 #define MI_ToggleAutoCreate "MI_ToggleAutoCreate"
 #define MI_ToggleCreationInHoldCells "MI_ToggleCreationInHoldCells"
 #define MI_ToggleAutoStretch "MI_ToggleAutoStretch"
 
+#define MI_ToggleImplicitHold "MI_ToggleImplicitHold"
+
+// Navigation tags
+#define MI_ToggleTaggedFrame "MI_ToggleTaggedFrame"
+#define MI_EditTaggedFrame "MI_EditTaggedFrame"
+#define MI_NextTaggedFrame "MI_NextTaggedFrame"
+#define MI_PrevTaggedFrame "MI_PrevTaggedFrame"
+#define MI_ClearTags "MI_ClearTags"
+
+#define MI_ToggleLightTable "MI_ToggleLightTable"
+
+#define MI_CurrentDrawingOnTop "MI_CurrentDrawingOnTop"
+
+#define MI_OpenAlignmentPanel "MI_OpenAlignmentPanel"
+
+#define MI_NewFolder "MI_NewFolder"
+
+#define MI_ShowSymmetryGuide "MI_ShowSymmetryGuide"
+#define MI_ShowPerspectiveGrids "MI_ShowPerspectiveGrids"
+
+#define MI_OpenLocator "MI_OpenLocator"
+
+#define MI_InbetweenLinear "MI_InbetweenLinear"
+#define MI_InbetweenEaseIn "MI_InbetweenEaseIn"
+#define MI_InbetweenEaseOut "MI_InbetweenEaseOut"
+#define MI_InbetweenEaseInOut "MI_InbetweenEaseInOut"
 #endif

@@ -112,9 +112,33 @@ TColorStyle *TTextureStyle::clone() const { return new TTextureStyle(*this); }
 
 //-----------------------------------------------------------------------------
 
+TColorStyle *TTextureStyle::clone(std::string brushIdName) const {
+  TTextureStyle *style = new TTextureStyle(*this);
+
+  std::string name = getBrushIdNameParam(brushIdName);
+  style->m_texturePath = TFilePath(name);
+  style->setAverageColor();
+  return style;
+}
+
+//-----------------------------------------------------------------------------
+
 QString TTextureStyle::getDescription() const { return "TextureStyle"; }
 
 //-----------------------------------------------------------------------------
+
+std::string TTextureStyle::getBrushIdName() const {
+  std::wstring ws = m_texturePath.getWideString();
+  const std::string s(ws.begin(), ws.end());
+  return "TextureStyle:" + s;
+}
+
+//-----------------------------------------------------------------------------
+
+std::string TTextureStyle::staticBrushIdName(std::wstring texturePath) {
+  const std::string s(texturePath.begin(), texturePath.end());
+  return "TextureStyle:" + s;
+}
 
 //-----------------------------------------------------------------------------
 int TTextureStyle::getTagId() const { return 4; }
@@ -513,21 +537,21 @@ int TTextureStyle::getParamCount() const { return 8; }
 QString TTextureStyle::getParamNames(int index) const {
   switch (index) {
   case 0:
-    return "Load From File";
+    return QObject::tr("Load From File");
   case 1:
-    return "Use As Pattern";
+    return QObject::tr("Use As Pattern");
   case 2:
-    return "Position";
+    return QObject::tr("Position");
   case 3:
-    return "Scale";
+    return QObject::tr("Scale");
   case 4:
-    return "Rotation(degrees)";
+    return QObject::tr("Rotation(degrees)");
   case 5:
-    return "X displ";
+    return QObject::tr("X displ");
   case 6:
-    return "Y displ";
+    return QObject::tr("Y displ");
   case 7:
-    return "Contrast";
+    return QObject::tr("Contrast");
   default:
     assert(false);
   }

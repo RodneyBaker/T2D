@@ -2,6 +2,24 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="zh_CN">
 <context>
+    <name>APngWriterProperties</name>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_apng.cpp" line="225"/>
+        <source>Scale</source>
+        <translation>缩放</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_apng.cpp" line="226"/>
+        <source>Looping</source>
+        <translation>循环</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_apng.cpp" line="227"/>
+        <source>Write as .png</source>
+        <translation>按.png写入</translation>
+    </message>
+</context>
+<context>
     <name>AviWriterProperties</name>
     <message>
         <location filename="../../image/avi/tiio_avi.cpp" line="1182"/>
@@ -15,32 +33,209 @@
     </message>
 </context>
 <context>
+    <name>ExrWriterProperties</name>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="290"/>
+        <source>Bits Per Pixel</source>
+        <translation>每像素位数</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="292"/>
+        <source>48(RGB Half Float)</source>
+        <translation>48(RGB半浮点数)</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="293"/>
+        <source>64(RGBA Half Float)</source>
+        <translation>64(RGBA半浮点数)</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="294"/>
+        <source>96(RGB Float)</source>
+        <translation>96(RGB浮点数)</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="295"/>
+        <source>128(RGBA Float)</source>
+        <translation>128(RGBA浮点数)</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="299"/>
+        <source>Compression Type</source>
+        <translation>压缩方式</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="301"/>
+        <source>No compression</source>
+        <translation>无压缩</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="304"/>
+        <source>Run Length Encoding (RLE)</source>
+        <translation>运行长度编码 (RLE)</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="307"/>
+        <source>ZIP compression per Scanline (ZIPS)</source>
+        <translation>每条扫描线的ZIP压缩</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="310"/>
+        <source>ZIP compression per scanline band (ZIP)</source>
+        <translation>每条扫描线波段的ZIP压缩</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="313"/>
+        <source>PIZ-based wavelet compression (PIZ)</source>
+        <translation>基于PIZ的小波段压缩</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="315"/>
+        <source>Storage Type</source>
+        <translation>存储类型</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="316"/>
+        <source>Scan-line based</source>
+        <translation>基于扫描线</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="317"/>
+        <source>Tile based</source>
+        <translation>基于磁铁</translation>
+    </message>
+    <message>
+        <location filename="../../image/exr/tiio_exr.cpp" line="319"/>
+        <source>Color Space Gamma</source>
+        <translation>色彩空间</translation>
+    </message>
+</context>
+<context>
+    <name>FFMovWriterProperties</name>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_ff_mov.cpp" line="237"/>
+        <source>Quality</source>
+        <translation>质量</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_ff_mov.cpp" line="238"/>
+        <source>Scale</source>
+        <translation>缩放</translation>
+    </message>
+</context>
+<context>
     <name>GifWriterProperties</name>
     <message>
-        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="257"/>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="342"/>
+        <source>Global Palette</source>
+        <translation>全局调色板</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="343"/>
+        <source>Global Palette + Sierra Dither</source>
+        <translation>全局调色板+Sierra Dither</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="344"/>
+        <source>Global Palette + Bayer2 Dither</source>
+        <translation>全局调色板+Bayer2抖动</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="345"/>
+        <source>Global Palette + Bayer1 Dither</source>
+        <translation>全局调色板+Bayer1抖动</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="346"/>
+        <source>Diff Palette</source>
+        <translation>差异调色板</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="347"/>
+        <source>Diff Palette + Sierra Dither</source>
+        <translation>差异调色板+Sierra Dither</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="348"/>
+        <source>Diff Palette + Bayer2 Dither</source>
+        <translation>差异调色板+ Bayer2抖动</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="349"/>
+        <source>Diff Palette + Bayer1 Dither</source>
+        <translation>差异调色板+ Bayer1抖动</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="350"/>
+        <source>New Pal Per Frame</source>
+        <translation>每帧新建PAL</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="351"/>
+        <source>New Pal Per Frame + Sierra Dither</source>
+        <translation>每帧新PAL+Sierra Dither</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="352"/>
+        <source>New Pal Per Frame + Bayer2 Dither</source>
+        <translation>每帧新PAL+Bayer2抖动</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="353"/>
+        <source>New Pal Per Frame + Bayer1 Dither</source>
+        <translation>每帧新PAL+Bayer1抖动</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="354"/>
+        <source>Opaque, Dither, 256 Colors Only</source>
+        <translation>不透明，抖动，仅256色</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="367"/>
         <source>Scale</source>
         <translation>缩放</translation>
     </message>
     <message>
-        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="258"/>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="368"/>
         <source>Looping</source>
         <translation>循环</translation>
     </message>
     <message>
-        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="259"/>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="369"/>
         <source>Generate Palette</source>
         <translation>生成调色板</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="370"/>
+        <source>Mode</source>
+        <translation>模式</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_gif.cpp" line="371"/>
+        <source>Max Colors</source>
+        <translation>最大颜色</translation>
+    </message>
+</context>
+<context>
+    <name>MovWriterProperties</name>
+    <message>
+        <source>Quality</source>
+        <translation type="obsolete">质量</translation>
+    </message>
+    <message>
+        <source>Scale</source>
+        <translation type="obsolete">缩放</translation>
     </message>
 </context>
 <context>
     <name>Mp4WriterProperties</name>
     <message>
-        <location filename="../../image/ffmpeg/tiio_mp4.cpp" line="234"/>
+        <location filename="../../image/ffmpeg/tiio_mp4.cpp" line="241"/>
         <source>Quality</source>
         <translation>质量</translation>
     </message>
     <message>
-        <location filename="../../image/ffmpeg/tiio_mp4.cpp" line="235"/>
+        <location filename="../../image/ffmpeg/tiio_mp4.cpp" line="242"/>
         <source>Scale</source>
         <translation>缩放</translation>
     </message>
@@ -48,7 +243,7 @@
 <context>
     <name>PngWriterProperties</name>
     <message>
-        <location filename="../../image/png/tiio_png.cpp" line="746"/>
+        <location filename="../../image/png/tiio_png.cpp" line="763"/>
         <source>Alpha Channel</source>
         <translation>透明度通道</translation>
     </message>
@@ -56,7 +251,13 @@
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../../image/ffmpeg/tiio_ffmpeg.cpp" line="214"/>
+        <location filename="../../image/ffmpeg/tiio_ffmpeg.cpp" line="193"/>
+        <source>FFmpeg returned error-code: %1</source>
+        <translation>FFmpeg返回错误代码：%1</translation>
+    </message>
+    <message>
+        <location filename="../../image/ffmpeg/tiio_ffmpeg.cpp" line="181"/>
+        <location filename="../../image/ffmpeg/tiio_ffmpeg.cpp" line="197"/>
         <source>FFmpeg timed out.
 Please check the file for errors.
 If the file doesn&apos;t play or is incomplete, 
@@ -157,7 +358,7 @@ Please try raising the FFmpeg timeout in Preferences.</source>
     <message>
         <location filename="../../image/sprite/tiio_sprite.cpp" line="319"/>
         <source>Grid</source>
-        <translation>格子</translation>
+        <translation>网格</translation>
     </message>
     <message>
         <location filename="../../image/sprite/tiio_sprite.cpp" line="320"/>

@@ -76,7 +76,11 @@ public:
   }
 };
 
+const int snapDistance = 15;
 }  // namespace
+
+int SchematicScene::snapHSpacing  = 50;
+int SchematicScene::snapVInterval = 75;
 
 //==================================================================
 //
@@ -192,6 +196,96 @@ QVector<SchematicNode *> SchematicScene::getPlacedNode(SchematicNode *node) {
   return nodes;
 }
 
+//------------------------------------------------------------------
+
+void SchematicScene::addSnapTarget(const QPointF &pos, const QRectF &rect,
+                                   const QPointF &theOtherEndPos,
+                                   const QPointF &endPosOffset) {
+  // reduce highlight margin
+  QRectF nodeRect = rect.adjusted(5, 5, -5, -5);
+
+  /*
+  auto findSnapPos = [&](QPointF pos) {
+    for (auto item : m_snapTargets) {
+      if (item->scenePos() == pos) return true;
+    }
+    return false;
+  };
+
+  QList<QPointF> posList = {pos};
+
+  for (int i = 1; i <= 10; i++) {
+    QPointF tmp_pos =
+        pos + QPointF(0, (double)(SchematicScene::snapVInterval * i));
+    posList.append(tmp_pos);
+    if (isAnEmptyZone(nodeRect.translated(tmp_pos))) break;
+  }
+  for (int i = -1; i >= -10; i--) {
+    QPointF tmp_pos =
+        pos + QPointF(0, (double)(SchematicScene::snapVInterval * i));
+    posList.append(tmp_pos);
+    if (isAnEmptyZone(nodeRect.translated(tmp_pos))) break;
+  }
+
+  for (auto p : posList) {
+    if (findSnapPos(p)) continue;
+    SnapTargetItem *item = new SnapTargetItem(p, nodeRect);
+    addItem(item);
+    m_snapTargets.append(item);
+  }*/
+
+  SnapTargetItem *item =
+      new SnapTargetItem(pos, nodeRect, theOtherEndPos, endPosOffset);
+  addItem(item);
+  m_snapTargets.append(item);
+}
+
+//------------------------------------------------------------------
+
+void SchematicScene::clearSnapTargets() {
+  for (auto item : m_snapTargets) {
+    removeItem(item);
+    delete item;
+  }
+  m_snapTargets.clear();
+}
+
+//------------------------------------------------------------------
+// snap to neighbor nodes on dragging
+void SchematicScene::computeSnap(SchematicNode *node, QPointF &delta,
+                                 bool enable) {
+  if (m_snapTargets.isEmpty()) return;
+
+  if (!enable) {
+    // hide targets
+    if (m_snapTargets[0]->isVisible()) {
+      for (auto item : m_snapTargets) item->setVisible(false);
+    }
+    return;
+  }
+
+  if (!m_snapTargets[0]->isVisible()) {
+    for (auto item : m_snapTargets) item->setVisible(true);
+  }
+
+  QPointF newScenePos = node->scenePos() + delta;
+  QPointF newPos      = views()[0]->mapFromScene(newScenePos);
+
+  for (auto target : m_snapTargets) {
+    QPointF targetPos = target->scenePos();
+    int snapIndex     = std::nearbyint((newScenePos.y() - targetPos.y()) /
+                                       (double)SchematicScene::snapVInterval);
+    targetPos.setY(targetPos.y() +
+                   (double)(snapIndex * SchematicScene::snapVInterval));
+    target->setPos(targetPos);
+    if ((newPos - views()[0]->mapFromScene(targetPos)).manhattanLength() <
+        snapDistance) {
+      delta = targetPos - node->scenePos();
+      return;
+    }
+  }
+}
+
 //==================================================================
 //
 // SchematicSceneViewer
@@ -245,19 +339,19 @@ void SchematicSceneViewer::mousePressEvent(QMouseEvent *me) {
   if (m_buttonState == Qt::LeftButton) {
     if (m_cursorMode == CursorMode::Hand || m_panningArmed) {
       m_mousePanPoint = m_touchDevice == QTouchDevice::TouchScreen
-        ? mapToScene(me->pos())
-        : me->pos() * getDevPixRatio();
-      m_panning = true;
+                            ? mapToScene(me->pos())
+                            : me->pos() * getDevicePixelRatio(this);
+      m_panning       = true;
       return;
     } else if (m_cursorMode == CursorMode::Zoom) {
       m_zoomPoint = me->pos();
       m_zooming   = true;
       return;
     }
-  } else if (m_buttonState == Qt::MidButton) {
+  } else if (m_buttonState == Qt::MiddleButton) {
     m_mousePanPoint = m_touchDevice == QTouchDevice::TouchScreen
                           ? mapToScene(me->pos())
-                          : me->pos() * getDevPixRatio();
+                          : me->pos() * getDevicePixelRatio(this);
   }
   bool drawRect                       = true;
   QList<QGraphicsItem *> pointedItems = items(me->pos());
@@ -281,6 +375,7 @@ void SchematicSceneViewer::mousePressEvent(QMouseEvent *me) {
 /*! Reimplemets the QGraphicsView::mouseMoveEvent()
  */
 void SchematicSceneViewer::mouseMoveEvent(QMouseEvent *me) {
+  // qDebug() << "[mouseMoveEvent]";
   if (m_gestureActive && m_touchDevice == QTouchDevice::TouchScreen &&
       !m_stylusUsed) {
     return;
@@ -289,15 +384,15 @@ void SchematicSceneViewer::mouseMoveEvent(QMouseEvent *me) {
   QPoint currWinPos    = me->pos();
   QPointF currScenePos = mapToScene(currWinPos);
   if (((m_cursorMode == CursorMode::Hand || m_panningArmed) && m_panning) ||
-      m_buttonState == Qt::MidButton) {
-    QPointF usePos = m_touchDevice == QTouchDevice::TouchScreen
-                         ? mapToScene(me->pos())
-                         : me->pos() * getDevPixRatio();
+      m_buttonState == Qt::MiddleButton) {
+    QPointF usePos     = m_touchDevice == QTouchDevice::TouchScreen
+                             ? mapToScene(me->pos())
+                             : me->pos() * getDevicePixelRatio(this);
     QPointF deltaPoint = usePos - m_mousePanPoint;
     panQt(deltaPoint);
     m_mousePanPoint = m_touchDevice == QTouchDevice::TouchScreen
                           ? mapToScene(me->pos())
-                          : me->pos() * getDevPixRatio();
+                          : me->pos() * getDevicePixelRatio(this);
   } else {
     if (m_cursorMode == CursorMode::Zoom && m_zooming) {
       int deltaY     = (m_oldWinPos.y() - me->pos().y()) * 10;
@@ -407,7 +502,11 @@ void SchematicSceneViewer::wheelEvent(QWheelEvent *me) {
          m_touchDevice == QTouchDevice::TouchScreen) ||
         m_gestureActive == false) {
       double factor = exp(delta * 0.001);
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+      changeScale(me->position().toPoint(), factor);
+#else
       changeScale(me->pos(), factor);
+#endif
       m_panning = false;
     }
   }
@@ -418,28 +517,24 @@ void SchematicSceneViewer::wheelEvent(QWheelEvent *me) {
 
 void SchematicSceneViewer::zoomQt(bool zoomin, bool resetView) {
   if (resetView) {
-    resetMatrix();
+    resetTransform();
     // resetting will set view to the center of items bounding
     centerOn(scene()->itemsBoundingRect().center());
     return;
   }
 
-#if QT_VERSION >= 0x050000
-  double scale2 = matrix().determinant();
-#else
-  double scale2 = matrix().det();
-#endif
+  double scale2 = transform().determinant();
   if ((scale2 < 100000 || !zoomin) && (scale2 > 0.001 * 0.05 || zoomin)) {
     double oldZoomScale = sqrt(scale2);
     double zoomScale =
         resetView ? 1
                   : ImageUtils::getQuantizedZoomFactor(oldZoomScale, zoomin);
-    QMatrix scale =
-        QMatrix().scale(zoomScale / oldZoomScale, zoomScale / oldZoomScale);
+    QTransform scale =
+        QTransform().scale(zoomScale / oldZoomScale, zoomScale / oldZoomScale);
 
     // See QGraphicsView::mapToScene()'s doc for details
     QPointF sceneCenter(mapToScene(rect().center()));
-    setMatrix(scale, true);
+    setTransform(scale, true);
     centerOn(sceneCenter);
   }
 }
@@ -451,8 +546,8 @@ void SchematicSceneViewer::zoomQt(bool zoomin, bool resetView) {
 void SchematicSceneViewer::changeScale(const QPoint &winPos,
                                        qreal scaleFactor) {
   QPointF startScenePos = mapToScene(winPos);
-  QMatrix scale         = QMatrix().scale(scaleFactor, scaleFactor);
-  setMatrix(scale, true);
+  QTransform scale      = QTransform().scale(scaleFactor, scaleFactor);
+  setTransform(scale, true);
   QPointF endScenePos = mapToScene(winPos);
   QPointF delta       = endScenePos - startScenePos;
   translate(delta.x(), delta.y());
@@ -487,7 +582,7 @@ void SchematicSceneViewer::reorderScene() {
 void SchematicSceneViewer::normalizeScene() {
   // See QGraphicsView::mapToScene()'s doc for details
   QPointF sceneCenter(mapToScene(rect().center()));
-  resetMatrix();
+  resetTransform();
 #if defined(MACOSX)
   scale(1.32, 1.32);
 #endif
@@ -511,7 +606,7 @@ void SchematicSceneViewer::showEvent(QShowEvent *se) {
   if (m_firstShowing) {
     m_firstShowing = false;
     QRectF rect    = scene()->itemsBoundingRect();
-    resetMatrix();
+    resetTransform();
     centerOn(rect.center());
   }
 }
@@ -550,7 +645,7 @@ void SchematicSceneViewer::tabletEvent(QTabletEvent *e) {
     m_stylusUsed = false;
   }
 
-  e->accept();
+  QGraphicsView::tabletEvent(e);
 }
 
 //------------------------------------------------------------------
@@ -605,8 +700,9 @@ void SchematicSceneViewer::gestureEvent(QGestureEvent *e) {
       }
 
       if (changeFlags & QPinchGesture::CenterPointChanged) {
-        QPointF centerDelta = (gesture->centerPoint() * getDevPixRatio()) -
-                              (gesture->lastCenterPoint() * getDevPixRatio());
+        QPointF centerDelta =
+            (gesture->centerPoint() * getDevicePixelRatio(this)) -
+            (gesture->lastCenterPoint() * getDevicePixelRatio(this));
         if (centerDelta.manhattanLength() > 1) {
           // panQt(centerDelta.toPoint());
         }
@@ -641,14 +737,14 @@ void SchematicSceneViewer::touchEvent(QTouchEvent *e, int type) {
         }
       }
       if (m_panning) {
-        QPointF curPos =
-            m_touchDevice == QTouchDevice::TouchScreen
-                ? mapToScene(panPoint.pos().toPoint())
-                : mapToScene(panPoint.pos().toPoint()) * getDevPixRatio();
-        QPointF lastPos =
-            m_touchDevice == QTouchDevice::TouchScreen
-                ? mapToScene(panPoint.lastPos().toPoint())
-                : mapToScene(panPoint.lastPos().toPoint()) * getDevPixRatio();
+        QPointF curPos      = m_touchDevice == QTouchDevice::TouchScreen
+                                  ? mapToScene(panPoint.pos().toPoint())
+                                  : mapToScene(panPoint.pos().toPoint()) *
+                                   getDevicePixelRatio(this);
+        QPointF lastPos     = m_touchDevice == QTouchDevice::TouchScreen
+                                  ? mapToScene(panPoint.lastPos().toPoint())
+                                  : mapToScene(panPoint.lastPos().toPoint()) *
+                                    getDevicePixelRatio(this);
         QPointF centerDelta = curPos - lastPos;
         panQt(centerDelta);
       }
@@ -1047,10 +1143,6 @@ void SchematicViewer::createActions() {
 
       // InsertFx
       insertFx = CommandManager::instance()->getAction("MI_InsertFx");
-      if (insertFx) {
-        QIcon insertFxIcon = createQIcon("fx_logo");
-        insertFx->setIcon(insertFxIcon);
-      }
 
       // AddOutputFx
       addOutputFx = CommandManager::instance()->getAction("MI_NewOutputFx");
@@ -1115,7 +1207,7 @@ void SchematicViewer::setStageSchematic() {
     m_viewer->setScene(m_stageScene);
     QRectF rect = m_stageScene->itemsBoundingRect();
 
-    m_viewer->resetMatrix();
+    m_viewer->resetTransform();
     m_viewer->centerOn(rect.center());
 
     m_fxToolbar->hide();
@@ -1134,7 +1226,7 @@ void SchematicViewer::setFxSchematic() {
     m_viewer->setScene(m_fxScene);
     QRectF rect = m_fxScene->itemsBoundingRect();
 
-    m_viewer->resetMatrix();
+    m_viewer->resetTransform();
     m_viewer->centerOn(rect.center());
 
     m_stageToolbar->hide();
@@ -1176,7 +1268,7 @@ void SchematicViewer::onSceneSwitched() {
   m_nodeSize->setText(label);
 
   // reset schematic
-  m_viewer->resetMatrix();
+  m_viewer->resetTransform();
   m_viewer->centerOn(m_viewer->scene()->itemsBoundingRect().center());
   if (m_viewer->scene() == m_fxScene && !m_fxScene->isNormalIconView())
     m_fxScene->updateScene();

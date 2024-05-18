@@ -37,8 +37,10 @@ private:
   int m_frameCount, m_lx, m_ly;
   // double m_fps;
   int m_scale;
-  bool m_looping = false;
-  bool m_palette = false;
+  bool m_looping  = true;
+  bool m_palette  = false;
+  int m_mode      = 0;
+  int m_maxcolors = 256;
 };
 
 //===========================================================
@@ -82,6 +84,9 @@ public:
   TIntProperty m_scale;
   TBoolProperty m_looping;
   TBoolProperty m_palette;
+  TEnumProperty m_mode;
+  TIntProperty m_maxcolors;
+
   GifWriterProperties();
 
   void updateTranslation() override;

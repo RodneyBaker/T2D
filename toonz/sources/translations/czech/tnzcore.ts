@@ -4,38 +4,43 @@
 <context>
     <name>BmpWriterProperties</name>
     <message>
+        <location filename="../../common/tiio/tiio_bmp.cpp" line="755"/>
         <source>Bits Per Pixel</source>
-        <translation type="vanished">Bitů na obrazový bod (pixel)</translation>
+        <translation>Bitů na obrazový bod (pixel)</translation>
     </message>
     <message>
+        <location filename="../../common/tiio/tiio_bmp.cpp" line="756"/>
         <source>24 bits</source>
-        <translation type="vanished">24 bitů</translation>
+        <translation>24 bitů</translation>
     </message>
     <message>
+        <location filename="../../common/tiio/tiio_bmp.cpp" line="757"/>
         <source>8 bits (Greyscale)</source>
-        <translation type="vanished">8 bitů (odstíny šedi)</translation>
+        <translation>8 bitů (odstíny šedi)</translation>
     </message>
 </context>
 <context>
     <name>JpgWriterProperties</name>
     <message>
+        <location filename="../../common/tiio/tiio_jpg.cpp" line="284"/>
         <source>Quality</source>
-        <translation type="vanished">Jakost</translation>
+        <translation>Jakost</translation>
     </message>
     <message>
+        <location filename="../../common/tiio/tiio_jpg.cpp" line="285"/>
         <source>Smoothing</source>
-        <translation type="vanished">Vyhlazování</translation>
+        <translation>Vyhlazování</translation>
     </message>
 </context>
 <context>
     <name>QObject</name>
     <message>
-        <location filename="../../common/tvrender/tpalette.cpp" line="254"/>
+        <location filename="../../common/tvrender/tpalette.cpp" line="265"/>
         <source>colors</source>
         <translation>barvy</translation>
     </message>
     <message>
-        <location filename="../../common/timage_io/tlevel_io.cpp" line="127"/>
+        <location filename="../../common/timage_io/tlevel_io.cpp" line="135"/>
         <source>Skipping frame.</source>
         <translation>Přeskakuje se snímek.</translation>
     </message>
@@ -44,19 +49,20 @@
         <translation type="vanished">Poškozený název snímku</translation>
     </message>
     <message>
+        <location filename="../../include/tundo.h" line="49"/>
         <source>Unidentified Action</source>
-        <translation type="vanished">Neznámá činnost</translation>
+        <translation>Neznámá činnost</translation>
     </message>
 </context>
 <context>
     <name>TCenterLineStrokeStyle</name>
     <message>
-        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="862"/>
+        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="899"/>
         <source>Constant</source>
         <translation>Stálý</translation>
     </message>
     <message>
-        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="895"/>
+        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="938"/>
         <source>Thickness</source>
         <translation>Tloušťka</translation>
     </message>
@@ -64,12 +70,12 @@
 <context>
     <name>TRasterImagePatternStrokeStyle</name>
     <message>
-        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="1000"/>
+        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="1088"/>
         <source>Distance</source>
         <translation>Odstup</translation>
     </message>
     <message>
-        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="1002"/>
+        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="1090"/>
         <source>Rotation</source>
         <translation>Otočení</translation>
     </message>
@@ -77,12 +83,12 @@
 <context>
     <name>TVectorImagePatternStrokeStyle</name>
     <message>
-        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="1410"/>
+        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="1551"/>
         <source>Distance</source>
         <translation>Odstup</translation>
     </message>
     <message>
-        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="1412"/>
+        <location filename="../../common/tvrender/tsimplecolorstyles.cpp" line="1553"/>
         <source>Rotation</source>
         <translation>Otočení</translation>
     </message>
@@ -90,32 +96,27 @@
 <context>
     <name>Tiio::BmpWriterProperties</name>
     <message>
-        <location filename="../../common/tiio/tiio_bmp.cpp" line="755"/>
         <source>Bits Per Pixel</source>
-        <translation type="unfinished">Bitů na obrazový bod (pixel)</translation>
+        <translation type="obsolete">Bitů na obrazový bod (pixel)</translation>
     </message>
     <message>
-        <location filename="../../common/tiio/tiio_bmp.cpp" line="756"/>
         <source>24 bits</source>
-        <translation type="unfinished">24 bitů</translation>
+        <translation type="obsolete">24 bitů</translation>
     </message>
     <message>
-        <location filename="../../common/tiio/tiio_bmp.cpp" line="757"/>
         <source>8 bits (Greyscale)</source>
-        <translation type="unfinished">8 bitů (odstíny šedi)</translation>
+        <translation type="obsolete">8 bitů (odstíny šedi)</translation>
     </message>
 </context>
 <context>
     <name>Tiio::JpgWriterProperties</name>
     <message>
-        <location filename="../../common/tiio/tiio_jpg.cpp" line="284"/>
         <source>Quality</source>
-        <translation type="unfinished">Jakost</translation>
+        <translation type="obsolete">Jakost</translation>
     </message>
     <message>
-        <location filename="../../common/tiio/tiio_jpg.cpp" line="285"/>
         <source>Smoothing</source>
-        <translation type="unfinished">Vyhlazování</translation>
+        <translation type="obsolete">Vyhlazování</translation>
     </message>
 </context>
 </TS>

@@ -119,7 +119,8 @@ TFilePath getLocalRoot() {
 #else
   // set path to something suitable for most linux (Unix?) systems
 #ifdef FREEBSD
-  std::string unixpath = "/usr/local/etc/" + tver.getAppName() + "/tahoma.conf";
+  std::string unixpath =
+      "/usr/local/etc/" + tver.getAppName() + "/tahoma.conf";
 #else
   std::string unixpath = "/etc/" + tver.getAppName() + "/tahoma.conf";
 #endif
@@ -735,6 +736,7 @@ void FarmController::loadServersData(const TFilePath &globalRoot) {
         try {
           server->attachController(m_hostName, m_addr, m_port);
         } catch (TException &) {
+        } catch (...) {
         }
       }
     }
@@ -767,7 +769,7 @@ inline QString toString(const TFarmTask &task, int ver) {
     ss += ",";
     ss += QString::number(task.m_platform) + ",";
 
-    int depCount                      = 0;
+    int depCount = 0;
     if (task.m_dependencies) depCount = task.m_dependencies->getTaskCount();
 
     ss += QString::number(depCount);
@@ -1123,6 +1125,8 @@ void FarmController::startTask(CtrlFarmTask *task, FarmServerProxy *server) {
     server->addTask(taskToBeSubmitted);
   } catch (TException &e) {
     throw e;
+  } catch (...) {
+    throw;
   }
 
   if (rc == 0) {
@@ -1286,6 +1290,8 @@ bool FarmController::tryToStartTask(CtrlFarmTask *task) {
               startTask(task, server);
             } catch (TException & /*e*/) {
               continue;
+            } catch (...) {
+              continue;
             }
 
             return true;
@@ -1302,6 +1308,8 @@ bool FarmController::tryToStartTask(CtrlFarmTask *task) {
         try {
           startTask(task, server);
         } catch (TException & /*e*/) {
+          continue;
+        } catch (...) {
           continue;
         }
       }
@@ -1320,7 +1328,7 @@ bool FarmController::tryToStartTask(CtrlFarmTask *task) {
       map<TaskId, CtrlFarmTask *>::iterator itSubTask =
           m_tasks.find(TaskId(*itSubTaskId));
       if (itSubTask != m_tasks.end()) {
-        CtrlFarmTask *subTask                = itSubTask->second;
+        CtrlFarmTask *subTask = itSubTask->second;
         if (tryToStartTask(subTask)) started = true;
       }
     }
@@ -1365,6 +1373,8 @@ public:
       m_server->queryHwInfo(hwInfo);
     } catch (TException & /*e*/) {
       return;
+    } catch (...) {
+      return;
     }
 
     m_server->m_attached = true;
@@ -1382,6 +1392,10 @@ void FarmController::initServer(FarmServerProxy *server) {
   try {
     server->queryHwInfo(hwInfo);
   } catch (TException & /*e*/) {
+    TThread::Executor exec;
+    exec.addTask(new ServerInitializer(server));
+    return;
+  } catch (...) {
     TThread::Executor exec;
     exec.addTask(new ServerInitializer(server));
     return;
@@ -1776,8 +1790,7 @@ void FarmController::taskSubmissionError(const QString &taskId, int errCode) {
         }
 
         parentTask->m_status = parentTaskState;
-        if (parentTask->m_status == Aborted ||
-            parentTask->m_status == Aborted) {
+        if (parentTask->m_status == Aborted) {
           parentTask->m_completionDate = task->m_completionDate;
           if (parentTask->m_toBeDeleted) m_tasks.erase(itParent);
         }
@@ -1806,6 +1819,8 @@ void FarmController::taskSubmissionError(const QString &taskId, int errCode) {
         try {
           startTask(task, server);
         } catch (TException & /*e*/) {
+          continue;
+        } catch (...) {
           continue;
         }
 
@@ -1861,7 +1876,7 @@ void FarmController::taskCompleted(const QString &taskId, int exitCode) {
     } else {
       switch (exitCode) {
       case 0:
-        task->m_status                                = Completed;
+        task->m_status = Completed;
         if (isAScript(task)) task->m_successfullSteps = task->m_stepCount;
         break;
       case RENDER_LICENSE_NOT_FOUND:
@@ -1988,6 +2003,7 @@ void FarmController::taskCompleted(const QString &taskId, int exitCode) {
         } else
           startTask(task, server);
       } catch (TException & /*e*/) {
+      } catch (...) {
       }
     }
   }
@@ -2072,6 +2088,7 @@ void FarmController::activateServer(const QString &id) {
           } else
             startTask(task, server);
         } catch (TException & /*e*/) {
+        } catch (...) {
         }
       }
     }
@@ -2196,6 +2213,7 @@ void FarmController::activateReadyServers() {
             } else
               startTask(task, server);
           } catch (TException & /*e*/) {
+          } catch (...) {
           }
         }
       }
@@ -2343,7 +2361,7 @@ void ControllerService::onStart(int argc, char *argv[]) {
   msg += "\n";
   m_userLog->info(msg);
 
-// std::cout << msg;
+  // std::cout << msg;
 
 #ifdef __sgi
   { remove("/tmp/.tfarmcontroller.dat"); }

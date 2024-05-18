@@ -39,7 +39,6 @@
 #include "tcg/boost/range_utility.h"
 
 // boost includes
-#include <boost/bind.hpp>
 #include <boost/range/counting_range.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/adaptor/filtered.hpp>
@@ -212,7 +211,7 @@ public:
     int k;
     for (k = 0; k < count; k++) {
       styles.push_back(dstPage->getStyleId(h));
-      dstPage->removeStyle(h);
+      dstPage->removeStyle(h, true);
     }
     k = 0;
     for (i = m_srcIndicesInPage.begin(); i != m_srcIndicesInPage.end();
@@ -235,7 +234,7 @@ public:
       int index = *i;
       if (m_dstPageIndex == m_srcPageIndex && index < k) k--;
       styles.push_back(srcPage->getStyleId(index));
-      srcPage->removeStyle(index);
+      srcPage->removeStyle(index, true);
     }
     for (j = styles.begin(); j != styles.end(); ++j)
       dstPage->insertStyle(k, *j);
@@ -300,7 +299,7 @@ public:
     assert(page);
     int indexInPage = page->search(m_styleId);
     assert(indexInPage >= 0);
-    page->removeStyle(indexInPage);
+    page->removeStyle(indexInPage, true);
     m_paletteHandle->notifyPaletteChanged();
   }
   void redo() const override {
@@ -585,8 +584,7 @@ void PaletteCmd::eraseStyles(const std::set<TXshSimpleLevel *> &levels,
       tcg::substitute(
           levelImages.second,
           boost::counting_range(0, levelImages.first->getFrameCount()) |
-              boost::adaptors::transformed(boost::bind(
-                  cloneImage, boost::cref(*levelImages.first), _1)));
+              boost::adaptors::transformed([&levelImages](int f){ return cloneImage(*levelImages.first, f); }));
     }
 
     static void restoreImage(const TXshSimpleLevelP &level, int f,

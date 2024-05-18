@@ -9,6 +9,7 @@
 #include "toonz/tcolumnfxset.h"
 #include "toonz/txshzeraryfxcolumn.h"
 #include "toonz/tstageobjecttree.h"
+#include "toonz/tstageobjectcmd.h"
 #include "toonz/txshlevelcolumn.h"
 #include "toonz/txshpalettecolumn.h"
 #include "toonz/toonzscene.h"
@@ -16,6 +17,7 @@
 #include "toonz/tfxhandle.h"
 #include "toonz/tcolumnhandle.h"
 #include "toonz/tscenehandle.h"
+#include "toonz/preferences.h"
 #include "historytypes.h"
 
 // TnzBase includes
@@ -309,7 +311,9 @@ TXshZeraryFxColumn *FxCommandUndo::createZeraryFxColumn(TXsheet *xsh, TFx *zfx,
   int frameCount = xsh->getScene()->getFrameCount() - row;
 
   TXshZeraryFxColumn *column =
-      new TXshZeraryFxColumn(frameCount > 0 ? frameCount : 100);
+      new TXshZeraryFxColumn(Preferences::instance()->isImplicitHoldEnabled()
+                                 ? 1
+                                 : (frameCount > 0 ? frameCount : 100));
   column->getZeraryColumnFx()->setZeraryFx(zfx);
   column->insertEmptyCells(0, row);
 
@@ -400,7 +404,7 @@ void FxCommandUndo::attach(TXsheet *xsh, const TFxCommand::Link &link,
 //------------------------------------------------------
 
 void FxCommandUndo::attachOutputs(TXsheet *xsh, TFx *insertedFx, TFx *inputFx) {
-  TCG_ASSERT(inputFx, return );
+  TCG_ASSERT(inputFx, return);
 
   FxDag *fxDag = xsh->getFxDag();
 
@@ -701,18 +705,20 @@ class InsertFxUndo final : public FxCommandUndo {
   int m_colIdx;
   bool m_columnReplacesHole;
   bool m_attachOutputs;
+  bool m_attachSource;
 
 public:
   InsertFxUndo(const TFxP &fx, int row, int col, const QList<TFxP> &selectedFxs,
                QList<TFxCommand::Link> selectedLinks, TApplication *app,
-               bool attachOutputs = true)
+               bool attachOutputs = true, bool attachSource = true)
       : m_selectedFxs(selectedFxs)
       , m_selectedLinks(selectedLinks)
       , m_insertedColumn(0)
       , m_app(app)
       , m_colIdx(col)
       , m_columnReplacesHole(false)
-      , m_attachOutputs(attachOutputs) {
+      , m_attachOutputs(attachOutputs)
+      , m_attachSource(attachSource) {
     initialize(fx, row, col);
   }
 
@@ -772,10 +778,11 @@ void InsertFxUndo::initialize(const TFxP &newFx, int row, int col) {
       m_columnReplacesHole = true;
   } else {
     if (m_selectedFxs.isEmpty() && m_selectedLinks.isEmpty()) {
-      // Attempt retrieval of current Fx from the fxHandle
-      if (TFx *currentFx = m_app->getCurrentFx()->getFx())
-        m_selectedFxs.push_back(currentFx);
-      else {
+      if (m_attachSource) {
+        // Attempt retrieval of current Fx from the fxHandle
+        if (TFx *currentFx = m_app->getCurrentFx()->getFx())
+          m_selectedFxs.push_back(currentFx);
+      } else {
         // Isolated case
         locals.storeFx(xsh, fx);
         return;
@@ -840,6 +847,14 @@ void InsertFxUndo::redo() const {
   if (m_insertedColumn) {
     FxCommandUndo::insertColumn(xsh, m_insertedColumn.getPointer(), m_colIdx,
                                 m_columnReplacesHole, true);
+
+    TStageObjectId columnId = TStageObjectId::ColumnId(m_colIdx);
+    std::wstring wname =
+        m_insertedColumn->getZeraryColumnFx()->getZeraryFx()->getName();
+    std::string str(wname.begin(), wname.end());
+
+    TStageObjectCmd::rename(columnId, str, m_app->getCurrentXsheet());
+
     return;
   }
 
@@ -942,7 +957,7 @@ void TFxCommand::addFx(TFx *newFx, const QList<TFxP> &fxs, TApplication *app,
   if (col < 0) col = 0;
 
   std::unique_ptr<FxCommandUndo> undo(
-      new InsertFxUndo(newFx, row, col, fxs, QList<Link>(), app, false));
+      new InsertFxUndo(newFx, row, col, fxs, QList<Link>(), app, false, false));
   if (!undo->isConsistent()) return;
 
   undo->redo();
@@ -2352,23 +2367,6 @@ static void deleteFxs(const std::list<TFxP> &fxs, TXsheetHandle *xshHandle,
 }
 
 //**********************************************************************
-//    Remove Output Fx  command
-//**********************************************************************
-
-void TFxCommand::removeOutputFx(TFx *fx, TXsheetHandle *xshHandle,
-                                TFxHandle *fxHandle) {
-  TOutputFx *outputFx = dynamic_cast<TOutputFx *>(fx);
-  if (!outputFx) return;
-
-  std::unique_ptr<FxCommandUndo> undo(
-      new DeleteFxOrColumnUndo(fx, xshHandle, fxHandle));
-  if (undo->isConsistent()) {
-    undo->redo();
-    TUndoManager::manager()->add(undo.release());
-  }
-}
-
-//**********************************************************************
 //    Delete Columns  command
 //**********************************************************************
 
@@ -2541,7 +2539,9 @@ void UndoPasteFxs::initialize(const std::map<TFx *, int> &zeraryFxColumnSize,
       // column with
       // the specified column size
       std::map<TFx *, int>::const_iterator it = zeraryFxColumnSize.find(fx);
-      int rows = (it == zeraryFxColumnSize.end()) ? 100 : it->second;
+      int rows = Preferences::instance()->isImplicitHoldEnabled()
+                     ? 1
+                     : ((it == zeraryFxColumnSize.end()) ? 100 : it->second);
 
       TXshZeraryFxColumn *column = new TXshZeraryFxColumn(rows);
       TZeraryColumnFx *zcfx      = column->getZeraryColumnFx();
@@ -3304,7 +3304,7 @@ void UndoConnectFxs::GroupData::restore() const {
 void UndoConnectFxs::initialize() {
   if (!UndoDisconnectFxs::isConsistent()) return;
 
-  TCG_ASSERT(m_link.m_inputFx && m_link.m_outputFx, m_fxs.clear(); return );
+  TCG_ASSERT(m_link.m_inputFx && m_link.m_outputFx, m_fxs.clear(); return);
 
   // Store sensible original data for the undo
   m_undoGroupDatas.reserve(m_fxs.size());
@@ -3418,7 +3418,7 @@ void SetParentUndo::initialize() {
   if (!m_parentFx) return;
 
   // NOTE: We cannot store this directly, since it's the actual out that owns
-  // the actual in, not viceversa
+  // the actual in, not vice versa
   TFx *parentFx = ::getActualIn(m_parentFx.getPointer());
 
   TXsheet *xsh = m_xshHandle->getXsheet();

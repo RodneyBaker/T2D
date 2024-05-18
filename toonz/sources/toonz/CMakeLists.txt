@@ -1,4 +1,4 @@
-set(VERSION 1.2)
+set(VERSION 1.4.2)
 
 set(MOC_HEADERS
     aboutpopup.h
@@ -30,6 +30,7 @@ set(MOC_HEADERS
     commandbar.h
     commandbarpopup.h
     convertpopup.h
+    crashhandler.h
     duplicatepopup.h
     dvdirtreeview.h
     dvitemview.h
@@ -49,7 +50,6 @@ set(MOC_HEADERS
     histogrampopup.h
     historypane.h
     imageviewer.h
-    insertfxpopup.h
     layerfooterpanel.h
     layerheaderpanel.h
     levelcreatepopup.h
@@ -79,6 +79,7 @@ set(MOC_HEADERS
     reslist.h
     ruler.h
     savepresetpopup.h
+    scenebrowser.h
     scenesettingspopup.h
     sceneviewer.h
     sceneviewercontextmenu.h
@@ -123,6 +124,10 @@ set(MOC_HEADERS
 	expressionreferencemanager.h
     tooloptionsshortcutinvoker.h
     exportxsheetpdf.h
+    custompanelmanager.h
+    custompaneleditorpopup.h
+    convertfolderpopup.h
+    exportcameratrackpopup.h
     motionpathpanel.h
     graphwidget.h
     ../stopmotion/stopmotion.h
@@ -132,7 +137,12 @@ set(MOC_HEADERS
     ../stopmotion/canon.h
     ../stopmotion/stopmotionserial.h
     ../stopmotion/stopmotionlight.h
+    ../stopmotion/gphotocam.h
     cameracapturelevelcontrol.h
+    navtageditorpopup.h
+    viewereventlogpopup.h
+    xshbreadcrumbs.h
+    alignmentpane.h
 )
 
 set(HEADERS
@@ -176,6 +186,7 @@ set(HEADERS
     ../include/orientation.h
     ../include/saveloadqsettings.h
     xdtsio.h
+    ocaio.h
     levelcommand.h
 # Tracker file
     ObjectTracker.h
@@ -243,13 +254,13 @@ set(SOURCES
     addfilmstripframespopup.cpp
     camerasettingspopup.cpp
     convertpopup.cpp
+    crashhandler.cpp
     duplicatepopup.cpp
     dvdirtreeview.cpp
     filebrowserpopup.cpp
     formatsettingspopups.cpp
     fxparameditorpopup.cpp
     histogrampopup.cpp
-    insertfxpopup.cpp
     layerfooterpanel.cpp
     layerheaderpanel.cpp
     levelcreatepopup.cpp
@@ -265,6 +276,8 @@ set(SOURCES
     renumberpopup.cpp
     runscriptcommand.cpp
     savepresetpopup.cpp
+    scenebrowser.cpp
+    scenebrowserversioncontrol.cpp
     sceneviewercontextmenu.cpp
     scenesettingspopup.cpp
     scriptconsolepanel.cpp
@@ -349,11 +362,16 @@ set(SOURCES
 	separatecolorsswatch.cpp
 	separatecolorspopup.cpp
     xdtsio.cpp
+    ocaio.cpp
 	xdtsimportpopup.cpp
 	expressionreferencemanager.cpp
     tooloptionsshortcutinvoker.cpp
     tvpjson_io.cpp
     exportxsheetpdf.cpp
+    custompanelmanager.cpp
+    custompaneleditorpopup.cpp
+    convertfolderpopup.cpp
+    exportcameratrackpopup.cpp
 # Tracker file
     dummyprocessor.cpp
     metnum.cpp
@@ -368,7 +386,12 @@ set(SOURCES
     ../stopmotion/canon.cpp
     ../stopmotion/stopmotionserial.cpp
     ../stopmotion/stopmotionlight.cpp
+    ../stopmotion/gphotocam.cpp
 	cameracapturelevelcontrol.cpp
+    navtageditorpopup.cpp
+    viewereventlogpopup.cpp
+    xshbreadcrumbs.cpp
+    alignmentpane.cpp
 )
 
 if(WITH_TRANSLATION)
@@ -432,8 +455,8 @@ if (WITH_CANON)
     add_definitions(-DWITH_CANON)
 endif()
 
-if (WITH_CRASHRPT)
-    add_definitions(-DWITH_CRASHRPT)
+if (WITH_GPHOTO2)
+    add_definitions(-DWITH_GPHOTO2)
 endif()
 
 if (WITH_WINTAB AND BUILD_TARGET_WIN AND (PLATFORM EQUAL 64))
@@ -462,13 +485,13 @@ if(BUILD_ENV_MSVC)
         set(EXTRA_LIBS ${EXTRA_LIBS} ${CANON_LIB})
     endif()
 
-    if(WITH_CRASHRPT)
-        set(EXTRA_LIBS ${EXTRA_LIBS} ${CRASHRPT_LIB})
+    if(WITH_GPHOTO2)
+        set(EXTRA_LIBS ${EXTRA_LIBS} ${GPHOTO2_LIB} ${GPHOTO2_PORT_LIB} ${GPHOTO2_COMPAT_LIB})
     endif()
 
     target_link_libraries(Tahoma2D
         Qt5::WinMain Qt5::Core Qt5::Gui Qt5::Network Qt5::OpenGL Qt5::Svg Qt5::Xml
-        Qt5::Script Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::SerialPort
+        Qt5::Script Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::SerialPort Qt5::UiTools
         ${GL_LIB} ${GLUT_LIB} ${TURBOJPEG_LIB} ${OpenCV_LIBS} ${EXTRA_LIBS} strmiids
         tnzcore tnzbase toonzlib colorfx tnzext image sound toonzqt tnztools tnzstdfx tfarm
     )
@@ -480,11 +503,15 @@ elseif(BUILD_ENV_APPLE AND WITH_CANON)
     # 変なところにライブラリ生成するカスども
     set(EXTRA_LIBS ${EXTRA_LIBS} "$<TARGET_FILE:tnzstdfx>" "$<TARGET_FILE:tfarm>")
 
+    if(WITH_GPHOTO2)
+        set(EXTRA_LIBS ${EXTRA_LIBS} ${GPHOTO2_LIB} ${GPHOTO2_PORT_LIB})
+    endif()
+
     add_dependencies(Tahoma2D tnzcore tnzbase toonzlib colorfx tnzext image sound toonzqt tnztools tnzstdfx tfarm)
 
     target_link_libraries(Tahoma2D
         Qt5::Core Qt5::Gui Qt5::Network Qt5::OpenGL Qt5::Svg Qt5::Xml
-        Qt5::Script Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::MultimediaWidgets Qt5::SerialPort
+        Qt5::Script Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::MultimediaWidgets Qt5::SerialPort Qt5::UiTools
         ${GL_LIB} ${GLUT_LIB} ${CANON_LIB} ${TURBOJPEG_LIB} ${OpenCV_LIBS}
         ${COCOA_LIB} ${EXTRA_LIBS} mousedragfilter
     )
@@ -497,11 +524,15 @@ elseif(BUILD_ENV_APPLE)
     # 変なところにライブラリ生成するカスども
     set(EXTRA_LIBS ${EXTRA_LIBS} "$<TARGET_FILE:tnzstdfx>" "$<TARGET_FILE:tfarm>")
 
+    if(WITH_GPHOTO2)
+        set(EXTRA_LIBS ${EXTRA_LIBS} ${GPHOTO2_LIB} ${GPHOTO2_PORT_LIB})
+    endif()
+
     add_dependencies(Tahoma2D tnzcore tnzbase toonzlib colorfx tnzext image sound toonzqt tnztools tnzstdfx tfarm)
 
     target_link_libraries(Tahoma2D
         Qt5::Core Qt5::Gui Qt5::Network Qt5::OpenGL Qt5::Svg Qt5::Xml
-        Qt5::Script Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::MultimediaWidgets Qt5::SerialPort
+        Qt5::Script Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::MultimediaWidgets Qt5::SerialPort Qt5::UiTools
         ${GL_LIB} ${GLUT_LIB} ${TURBOJPEG_LIB} ${OpenCV_LIBS}
         ${COCOA_LIB} ${EXTRA_LIBS} mousedragfilter
     )
@@ -512,7 +543,11 @@ elseif(BUILD_ENV_UNIXLIKE)
     # 変なところにライブラリ生成するカスども
     set(EXTRA_LIBS ${EXTRA_LIBS} "$<TARGET_FILE:tnzstdfx>" "$<TARGET_FILE:tfarm>")
 
-    set(EXTRA_LIBS ${EXTRA_LIBS} ${Boost_LIBRARIES} ${OPENBLAS_LIB})
+    set(EXTRA_LIBS ${EXTRA_LIBS} ${Boost_LIBRARIES} ${OPENBLAS_LIB} ${EXECINFO_LIBRARY})
+
+    if(WITH_GPHOTO2)
+        set(EXTRA_LIBS ${EXTRA_LIBS} ${GPHOTO2_LIB} ${GPHOTO2_PORT_LIB})
+    endif()
 
     if(BUILD_TARGET_WIN)
         set(EXTRA_LIBS ${EXTRA_LIBS} Qt5::WinMain -lstrmiids -mwindows)
@@ -520,9 +555,9 @@ elseif(BUILD_ENV_UNIXLIKE)
 
     target_link_libraries(
         Tahoma2D Qt5::Core Qt5::Gui Qt5::Network Qt5::OpenGL Qt5::Svg Qt5::Xml
-        Qt5::Script Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::SerialPort
+        Qt5::Script Qt5::Widgets Qt5::PrintSupport Qt5::Multimedia Qt5::SerialPort Qt5::UiTools
         ${GL_LIB} ${GLUT_LIB} ${GLU_LIB} ${TURBOJPEG_LIB} ${OpenCV_LIBS}
-        ${EXTRA_LIBS}
+        ${EXTRA_LIBS} dl
     )
 endif()
 
@@ -664,12 +699,29 @@ TAHOMA2DCONFIG=\"\$HOME/.config/Tahoma2D/stuff/config\"
 TAHOMA2DFXPRESETS=\"\$HOME/.config/Tahoma2D/stuff/fxs\"
 TAHOMA2DLIBRARY=\"\$HOME/.config/Tahoma2D/stuff/library\"
 TAHOMA2DPROJECTS=\"$HOME/.config/Tahoma2D/stuff/projects\"
-TAHOMA2DROOT=\"\$HOME/.config/Tahoma2D/stuff\"
 TAHOMA2DSTUDIOPALETTE=\"\$HOME/.config/Tahoma2D/stuff/studiopalette\"
 EOF
 fi
 
-export LD_LIBRARY_PATH=\${TAHOMA2D_BASE}/lib/tahoma2d:\${LD_LIBRARY_PATH}
+export ${PRELOAD_VARIABLE}=\${TAHOMA2D_BASE}/lib/tahoma2d:\${${PRELOAD_VARIABLE}}
+
+IFS=:
+for LIBPATH in \$LD_LIBRARY_PATH
+do
+  if [ \"\$CAMLIBS\" = \"\" -a -d \$LIBPATH/libgphoto2 ]
+  then
+     export CAMLIBS=`find \$LIBPATH/libgphoto2 -mindepth 1 -type d`
+  fi
+
+  if [ \"\$IOLIBS\" = \"\" -a -d \$LIBPATH/libgphoto2_port ]
+  then
+     export IOLIBS=`find \$LIBPATH/libgphoto2_port -mindepth 1 -type d`
+  fi
+done
+unset IFS
+
+echo \"CAMLIBS: \$CAMLIBS\"
+echo \"IOLIBS: \$IOLIBS\"
 
 exec \$TAHOMA2D_BASE/bin/Tahoma2D \"\$@\"
 ")

@@ -33,6 +33,7 @@
 #include "toonz/levelset.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/levelproperties.h"
+#include "toonz/filepathproperties.h"
 
 // TnzSound includes
 #include "tnzsound.h"
@@ -50,7 +51,7 @@
 #include "tunit.h"
 #include "tenv.h"
 #include "tpassivecachemanager.h"
-//#include "tcacheresourcepool.h"
+// #include "tcacheresourcepool.h"
 
 // TnzCore includes
 #include "tsystem.h"
@@ -112,8 +113,8 @@ namespace {
 //   (es <systemVarPrefix>PROJECTS etc.)
 //
 
-const char *rootVarName     = "TOONZROOT";
-const char *systemVarPrefix = "TOONZ";
+const char *rootVarName     = "TAHOMA2DROOT";
+const char *systemVarPrefix = "TAHOMA2D";
 
 // TODO: forse anche questo andrebbe in tnzbase
 // ci possono essere altri programmi offline oltre al tcomposer
@@ -439,7 +440,7 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
   r1 = r1 - 1;
 
   if (r0 < 0) r0 = 0;
-  if (r1 < 0 || r1 >= scene->getFrameCount()) r1 = scene->getFrameCount() - 1;
+  if (r1 < 0) r1 = scene->getFrameCount() - 1;
   string msg;
   assert(r1 >= r0);
   TSceneProperties *sprop          = scene->getProperties();
@@ -485,6 +486,8 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
   double stepd             = step * timeStretchFactor;
 
   int multimediaRender = outputSettings.getMultimediaRendering();
+  bool renderKeysOnly  = outputSettings.isRenderKeysOnly();
+  bool renderToFolders = outputSettings.isRenderToFolders();
 
   //---------------------------------------------------------
   //    Multimedia render
@@ -492,6 +495,7 @@ static std::pair<int, int> generateMovie(ToonzScene *scene, const TFilePath &fp,
 
   if (multimediaRender) {
     MultimediaRenderer multimediaRenderer(scene, fp, multimediaRender,
+                                          renderKeysOnly, renderToFolders,
                                           threadCount);
     TRenderSettings rs = outputSettings.getRenderSettings();
     rs.m_maxTileSize   = maxTileSize;
@@ -607,6 +611,8 @@ int main(int argc, char *argv[]) {
   IntQualifier stepOpt("-step n", "Step");
   IntQualifier shrinkOpt("-shrink n", "Shrink");
   IntQualifier multimedia("-multimedia n", "Multimedia rendering mode");
+  IntQualifier renderKeysOnly("-renderkeysonly n", "Render keys drawings only");
+  IntQualifier renderToFolders("-rendertofolders n", "Render To Folders");
   StringQualifier farmData("-farm data", "TFarm Controller");
   StringQualifier idq("-id n", "id");
   StringQualifier nthreads("-nthreads n", "Number of rendering threads");
@@ -614,7 +620,8 @@ int main(int argc, char *argv[]) {
                            "Enable tile rendering of max n MB per tile");
   StringQualifier tmsg("-tmsg val", "only internal use");
   usageLine = srcName + dstName + range + stepOpt + shrinkOpt + multimedia +
-              farmData + idq + nthreads + tileSize + tmsg;
+              renderKeysOnly + renderToFolders + farmData + idq + nthreads +
+              tileSize + tmsg;
 
   // system path qualifiers
   std::map<QString, std::unique_ptr<TCli::QualifierT<TFilePath>>>
@@ -798,7 +805,7 @@ int main(int argc, char *argv[]) {
     loadShaderInterfaces(ToonzFolder::getLibraryFolder() +
                          TFilePath("shaders"));
 
-    //#endif
+    // #endif
 
     //---------------------------------------------------------
 
@@ -827,6 +834,12 @@ int main(int argc, char *argv[]) {
     cout << msg << endl;
     m_userLog->info(msg);
     // pm->setCurrentProject(project, false); // false => temporaneamente
+
+    // update TFilePath condition on loading the current project
+    FilePathProperties *fpProp = project->getFilePathProperties();
+    TFilePath::setFilePathProperties(fpProp->useStandard(),
+                                     fpProp->acceptNonAlphabetSuffix(),
+                                     fpProp->letterCountForSuffix());
 
     Sw1.start();
 
@@ -901,6 +914,11 @@ int main(int argc, char *argv[]) {
       scene_from++;
       scene_to++;
     }
+
+    TRenderSettings rs = outProp->getRenderSettings();
+    rs.m_lastFrame     = scene_to;
+    outProp->setRenderSettings(rs);
+
     if (range.isSelected()) {
       r0 = range.getFrom();
       r1 = range.getTo();
@@ -920,6 +938,12 @@ int main(int argc, char *argv[]) {
     if (multimedia.isSelected())
       scene->getProperties()->getOutputProperties()->setMultimediaRendering(
           multimedia.getValue());
+    if (renderKeysOnly.isSelected())
+      scene->getProperties()->getOutputProperties()->setRenderKeysOnly(
+          renderKeysOnly.getValue());
+    if (renderToFolders.isSelected())
+      scene->getProperties()->getOutputProperties()->setRenderToFolders(
+          renderToFolders.getValue());
 
     // Retrieve Thread count
     const int procCount = TSystem::getProcessorCount();
@@ -927,13 +951,10 @@ int main(int argc, char *argv[]) {
     const int threadCounts[3] = {1, procCount / 2, procCount};
     if (nthreads.isSelected()) {
       QString threadCountStr = QString::fromStdString(nthreads.getValue());
-      threadCount            = (threadCountStr == "single")
-                        ? threadCounts[0]
-                        : (threadCountStr == "half")
-                              ? threadCounts[1]
-                              : (threadCountStr == "all")
-                                    ? threadCounts[2]
-                                    : threadCountStr.toInt();
+      threadCount            = (threadCountStr == "single") ? threadCounts[0]
+                               : (threadCountStr == "half") ? threadCounts[1]
+                               : (threadCountStr == "all")  ? threadCounts[2]
+                                                           : threadCountStr.toInt();
 
       if (threadCount <= 0) {
         cout << "Qualifier 'nthreads': bad input" << endl;
@@ -953,15 +974,11 @@ int main(int argc, char *argv[]) {
         TOutputProperties::MediumVal, TOutputProperties::SmallVal};
     if (tileSize.isSelected()) {
       QString tileSizeStr = QString::fromStdString(tileSize.getValue());
-      maxTileSize         = (tileSizeStr == "none")
-                        ? maxTileSizes[0]
-                        : (tileSizeStr == "large")
-                              ? maxTileSizes[1]
-                              : (tileSizeStr == "medium")
-                                    ? maxTileSizes[2]
-                                    : (tileSizeStr == "small")
-                                          ? maxTileSizes[3]
-                                          : tileSizeStr.toInt();
+      maxTileSize         = (tileSizeStr == "none")     ? maxTileSizes[0]
+                            : (tileSizeStr == "large")  ? maxTileSizes[1]
+                            : (tileSizeStr == "medium") ? maxTileSizes[2]
+                            : (tileSizeStr == "small")  ? maxTileSizes[3]
+                                                        : tileSizeStr.toInt();
 
       if (maxTileSize <= 0) {
         cout << "Qualifier 'maxtilesize': bad input" << endl;

@@ -13,6 +13,7 @@
 // TnzBase includes
 #include "trasterfx.h"
 #include "tparamuiconcept.h"
+#include "trenderer.h"
 
 // TnzLib includes
 #include "toonz/toonzimageutils.h"
@@ -98,7 +99,9 @@ ParticlesFx::ParticlesFx()
     , foutfadecol_val(0.0)
     , source_gradation_val(false)
     , pick_color_for_every_frame_val(false)
-    , perspective_distribution_val(false) {
+    , perspective_distribution_val(false)
+    , motion_blur_val(false)
+    , motion_blur_gamma_adjust_val(0.) {
   addInputPort("Texture1", new TRasterFxPort, 0);
   addInputPort("Control1", new TRasterFxPort, 1);
 
@@ -264,6 +267,9 @@ ParticlesFx::ParticlesFx()
   bindParam(this, "source_gradation", source_gradation_val);
   bindParam(this, "pick_color_for_every_frame", pick_color_for_every_frame_val);
   bindParam(this, "perspective_distribution", perspective_distribution_val);
+  bindParam(this, "motion_blur", motion_blur_val);
+  bindParam(this, "motion_blur_gamma_adjust", motion_blur_gamma_adjust_val);
+  motion_blur_gamma_adjust_val->setValueRange(-5., 5.);
 }
 
 //------------------------------------------------------------------
@@ -420,7 +426,9 @@ void ParticlesFx::doCompute(TTile &tile, double frame,
     for (unsigned int i = 0; i < (int)part_ports.size(); ++i) {
       const TFxTimeRegion &tr = (*part_ports[i])->getTimeRegion();
 
-      lastframe.push_back(tr.getLastFrame() + 1);
+      int lastFrameId = tr.isUnlimited() ? ri.m_lastFrame : tr.getLastFrame();
+
+      lastframe.push_back(lastFrameId + 1);
       partLevel.push_back(new TLevel());
       partLevel[i]->setName((*part_ports[i])->getAlias(0, ri));
 
@@ -431,7 +439,7 @@ void ParticlesFx::doCompute(TTile &tile, double frame,
       riZero.m_affine.a13 = riZero.m_affine.a23 = 0;
 
       // Calculate the bboxes union
-      for (int t = 0; t <= tr.getLastFrame(); ++t) {
+      for (int t = 0; t <= lastFrameId; ++t) {
         TRectD inputBox;
         (*part_ports[i])->getBBox(t, inputBox, riZero);
         bbox += inputBox;

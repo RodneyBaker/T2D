@@ -29,6 +29,7 @@
 #include "toonz/scenefx.h"
 #include "toonz/movierenderer.h"
 #include "toonz/multimediarenderer.h"
+#include "toonz/tframehandle.h"
 #include "toutputproperties.h"
 
 #ifdef _WIN32
@@ -87,10 +88,9 @@ public:
 
     if (Preferences::instance()->isGeneratedMovieViewEnabled()) {
       if (!isPreview && (Preferences::instance()->isDefaultViewerEnabled()) &&
-          (m_fp.getType() == "avi" ||
-           m_fp.getType() == "mp4" ||
-           m_fp.getType() == "gif" || m_fp.getType() == "webm" ||
-           m_fp.getType() == "mov")) {
+          (m_fp.getType() == "mov" || m_fp.getType() == "avi" ||
+           m_fp.getType() == "3gp" || m_fp.getType() == "mp4" ||
+           m_fp.getType() == "gif" || m_fp.getType() == "webm")) {
         QString name = QString::fromStdString(m_fp.getName());
         int index;
         if ((index = name.indexOf("#RENDERID")) != -1)  //! quite ugly I
@@ -163,6 +163,8 @@ class RenderCommand {
   double m_timeStretchFactor;
 
   int m_multimediaRender;
+  bool m_renderKeysOnly;
+  bool m_renderToFolders;
 
 public:
   RenderCommand()
@@ -174,7 +176,9 @@ public:
       , m_stepd(1)
       , m_oldCameraRes(0, 0)
       , m_timeStretchFactor(1)
-      , m_multimediaRender(0) {
+      , m_multimediaRender(0)
+      , m_renderKeysOnly(false)
+      , m_renderToFolders(false) {
     setCommandHandler("MI_Render", this, &RenderCommand::onRender);
     setCommandHandler("MI_SaveAndRender", this, &RenderCommand::onSaveAndRender);
     setCommandHandler("MI_FastRender", this, &RenderCommand::onFastRender);
@@ -210,7 +214,9 @@ bool RenderCommand::init(bool isPreview) {
     m_r1 = scene->getFrameCount() - 1;
   }
   if (m_r0 < 0) m_r0                       = 0;
-  if (m_r1 >= scene->getFrameCount()) m_r1 = scene->getFrameCount() - 1;
+  if (m_r1 >= scene->getFrameCount() &&
+      !Preferences::instance()->isImplicitHoldEnabled())
+    m_r1 = scene->getFrameCount() - 1;
   // nothing to render
   if (m_r1 < m_r0) {
     DVGui::warning(QObject::tr(
@@ -237,6 +243,8 @@ sprop->getOutputProperties()->setRenderSettings(rso);*/
     m_r                = m_r0;
     m_stepd            = m_step;
     m_multimediaRender = 0;
+    m_renderKeysOnly   = false;
+    m_renderToFolders  = false;
     return true;
   }
 
@@ -301,6 +309,8 @@ sprop->getOutputProperties()->setRenderSettings(rso);*/
 
   // Update the multimedia render switch
   m_multimediaRender = outputSettings.getMultimediaRendering();
+  m_renderKeysOnly   = outputSettings.isRenderKeysOnly();
+  m_renderToFolders  = outputSettings.isRenderToFolders();
 
   return true;
 }
@@ -327,7 +337,14 @@ class RenderListener final : public DVGui::ProgressDialog,
         , m_labelText(labelText) {}
     TThread::Message *clone() const override { return new Message(*this); }
     void onDeliver() override {
-      if (m_frame == -1)
+      if (m_frame == -2) {
+        m_pb->setLabelText(
+            QObject::tr("Finalizing render, please wait.", "RenderListener"));
+        // Set busy indicator to progress bar
+        m_pb->setMinimum(0);
+        m_pb->setMaximum(0);
+        m_pb->setValue(0);
+      } else if (m_frame == -1)
         m_pb->hide();
       else {
         m_pb->setLabelText(
@@ -374,8 +391,7 @@ public:
     if (m_frameCounter + 1 < m_totalFrames)
       Message(this, ret ? -1 : ++m_frameCounter, m_progressBarString).send();
     else
-      setLabelText(
-          QObject::tr("Finalizing render, please wait.", "RenderListener"));
+      Message(this, -2, "").send();
     return !ret;
   }
   bool onFrameFailed(int frame, TException &) override {
@@ -439,7 +455,7 @@ void RenderCommand::rasterRender(bool isPreview) {
   // depth). I tried to make OT to detect the mov settings and adaptively switch
   // the behavior, but ended in vain :-(
   // So I just omitted every mov from applying solid background as a quick fix.
-  if (isMovieType(ext) && ext != "mov" && ext != "webm") {
+  if (isMovieTypeOpaque(ext)) {
     scene->getProperties()->setBgColor(currBgColor);
   }
   // for non alpha-enabled images (like jpg), background color will be inserted
@@ -475,6 +491,17 @@ void RenderCommand::rasterRender(bool isPreview) {
       (std::numeric_limits<int>::max)(), TOutputProperties::LargeVal,
       TOutputProperties::MediumVal, TOutputProperties::SmallVal};
   rs.m_maxTileSize = maxTileSizes[index];
+
+  int r0, r1, step;
+  prop->getRange(r0, r1, step);
+  if (r0 > r1) {
+    r0 = 0;
+    r1 = (isPreview ? scene->getPreviewFrameCount() : scene->getFrameCount()) -
+         1;
+  }
+  if (isPreview && Preferences::instance()->isImplicitHoldEnabled())
+    r1 = std::max(r1, TApp::instance()->getCurrentFrame()->getFrameIndex());
+  rs.m_lastFrame = r1;
 
   // Build
 
@@ -724,8 +751,11 @@ void RenderCommand::multimediaRender() {
   TRenderSettings rs = prop->getRenderSettings();
   rs.m_maxTileSize   = maxTileSizes[index];
 
-  MultimediaRenderer multimediaRenderer(
-      scene, m_fp, prop->getMultimediaRendering(), threadCount);
+  int multimedia       = prop->getMultimediaRendering();
+  bool renderKeysOnly  = prop->isRenderKeysOnly();
+  bool renderToFolders = prop->isRenderToFolders();
+  MultimediaRenderer multimediaRenderer(scene, m_fp, multimedia, renderKeysOnly,
+                                        renderToFolders, threadCount);
   multimediaRenderer.setRenderSettings(rs);
 
   TPointD cameraDpi = scene->getCurrentCamera()->getDpi();

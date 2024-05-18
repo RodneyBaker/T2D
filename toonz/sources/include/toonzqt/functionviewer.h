@@ -74,11 +74,8 @@ public:
   enum IoType { eSaveCurve, eLoadCurve, eExportCurve };
 
 public:
-#if QT_VERSION >= 0x050500
-  FunctionViewer(QWidget *parent = 0, Qt::WindowFlags flags = 0);
-#else
-  FunctionViewer(QWidget *parent = 0, Qt::WFlags flags = 0);
-#endif
+  FunctionViewer(QWidget *parent       = 0,
+                 Qt::WindowFlags flags = Qt::WindowFlags());
   ~FunctionViewer();
 
   void setXsheetHandle(TXsheetHandle *xshHandle);  //!< Associates an xsheet to
@@ -124,7 +121,8 @@ public:
   TXsheetHandle *getXsheetHandle() const { return m_xshHandle; }
 
   // SaveLoadQSettings
-  virtual void save(QSettings &settings) const override;
+  virtual void save(QSettings &settings,
+                    bool forPopupIni = false) const override;
   virtual void load(QSettings &settings) override;
 
   // refer to the preferences' "Current Column Color"

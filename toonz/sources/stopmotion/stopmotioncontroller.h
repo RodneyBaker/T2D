@@ -10,11 +10,13 @@
 
 #include "tfilepath.h"
 #include "toonz/tproject.h"
+#include "filebrowserpopup.h"
 
 // TnzQt includes
 #include "toonzqt/tabbar.h"
 #include "toonzqt/gutil.h"
 #include "toonzqt/colorfield.h"
+#include "toonzqt/doublefield.h"
 
 // Qt includes
 #include <QWidget>
@@ -79,10 +81,11 @@ class FrameNumberLineEdit : public DVGui::LineEdit,
   QRegExpValidator *m_regexpValidator, *m_regexpValidator_alt;
 
   void updateValidator();
+  void updateSize();
   QString m_textOnFocusIn;
 
 public:
-  FrameNumberLineEdit(QWidget* parent = 0, TFrameId fId = TFrameId(1),
+  FrameNumberLineEdit(QWidget *parent = 0, TFrameId fId = TFrameId(1),
                       bool acceptLetter = true);
   ~FrameNumberLineEdit() {}
 
@@ -178,6 +181,7 @@ class StopMotionController final : public QWidget {
   QFrame *m_pathsPage;
   QFrame *m_dslrFrame;
   QFrame *m_webcamFrame;
+  QFrame *m_commonFrame;
   QFrame *m_noCameraFrame;
   QStackedWidget *m_stackedChooser;
   TabBarContainter *m_tabBarContainer;  //!< Tabs container for pages
@@ -190,38 +194,39 @@ class StopMotionController final : public QWidget {
       *m_focusFar3Button, *m_captureFilterSettingsBtn, *m_testLightsButton;
   QHBoxLayout *m_focusAndZoomLayout;
   QLabel *m_frameInfoLabel, *m_cameraSettingsLabel, *m_cameraModeLabel,
-      *m_resolutionLabel, *m_directShowLabel, *m_cameraStatusLabel,
-      *m_apertureLabel, *m_kelvinValueLabel, *m_isoLabel, *m_shutterSpeedLabel,
-      *m_webcamLabel, *m_liveViewCompensationLabel;
+      *m_resolutionLabel, *m_cameraStatusLabel, *m_apertureLabel,
+      *m_kelvinValueLabel, *m_isoLabel, *m_shutterSpeedLabel, *m_webcamLabel,
+      *m_liveViewCompensationLabel;
   QToolButton *m_previousLevelButton, *m_previousFrameButton,
       *m_previousXSheetFrameButton;
   QSlider *m_apertureSlider, *m_shutterSpeedSlider, *m_isoSlider,
       *m_kelvinSlider, *m_webcamFocusSlider, *m_webcamWhiteBalanceSlider,
       *m_webcamExposureSlider, *m_webcamBrightnessSlider,
       *m_webcamContrastSlider, *m_webcamGainSlider, *m_webcamSaturationSlider,
-      *m_liveViewCompensationSlider;
+      *m_liveViewCompensationSlider, *m_manualFocusSlider;
   QComboBox *m_cameraListCombo, *m_exposureCombo, *m_fileTypeCombo,
-      *m_whiteBalanceCombo, *m_resolutionCombo, *m_imageQualityCombo,
+      *m_whiteBalanceCombo, *m_resolutionCombo, *m_imageQualityCombo, *m_imageSizeCombo,
       *m_pictureStyleCombo, *m_controlDeviceCombo, *m_captureFramesCombo,
       *m_colorTypeCombo;
   LevelNameLineEdit *m_levelNameEdit;
   QCheckBox *m_blackScreenForCapture, *m_placeOnXSheetCB, *m_directShowCB,
       *m_liveViewOnAllFramesCB, *m_useMjpgCB, *m_useNumpadCB, *m_drawBeneathCB,
-      *m_timerCB, *m_showScene1, *m_showScene2,
+      *m_playSound, *m_showScene1, *m_showScene2,
       *m_showScene3;  //, *m_upsideDownCB;
   CameraCaptureLevelControl *m_camCapLevelControl;
   DVGui::FileField *m_saveInFileFld;
   DVGui::IntLineEdit *m_xSheetFrameNumberEdit;
   FrameNumberLineEdit *m_frameNumberEdit;
-  DVGui::IntField *m_onionOpacityFld, *m_postCaptureReviewFld,
-      *m_subsamplingFld;
+  DVGui::IntField *m_onionOpacityFld, *m_subsamplingFld;
+  DVGui::DoubleField *m_postCaptureReviewFld;
   StopMotionSaveInFolderPopup *m_saveInFolderPopup;
-  DVGui::IntField *m_timerIntervalFld;
+  DVGui::DoubleField *m_timerIntervalFld;
   DVGui::ColorField *m_screen1ColorFld, *m_screen2ColorFld, *m_screen3ColorFld;
   QGroupBox *m_screen1Box;
   QGroupBox *m_screen2Box;
   QGroupBox *m_screen3Box;
   QGroupBox *m_webcamAutoFocusGB;
+  QGroupBox *m_timerCB;
   QTimer *m_lightTestTimer;
 
   // tests variables
@@ -232,6 +237,17 @@ class StopMotionController final : public QWidget {
   QVBoxLayout *m_testsOutsideLayout;
   QVBoxLayout *m_testsInsideLayout;
   int m_testsImagesPerRow;
+
+  // calibration feature
+  struct CalibrationUI {
+    QPushButton *capBtn, *newBtn, *loadBtn, *cancelBtn, *exportBtn;
+    QLabel *label;
+    QGroupBox *groupBox;
+  } m_calibrationUI;
+
+  void captureCalibrationRefImage(cv::Mat &procImage);
+
+  QString getCurrentCalibFilePath();
 
 public:
   StopMotionController(QWidget *parent = 0);
@@ -246,6 +262,8 @@ protected:
   void keyPressEvent(QKeyEvent *event) override;
   void resizeEvent(QResizeEvent *event) override;
   void reflowTestShots();
+
+  void updateCaptureButton(bool captureStarted);
 
 protected slots:
   void refreshCameraList(QString activeCamera = "");
@@ -301,6 +319,9 @@ protected slots:
   void onIntervalStarted();
   void onIntervalStopped();
 
+  // sound
+  void onPlaySoundToggled(bool);
+
   // lights and screens
   void setScreen1Color(const TPixel32 &value, bool isDragging);
   void setScreen2Color(const TPixel32 &value, bool isDragging);
@@ -324,7 +345,7 @@ protected slots:
   void onShowSceneOn2Changed(bool);
   void onShowSceneOn3Changed(bool);
 
-  // canon stuff
+  // DSLR stuff
   void onApertureChanged(int index);
   void onShutterSpeedChanged(int index);
   void onIsoChanged(int index);
@@ -332,8 +353,10 @@ protected slots:
   void onWhiteBalanceChanged(int index);
   void onColorTemperatureChanged(int index);
   void onImageQualityChanged(int index);
+  void onImageSizeChanged(int index);
   void onPictureStyleChanged(int index);
   void onLiveViewCompensationChanged(int index);
+  void onManualFocusChanged(int index);
   void onZoomPressed();
   void onPickZoomPressed();
   void onFocusNear();
@@ -349,6 +372,7 @@ protected slots:
   void onWhiteBalanceChangedSignal(QString);
   void onColorTemperatureChangedSignal(QString);
   void onImageQualityChangedSignal(QString);
+  void onImageSizeChangedSignal(QString);
   void onPictureStyleChangedSignal(QString);
   void onLiveViewCompensationChangedSignal(int);
   void refreshApertureList();
@@ -358,8 +382,10 @@ protected slots:
   void refreshWhiteBalanceList();
   void refreshColorTemperatureList();
   void refreshImageQualityList();
+  void refreshImageSizeList();
   void refreshPictureStyleList();
   void refreshMode();
+  void refreshManualFocusRange();
   void onFocusCheckToggled(bool on);
   void onPickFocusCheckToggled(bool on);
   void onAlwaysUseLiveViewImagesButtonClicked();
@@ -383,10 +409,15 @@ protected slots:
   void onUseMjpgSignal(bool);
   void onUseDirectShowSignal(bool);
   void onReviewTimeChangedSignal(int);
+  void onPlayCaptureSignal(bool);
   void onUseNumpadSignal(bool);
   void onDrawBeneathSignal(bool);
   void onLiveViewChanged(bool);
-  void onNewCameraSelected(int, bool);
+  void onNewCameraSelected(int);
+  void onCameraIndexChanged(int);
+  void onUpdateStopMotionControls();
+  void onCaptureStarted();
+  void onCaptureComplete();
 
   // webcam
   void onWebcamResolutionsChanged();
@@ -406,8 +437,38 @@ protected slots:
   void onRefreshTests();
   void clearTests();
 
+  void onCalibCapBtnClicked();
+  void onCalibNewBtnClicked();
+  void resetCalibSettingsFromFile();
+  void onCalibLoadBtnClicked();
+  void onCalibExportBtnClicked();
+  void onCalibImageCaptured();
+  void onCalibReadme();
+
 public slots:
   void openSaveInFolderPopup();
+};
+
+//=============================================================================
+
+class ExportCalibrationFilePopup final : public GenericSaveFilePopup {
+  Q_OBJECT
+public:
+  ExportCalibrationFilePopup(QWidget *parent);
+
+protected:
+  void showEvent(QShowEvent *) override;
+};
+
+//=============================================================================
+
+class LoadCalibrationFilePopup final : public GenericLoadFilePopup {
+  Q_OBJECT
+public:
+  LoadCalibrationFilePopup(QWidget *parent);
+
+protected:
+  void showEvent(QShowEvent *) override;
 };
 
 #endif  // STOPMOTIONCONTROLLER_H

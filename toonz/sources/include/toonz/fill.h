@@ -73,6 +73,8 @@ class TTileSaverFullColor;
 
 //=============================================================================
 
+DVAPI void outputPixels(const std::string _str, const TRasterCM32P& r);
+
 // returns true if the savebox is changed typically, if you fill the bg)
 DVAPI bool fill(const TRasterCM32P &r, const FillParameters &params,
                 TTileSaverCM32 *saver = 0, bool fillGaps = false,
@@ -94,11 +96,20 @@ bool DVAPI inkSegment(const TRasterCM32P &r, const TPoint &p, int ink,
 void DVAPI rectFillInk(const TRasterCM32P &ras, const TRect &r, int color);
 
 void DVAPI fillautoInks(TRasterCM32P &r, TRect &rect,
-                        const TRasterCM32P &rbefore, TPalette *plt);
+                        const TRasterCM32P &rbefore, TPalette *plt,
+                        int fillIndex);
 
 void DVAPI fullColorFill(const TRaster32P &ras, const FillParameters &params,
                          TTileSaverFullColor *saver = 0, TXsheet *xsheet = 0,
-                         int frameIndex = -1);
+                         int frameIndex = -1, bool fillGaps = false,
+                         bool closeGaps = false, int closeStyleIndex = -1,
+                         double autoCloseDistance = -1.0);
+
+void DVAPI finishGapLines(TRasterCM32P &rin, TRect &rect,
+                          const TRasterCM32P &rbefore,
+                          const TRasterCM32P &combined, TPalette *plt,
+                          int clickedColorStyle, int fillIndex,
+                          int closeColorStyle, bool closeGaps);
 
 //=============================================================================
 //! The class AreaFiller allows to fill a raster area, delimited by rect or

@@ -8,12 +8,11 @@
 // TnzLib includes
 #include "toonz/preferences.h"
 
+#include "toonzqt/dvdialog.h"
+
 // TnzCore includes
 #include "tfilepath.h"
 #include "tundo.h"
-
-// Qt includes
-#include <QDialog>
 
 // boost includes
 #include <boost/optional.hpp>
@@ -95,9 +94,10 @@ struct LoadResourceArguments {
 
   enum ImportPolicy  //!  Policy adopted for resources external to current
                      //!  scene.
-  { ASK_USER,        //!< User is prompted for a resolution.
-    IMPORT,          //!< Resources are copied to scene folders (\a overwrites).
-    LOAD,            //!< Resources are loaded from their original paths.
+  {
+    ASK_USER,  //!< User is prompted for a resolution.
+    IMPORT,    //!< Resources are copied to scene folders (\a overwrites).
+    LOAD,      //!< Resources are loaded from their original paths.
   };
 
 public:
@@ -132,7 +132,7 @@ public:
   int step, inc, frameCount;
   bool doesFileActuallyExist;
 
-  enum CacheTlvBehavior {
+  enum CacheRasterBehavior {
     ON_DEMAND = 0,  // image data will be loaded when needed
     ALL_ICONS,      // icon data of all frames will be cached at the begininng
     ALL_ICONS_AND_IMAGES  // both icon and image data of all frames will be
@@ -165,7 +165,7 @@ public:
 
 //------------------------------------------------------------------------
 
-class ConvertingPopup final : public QDialog {
+class ConvertingPopup final : public DVGui::Dialog {
 public:
   ConvertingPopup(QWidget *parent, QString fileName);
   ~ConvertingPopup();
@@ -179,6 +179,7 @@ bool loadScene(ToonzScene &scene, const TFilePath &scenePath, bool import);
 bool loadScene(const TFilePath &scenePath, bool updateRecentFile = true,
                bool checkSaveOldScene = true);
 bool loadScene();
+bool saveSceneVersion();
 
 bool loadSubScene();
 bool loadSubScene(const TFilePath &scenePath);
@@ -258,7 +259,7 @@ bool importLipSync(TFilePath levelPath, QList<TFrameId> frameList,
 // open a warning popup notifying that such level will lose link.
 bool takeCareSceneFolderItemsOnSaveSceneAs(
     ToonzScene *scene, const TFilePath &newPath, TXsheet *subxsh,
-    QHash<TXshLevel *, TFilePath> &orgLevelPaths);
+    QHash<TXshLevel *, TFilePath> &orgLevelPaths, bool useSceneSubfolders);
 
 }  // namespace IoCmd
 

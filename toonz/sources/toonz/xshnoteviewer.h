@@ -48,6 +48,7 @@ public:
   NotePopup(XsheetViewer *viewer, int noteIndex);
   ~NotePopup() {}
 
+  void setCurrentViewer(XsheetViewer *viewer);
   void setCurrentNoteIndex(int index);
 
   void update();
@@ -82,6 +83,8 @@ protected slots:
   void onXsheetSwitched();
 };
 
+static NotePopup *NotePopupWidget;
+
 //=============================================================================
 // NoteWidget
 //-----------------------------------------------------------------------------
@@ -90,7 +93,6 @@ class NoteWidget final : public QWidget {
   Q_OBJECT
   XsheetViewer *m_viewer;
   int m_noteIndex;
-  std::unique_ptr<NotePopup> m_noteEditor;
   bool m_isHovered;
 
 public:
@@ -99,7 +101,7 @@ public:
   int getNoteIndex() const { return m_noteIndex; }
   void setNoteIndex(int index) {
     m_noteIndex = index;
-    if (m_noteEditor) m_noteEditor->setCurrentNoteIndex(index);
+    if (NotePopupWidget) NotePopupWidget->setCurrentNoteIndex(index);
   }
 
   void paint(QPainter *painter, QPoint pos = QPoint(), bool isCurrent = false);
@@ -117,10 +119,9 @@ protected:
 class NoteArea final : public QFrame {
   Q_OBJECT
 
-  std::unique_ptr<NotePopup> m_newNotePopup;  // Popup used to create new note
   XsheetViewer *m_viewer;
 
-  // QPushButton *m_flipOrientationButton;
+  QPushButton *m_flipOrientationButton;
 
   QToolButton *m_noteButton;
   QToolButton *m_nextNoteButton;
@@ -136,17 +137,12 @@ class NoteArea final : public QFrame {
   QLayout *m_currentLayout;
 
 public:
-#if QT_VERSION >= 0x050500
-  NoteArea(XsheetViewer *parent = 0, Qt::WindowFlags flags = 0);
-#else
-  NoteArea(XsheetViewer *parent = 0, Qt::WFlags flags = 0);
-#endif
+  NoteArea(XsheetViewer *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
 
-  void updatePopup() { m_newNotePopup->update(); }
   void updateButtons();
 
 protected slots:
-  // void flipOrientation();
+  void flipOrientation();
   void toggleNewNote();
   void nextNote();
   void precNote();
@@ -168,7 +164,6 @@ protected:
 class FooterNoteArea final : public QFrame {
   Q_OBJECT
 
-  std::unique_ptr<NotePopup> m_newNotePopup;  // Popup used to create new note
   XsheetViewer *m_viewer;
 
   QToolButton *m_noteButton;
@@ -176,14 +171,9 @@ class FooterNoteArea final : public QFrame {
   QToolButton *m_precNoteButton;
 
 public:
-#if QT_VERSION >= 0x050500
   FooterNoteArea(QWidget *parent = 0, XsheetViewer *viewer = 0,
-                 Qt::WindowFlags flags = 0);
-#else
-  FooterNoteArea(XsheetViewer *parent = 0, Qt::WFlags flags = 0);
-#endif
+                 Qt::WindowFlags flags = Qt::WindowFlags());
 
-  void updatePopup() { m_newNotePopup->update(); }
   void updateButtons();
 
 protected slots:

@@ -22,12 +22,13 @@
 #include "toonz/tframehandle.h"
 #include "toonz/ttileset.h"
 #include "toonz/ttilesaver.h"
-#include "toonz/strokegenerator.h"
 #include "toonz/tstageobject.h"
 #include "toonz/palettecontroller.h"
 #include "toonz/mypaintbrushstyle.h"
 #include "toonz/preferences.h"
 #include "toonz/toonzfolders.h"
+#include "toonz/tcolumnhandle.h"
+#include "toonz/tstageobjectcmd.h"
 
 // TnzCore includes
 #include "tgl.h"
@@ -379,6 +380,16 @@ void FullColorBrushTool::leftButtonDown(const TPointD &pos,
   applyToonzBrushSettings(mypaintBrush);
   m_toonz_brush = new MyPaintToonzBrush(m_workRaster, *this, mypaintBrush);
 
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  if (symmetryTool && symmetryTool->isGuideEnabled()) {
+    TPointD dpiScale       = getViewer()->getDpiScale();
+    SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+    m_toonz_brush->addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                                      symmObj.getCenterPoint(),
+                                      symmObj.isUsingLineSymmetry(), dpiScale);
+  }
+
   m_strokeRect.empty();
   m_strokeSegmentRect.empty();
   m_toonz_brush->beginStroke();
@@ -622,6 +633,9 @@ void FullColorBrushTool::leftButtonUp(const TPointD &pos,
   else
     point = TPointD(pos + rasCenter);
 
+  // Clicked with no movement. Make it look like it moved
+  if (m_strokeRect.isEmpty()) point += TPointD(1, 1);
+
   double pressure;
   if (getApplication()->getCurrentLevelStyle()->getTagId() ==
       4001)  // mypaint brush case
@@ -654,16 +668,36 @@ void FullColorBrushTool::leftButtonUp(const TPointD &pos,
   m_lastRect.empty();
   m_workRaster->unlock();
 
+  bool isEditingLevel = m_application->getCurrentFrame()->isEditingLevel();
+  bool renameColumn   = m_isFrameCreated;
+  if (!isEditingLevel && renameColumn) TUndoManager::manager()->beginBlock();
+  TTool::Application *app   = TTool::getApplication();
+  TXshLevel *level          = app->getCurrentLevel()->getLevel();
+  TXshSimpleLevelP simLevel = level->getSimpleLevel();
+
   if (m_tileSet->getTileCount() > 0) {
     delete m_tileSaver;
-    TTool::Application *app   = TTool::getApplication();
-    TXshLevel *level          = app->getCurrentLevel()->getLevel();
-    TXshSimpleLevelP simLevel = level->getSimpleLevel();
     TFrameId frameId          = getCurrentFid();
     TRasterP subras           = ras->extract(m_strokeRect)->clone();
     TUndoManager::manager()->add(new FullColorBrushUndo(
         m_tileSet, simLevel.getPointer(), frameId, m_isFrameCreated, subras,
         m_strokeRect.getP00()));
+  }
+
+  // Column name renamed to level name only if was originally empty
+  if (!isEditingLevel && renameColumn) {
+    int col            = app->getCurrentColumn()->getColumnIndex();
+    TXshColumn *column = app->getCurrentXsheet()->getXsheet()->getColumn(col);
+    int r0, r1;
+    column->getRange(r0, r1);
+    if (r0 == r1) {
+      TStageObjectId columnId = TStageObjectId::ColumnId(col);
+      std::string columnName =
+          QString::fromStdWString(simLevel->getName()).toStdString();
+      TStageObjectCmd::rename(columnId, columnName, app->getCurrentXsheet());
+    }
+
+    TUndoManager::manager()->endBlock();
   }
 
   notifyImageChanged();
@@ -721,17 +755,19 @@ void FullColorBrushTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
 
   // locals.addMinMax(m_thickness, int(add));
   //} else
-  // if (e.isCtrlPressed() && e.isAltPressed()) {
-  //  const TPointD &diff = pos - m_mousePos;
-  //  double max          = diff.x / 2;
-  //  double min          = diff.y / 2;
+  if (e.isCtrlPressed() && e.isAltPressed() && !e.isShiftPressed() &&
+      Preferences::instance()->useCtrlAltToResizeBrushEnabled()) {
+    const TPointD &diff = m_windowMousePos - -e.m_pos;
+    double max          = diff.x / 2;
+    double min          = diff.y / 2;
 
-  //  locals.addMinMaxSeparate(m_thickness, int(min), int(max));
-  //} else {
-  m_brushPos = pos;
-  //}
+    locals.addMinMaxSeparate(m_thickness, int(min), int(max));
+  } else {
+    m_brushPos = pos;
+  }
 
   m_mousePos = pos;
+  m_windowMousePos = -e.m_pos;
 
   invalidate();
 }

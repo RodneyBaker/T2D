@@ -307,8 +307,9 @@ bool DrawingData::getLevelFrames(TXshSimpleLevel *sl,
   TPalette *slPlt = sl->getPalette();
   bool styleAdded = mergePalette_Overlap(slPlt, imgPlt, keepOriginalPalette);
 
+  int styleCount = slPlt ? slPlt->getStyleCount() : 0;
   std::map<int, int> styleTable;
-  for (int s = 0; s < slPlt->getStyleCount(); s++) styleTable[s] = s;
+  for (int s = 0; s < styleCount; s++) styleTable[s] = s;
 
   // Merge Image
   for (auto const &image : usedImageSet) {
@@ -452,7 +453,7 @@ DrawingData::~DrawingData() {
 
 void DrawingData::releaseData() {
   // do it when you're sure you no t need images anymore... (for example in an
-  // undo distructor)
+  // undo destructor)
   // int i;
   // for(i=0; i<m_imageSet.size(); i++)
   //  TImageCache::instance()->remove(m_imageSet[i]);

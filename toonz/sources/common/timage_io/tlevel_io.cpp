@@ -35,7 +35,8 @@ TLevelReader::TLevelReader(const TFilePath &path)
     , m_info(0)
     , m_path(path)
     , m_contentHistory(0)
-    , m_frameFormat(TFrameId::FOUR_ZEROS) {}
+    , m_frameFormat(TFrameId::FOUR_ZEROS)
+    , m_useExactPath(false) {}
 
 //-----------------------------------------------------------
 
@@ -102,6 +103,9 @@ const TImageInfo *TLevelReader::getImageInfo() {
 TLevelP TLevelReader::loadInfo() {
   TFilePath parentDir = m_path.getParentDir();
   TFilePath levelName(m_path.getLevelName());
+  // For scene loading, use what was stored in the file instead
+  // of auto converting to a level name.
+  if (useExactPath()) levelName = m_path.withoutParentDir();
   //  cout << "Parent dir = '" << parentDir << "'" << endl;
   //  cout << "Level name = '" << levelName << "'" << endl;
   TFilePathSet files;
@@ -115,9 +119,13 @@ TLevelP TLevelReader::loadInfo() {
   for (TFilePathSet::iterator it = files.begin(); it != files.end(); it++) {
     TFilePath ln(it->getLevelName());
     // cout << "try " << *it << "  " << it->getLevelName() <<  endl;
-    if (levelName == TFilePath(it->getLevelName())) {
+    if (levelName == TFilePath(it->getLevelName()) ||
+        levelName == it->withoutParentDir()) {
       try {
-        level->setFrame(it->getFrame(), TImageP());
+        if (levelName == it->withoutParentDir())
+          level->setFrame(TFrameId::NO_FRAME, TImageP());
+        else
+          level->setFrame(it->getFrame(), TImageP());
         data.push_back(*it);
       } catch (TMalformedFrameException tmfe) {
         // skip frame named incorrectly warning to the user in the message
@@ -125,6 +133,11 @@ TLevelP TLevelReader::loadInfo() {
         DVGui::warning(QString::fromStdWString(
             tmfe.getMessage() + L": " +
             QObject::tr("Skipping frame.").toStdWString()));
+        continue;
+      } catch (...) {
+        DVGui::warning(QString::fromStdWString(
+            QObject::tr("Unhandled exception encountered: Skipping frame.")
+                .toStdWString()));
         continue;
       }
     }
@@ -163,6 +176,7 @@ TLevelP TLevelReader::loadInfo() {
 //-----------------------------------------------------------
 
 TImageReaderP TLevelReader::getFrameReader(TFrameId fid) {
+  if (fid.isNoFrame()) return TImageReaderP(m_path);
   return TImageReaderP(m_path.withFrame(fid, m_frameFormat));
 }
 
@@ -186,7 +200,8 @@ TLevelWriter::TLevelWriter(const TFilePath &path, TPropertyGroup *prop)
     : TSmartObject(m_classCode)
     , m_path(path)
     , m_properties(prop)
-    , m_contentHistory(0) {
+    , m_contentHistory(0)
+    , m_frameFormatTemplateFId(TFrameId::NO_FRAME) {
   string ext = path.getType();
   if (!prop) m_properties = Tiio::makeWriterProperties(ext);
 }
@@ -250,6 +265,12 @@ void TLevelWriter::getSupportedFormats(QStringList &names,
 //-----------------------------------------------------------
 
 TImageWriterP TLevelWriter::getFrameWriter(TFrameId fid) {
+  // change the frame format with the template
+  if (!m_frameFormatTemplateFId.isNoFrame()) {
+    fid.setZeroPadding(m_frameFormatTemplateFId.getZeroPadding());
+    fid.setStartSeqInd(m_frameFormatTemplateFId.getStartSeqInd());
+  }
+
   TImageWriterP iw(m_path.withFrame(fid));
   iw->setProperties(m_properties);
   return iw;
@@ -351,7 +372,7 @@ void TLevelReader::define(QString extension, int reader,
                           TLevelReaderCreateProc *proc) {
   LevelReaderKey key(extension, reader);
   LevelReaderTable[key] = proc;
-  // cout << "LevelReader " << extension << " registred" << endl;
+  // cout << "LevelReader " << extension << " registered" << endl;
 }
 
 //-----------------------------------------------------------
@@ -360,5 +381,5 @@ void TLevelWriter::define(QString extension, TLevelWriterCreateProc *proc,
                           bool isRenderFormat) {
   LevelWriterTable[extension] =
       std::pair<TLevelWriterCreateProc *, bool>(proc, isRenderFormat);
-  // cout << "LevelWriter " << extension << " registred" << endl;
+  // cout << "LevelWriter " << extension << " registered" << endl;
 }

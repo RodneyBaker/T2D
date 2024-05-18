@@ -43,6 +43,14 @@ public:
   bool initWebcam(int index = 0);
   bool getWebcamImage(TRaster32P& tempImage);
 
+  void enableCalibration(bool useCalibration) {
+    m_useCalibration = useCalibration;
+  }
+  void setCalibration(cv::Mat calibrationMapX, cv::Mat calibrationMapY) {
+    m_calibrationMapX = calibrationMapX;
+    m_calibrationMapY = calibrationMapY;
+  };
+
   bool translateIndex(int index);
 
   QList<QSize> getWebcamResolutions() { return m_webcamResolutions; }
@@ -86,6 +94,8 @@ public:
   void computeLut();
   cv::Mat getWebcamImage() { return m_webcamImage; }
 
+  bool isWebcamActive() { return m_cvWebcam.isOpened(); }
+
 private:
   // Webcam Properties
   QList<QCameraInfo> m_webcams;
@@ -110,6 +120,9 @@ private:
 
   int m_webcamFocusValue       = 0;
   bool m_webcamAutofocusStatus = true;
+
+  bool m_useCalibration;
+  cv::Mat m_calibrationMapX, m_calibrationMapY;
 
   void adjustLevel(cv::Mat& image);
   void binarize(cv::Mat& image);

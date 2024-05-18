@@ -6,7 +6,7 @@
 #include "toonz/txshsimplelevel.h"
 #include "toonz/txshlevelcolumn.h"
 #include "toonz/txshcell.h"
-//#include "tw/action.h"
+// #include "tw/action.h"
 #include "tropcm.h"
 #include "ttoonzimage.h"
 #include "matchline.h"
@@ -61,8 +61,6 @@ void mergeCmapped(const std::vector<MergeCmappedPair> &matchingLevels) {
   TPalette *palette = matchingLevels[0].m_cell->getImage(false)->getPalette();
   TPalette *matchPalette =
       matchingLevels[0].m_mcell->getImage(false)->getPalette();
-
-  TPalette::Page *page;
 
   // upInkId -> downInkId
   std::map<int, int> usedColors;
@@ -239,17 +237,17 @@ public:
   DeleteMatchlineUndo(
       TXshLevel *xl, TXshSimpleLevel *sl, const std::vector<TFrameId> &fids,
       const std::vector<int> &indexes)  //, TPalette*matchPalette)
-      : TUndo(),
-        m_xl(xl),
-        m_sl(sl),
-        m_fids(fids),
-        m_indexes(indexes)
+      : TUndo()
+      , m_xl(xl)
+      , m_sl(sl)
+      , m_fids(fids)
+      , m_indexes(indexes)
   //, m_matchlinePalette(matchPalette->clone())
   {
     // assert(matchPalette);
     int i;
     for (i = 0; i < fids.size(); i++) {
-      QString id = "DeleteMatchlineUndo" + QString::number((uintptr_t) this) +
+      QString id = "DeleteMatchlineUndo" + QString::number((uintptr_t)this) +
                    "-" + QString::number(i);
       TToonzImageP image = sl->getFrame(fids[i], false);
       assert(image);
@@ -262,7 +260,7 @@ public:
     // TPalette *palette = m_matchlinePalette->clone();
     // m_sl->setPalette(palette);
     for (i = 0; i < m_fids.size(); i++) {
-      QString id = "DeleteMatchlineUndo" + QString::number((uintptr_t) this) +
+      QString id = "DeleteMatchlineUndo" + QString::number((uintptr_t)this) +
                    "-" + QString::number(i);
       TImageP img = TImageCache::instance()->get(id, false)->cloneImage();
 
@@ -297,7 +295,7 @@ public:
     int i;
     for (i = 0; i < m_fids.size(); i++)
       TImageCache::instance()->remove("DeleteMatchlineUndo" +
-                                      QString::number((uintptr_t) this) + "-" +
+                                      QString::number((uintptr_t)this) + "-" +
                                       QString::number(i));
   }
 };
@@ -413,8 +411,8 @@ public:
     std::map<TFrameId, QString>::const_iterator it = m_images.begin();
     for (; it != m_images.end(); ++it)  //, ++mit)
     {
-      QString id = "MergeCmappedUndo" + QString::number((uintptr_t) this) +
-                   "-" + QString::number(it->first.getNumber());
+      QString id = "MergeCmappedUndo" + QString::number((uintptr_t)this) + "-" +
+                   QString::number(it->first.getNumber());
       TImageCache::instance()->remove(id);
     }
     delete m_palette;
@@ -462,10 +460,11 @@ void mergeCmapped(int column, int mColumn, const QString &fullpath,
   std::vector<TXshCell> cell(std::max(end, mEnd) - std::min(start, mStart) + 1);
   std::vector<TXshCell> mCell(cell.size());
 
-  xsh->getCells(std::min(start, mStart), column, cell.size(), &(cell[0]));
+  xsh->getCells(std::min(start, mStart), column, cell.size(), &(cell[0]), true);
 
   if (mColumn != -1)
-    xsh->getCells(std::min(start, mStart), mColumn, cell.size(), &(mCell[0]));
+    xsh->getCells(std::min(start, mStart), mColumn, cell.size(), &(mCell[0]),
+                  true);
 
   TXshColumn *col  = xsh->getColumn(column);
   TXshColumn *mcol = xsh->getColumn(mColumn);
@@ -506,9 +505,39 @@ void mergeCmapped(int column, int mColumn, const QString &fullpath,
   TApp::instance()->getCurrentScene()->notifyCastChange();
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
 
+  bool isImplicitHoldEnabled = Preferences::instance()->isImplicitHoldEnabled();
+
   int count = 0;
   for (int i = 0; i < (int)cell.size(); i++) {
-    if (cell[i].isEmpty() && mCell[i].isEmpty()) continue;
+    bool cellImplicit =
+        isImplicitHoldEnabled
+            ? xsh->isImplicitCell(std::min(start, mStart) + i, column)
+            : false;
+    bool mCellImplicit =
+        isImplicitHoldEnabled
+            ? xsh->isImplicitCell(std::min(start, mStart) + i, mColumn)
+            : false;
+
+    if ((cell[i].isEmpty() && mCell[i].isEmpty()) ||
+        (cellImplicit && mCellImplicit) || (cellImplicit && mCell[i].isEmpty()))
+      continue;
+
+    if ((cell[i].getFrameId().isStopFrame() &&
+         mCell[i].getFrameId().isStopFrame()) ||
+        (mCell[i].isEmpty() && cell[i].getFrameId().isStopFrame())) {
+      TXshCell newCell(newLevel, cell[i].m_frameId);
+      xsh->setCell(i, column, newCell);
+      cell[i] = newCell;
+      continue;
+    }
+
+    if ((mCell[i].getFrameId().isStopFrame() && cell[i].isEmpty()) ||
+        (mCellImplicit && cell[i].isEmpty())) {
+      TXshCell newCell(newLevel, mCell[i].m_frameId);
+      xsh->setCell(i, column, newCell);
+      cell[i] = newCell;
+      continue;
+    }
 
     TAffine imgAff, matchAff;
 
@@ -516,10 +545,16 @@ void mergeCmapped(int column, int mColumn, const QString &fullpath,
     getColumnPlacement(matchAff, xsh, std::min(start, mStart) + i, mColumn,
                        false);
 
+    TFrameId frameId = (cell[i].isEmpty() || cell[i].getFrameId().isStopFrame())
+                           ? TFrameId()
+                           : cell[i].getFrameId();
+    TFrameId mFrameId =
+        (mCell[i].isEmpty() || mCell[i].getFrameId().isStopFrame())
+            ? TFrameId()
+            : mCell[i].getFrameId();
+
     // std::map<TFrameId, TFrameId>::iterator it;
-    MergedPair mp(cell[i].isEmpty() ? TFrameId() : cell[i].getFrameId(),
-                  mCell[i].isEmpty() ? TFrameId() : mCell[i].getFrameId(),
-                  imgAff.inv() * matchAff);
+    MergedPair mp(frameId, mFrameId, imgAff.inv() * matchAff);
 
     std::map<MergedPair, TFrameId>::iterator computedMergedIt =
         computedMergedMap.find(mp);
@@ -534,7 +569,7 @@ void mergeCmapped(int column, int mColumn, const QString &fullpath,
     TFrameId newFid(++count);  // level->getLastFid().getNumber()+1);
     TDimension dim = level->getResolution();
     TToonzImageP newImage;
-    if (cell[i].isEmpty()) {
+    if (cell[i].isEmpty() || cell[i].getFrameId().isStopFrame()) {
       newImage =
           TToonzImageP(TRasterCM32P(dim), TRect(0, 0, dim.lx - 1, dim.ly - 1));
       newImage->setDpi(dpix, dpiy);
@@ -589,7 +624,9 @@ void mergeCmapped(int column, int mColumn, const QString &fullpath,
 
   for (int i = 0; i < (int)cell.size(); i++)  // the saveboxes must be updated
   {
-    if (cell[i].isEmpty() || mCell[i].isEmpty()) continue;
+    if (cell[i].isEmpty() || cell[i].getFrameId().isStopFrame() ||
+        mCell[i].isEmpty() || mCell[i].getFrameId().isStopFrame())
+      continue;
 
     if (!cell[i].getImage(false) || !mCell[i].getImage(false)) continue;
 

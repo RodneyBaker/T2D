@@ -18,6 +18,7 @@
 #include "tenv.h"
 #include "tconvert.h"
 #include "trasterimage.h"
+#include "toonz/preferences.h"
 
 #include <QByteArray>
 
@@ -103,28 +104,20 @@ static int tfwrite(double *data, unsigned int count, FILE *f) {
 
 namespace {
 
-bool erasedFrame;  // Vera se è stato rimosso almeno un frame.
+bool erasedFrame;  // True if at least one frame has been removed.
 
 bool writeVersionAndCreator(FILE *chan, const char *version, QString creator) {
   if (!chan) return false;
   tfwrite(version, strlen(version), chan);
 
-  // creator : CREATOR_LENGTH characater
+  // creator : CREATOR_LENGTH character
   char s[CREATOR_LENGTH];
   if (creator.length() == 0) creator = "UNKNOWN";
   memset(s, 0, sizeof s);
   if (creator.length() > CREATOR_LENGTH - 1)
-#if QT_VERSION >= 0x050000
     memcpy(s, creator.toLatin1(), CREATOR_LENGTH - 1);
-#else
-    memcpy(s, creator.toAscii(), CREATOR_LENGTH - 1);
-#endif
   else
-#if QT_VERSION >= 0x050000
     memcpy(s, creator.toLatin1(), creator.length());
-#else
-    memcpy(s, creator.toAscii(), creator.length());
-#endif
   tfwrite(s, CREATOR_LENGTH, chan);
 
   return true;
@@ -696,14 +689,14 @@ void TLevelWriterTzl::writeHeader(const TDimension &size) {
   assert(m_frameCountPos == 8 + CREATOR_LENGTH + 3 * sizeof(TINT32));
 
   // I put the place for the frameCount, which I will write in this position at
-  // the end  (see in the distructor)
+  // the end  (see in the destructor)
   tfwrite(&intval, 1, m_chan);
   // I put the place for the offsetTableOffset, which I will write in this
-  // position at the end  (see in the distructor)
+  // position at the end  (see in the destructor)
   intval = 0;
   tfwrite(&intval, 1, m_chan);
   // I put the place for the iconOffsetTableOffset, which I will write in this
-  // position at the end  (see in the distructor)
+  // position at the end  (see in the destructor)
   tfwrite(&intval, 1, m_chan);
   tfwrite(codec, codecLen, m_chan);
 }
@@ -1076,9 +1069,9 @@ void TLevelWriterTzl::saveImage(const TImageP &img, const TFrameId &_fid,
   }
   rCompressed->unlock();
 
-  //#if !TNZ_LITTLE_ENDIAN
-  // delete [] buff;
-  //#endif
+  // #if !TNZ_LITTLE_ENDIAN
+  //  delete [] buff;
+  // #endif
 }
 
 //-------------------------------------------------------------------
@@ -1206,11 +1199,11 @@ void TLevelWriterTzl::createIcon(const TImageP &imgIn, TImageP &imgOut) {
   if (!TRect(m_iconSize).contains(savebox))  // it should be better to use
                                              // tfloor instead of tround in the
                                              // previous lines:
-    // sometimes, for rounding problems, the savebox is outside 1 pixel the
+    // sometimes, for rounding problems, the savebox is outside the 1 pixel
     // raster size.
     // the best solution should be to replace tround with tfloor here
     // and in the icon reading of tzl 1.4 (method load14),
-    // but this way the old 1.4 tzl are not readed correctly (crash!)
+    // but this way the old 1.4 tzl are not read correctly (crash!)
     // so, this 'if' is a patch. vinz
     savebox = savebox * TRect(m_iconSize);
   thumbnailRas->clearOutside(savebox);
@@ -1328,7 +1321,7 @@ bool TLevelWriterTzl::resizeIcons(const TDimension &newSize) {
   if (!m_chan) return false;
   assert(m_version >= 13);
 
-  // faccio una copia di m_path per poi usarla per la resizeIcons()
+  // make a copy of m_path to be able to use it for resizeIcons()
   fclose(m_chan);
   m_chan = 0;
   TFileStatus fs(m_path);
@@ -1509,7 +1502,13 @@ TLevelReaderTzl::TLevelReaderTzl(const TFilePath &path)
     fread(&historyData[0], 1, lSize, historyChan);
     fclose(historyChan);
 
-    if (!m_contentHistory) m_contentHistory = new TContentHistory(true);
+    if (!m_contentHistory) {
+      QString altUsername =
+          Preferences::instance()->getStringValue(recordAsUsername);
+      bool recordEdit =
+          Preferences::instance()->getBoolValue(recordFileHistory);
+      m_contentHistory = new TContentHistory(true, altUsername, recordEdit);
+    }
     m_contentHistory->deserialize(QString::fromStdString(historyData));
   }
 
@@ -1566,7 +1565,7 @@ bool TLevelReaderTzl::getIconSize(TDimension &iconSize) {
   fread(&iconLx, sizeof(TINT32), 1, m_chan);
   fread(&iconLy, sizeof(TINT32), 1, m_chan);
   assert(iconLx > 0 && iconLy > 0);
-  // ritorno alla posizione corrente
+  // return to the current position
   fseek(m_chan, currentPos, SEEK_SET);
   iconSize = TDimension(iconLx, iconLy);
   return true;
@@ -2054,7 +2053,7 @@ static TRect applyShrinkAndRegion(TRasterP &ras, int shrink, TRect region,
   if (shrink > 1) {
     ras = TRop::shrink(ras, shrink);
   }
-  // calcolo la nuova savebox
+  // calculate the new savebox
   savebox *= region;
   if (savebox == TRect() || savebox.getLx() <= 0 || savebox.getLy() <= 0)
     return TRect();
@@ -2194,7 +2193,7 @@ TImageP TImageReaderTzl::load14() {
       TINT32 iconsbx0 = tfloor((double)iconLx * sbx0 / m_lrp->m_res.lx);
       TINT32 iconsby0 = tfloor((double)iconLy * sby0 / m_lrp->m_res.ly);
       savebox         = TRect(TPoint(iconsbx0, iconsby0),
-                      TDimension(tmp_savebox.getLx(), tmp_savebox.getLy()));
+                              TDimension(tmp_savebox.getLx(), tmp_savebox.getLy()));
     }
 
     // int ly = tround((double)m_lrp->m_res.ly*iconLx/m_lrp->m_res.lx);
@@ -2359,7 +2358,7 @@ TImageP TImageReaderTzl::load() {
         ras->clear();
         savebox = m_region;
       } else {
-        // se sia la savebox che la regione sono vuote non faccio nulla
+        // if both the savebox and the region are empty, do nothing
       }
     }
     ti->setCMapped(ras);

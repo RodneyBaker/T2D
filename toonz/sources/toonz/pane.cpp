@@ -7,6 +7,7 @@
 #include "mainwindow.h"
 #include "tenv.h"
 #include "saveloadqsettings.h"
+#include "custompanelmanager.h"
 
 #include "toonzqt/gutil.h"
 #include "toonzqt/dvdialog.h"
@@ -36,18 +37,20 @@
 #include <QDesktopWidget>
 #include <QDialog>
 #include <QLineEdit>
+#include <QTextEdit>
 #include <QWidgetAction>
 #include <QLabel>
 #include <QCheckBox>
 #include <QGroupBox>
 
 extern TEnv::StringVar EnvSafeAreaName;
+extern TEnv::IntVar EnvViewerPreviewBehavior;
 extern TEnv::IntVar CameraViewTransparency;
 extern TEnv::IntVar ShowRuleOfThirds;
 extern TEnv::IntVar ShowGoldenRatio;
 extern TEnv::IntVar ShowFieldGuide;
 extern TEnv::IntVar GuideOpacity;
-extern TEnv::IntVar ShowPerspectiveGrids;
+extern TEnv::IntVar ShowSceneOverlay;
 //=============================================================================
 // TPanel
 //-----------------------------------------------------------------------------
@@ -89,7 +92,7 @@ TPanel::~TPanel() {
     settings.setValue("geometry", geometry());
     if (SaveLoadQSettings *persistent =
             dynamic_cast<SaveLoadQSettings *>(widget()))
-      persistent->save(settings);
+      persistent->save(settings, true);
   }
 }
 
@@ -141,14 +144,13 @@ void TPanel::enterEvent(QEvent *event) {
     // grab the focus, unless a line-edit is focused currently
 
     QWidget *focusWidget = qApp->focusWidget();
-    if (focusWidget && dynamic_cast<QLineEdit*>(focusWidget)) {
+    if (focusWidget && (dynamic_cast<QLineEdit *>(focusWidget) ||
+                        dynamic_cast<QTextEdit *>(focusWidget))) {
         event->accept();
         return;
     }
 
-
     widgetFocusOnEnter();
-
 
     // Some panels (e.g. Viewer, StudioPalette, Palette, ColorModel) are
     // activated when mouse enters. Viewer is activatable only when being
@@ -164,12 +166,12 @@ void TPanel::enterEvent(QEvent *event) {
 //-----------------------------------------------------------------------------
 /*! clear focus when mouse leaves
  */
-void TPanel::leaveEvent(QEvent *event) { 
-    QWidget* focusWidget = qApp->focusWidget();
-    if (focusWidget && dynamic_cast<QLineEdit*>(focusWidget)) {
-        return;
-    }
-    widgetClearFocusOnLeave();
+void TPanel::leaveEvent(QEvent *event) {
+  QWidget *focusWidget = qApp->focusWidget();
+  if (focusWidget && dynamic_cast<QLineEdit *>(focusWidget)) {
+    return;
+  }
+  widgetClearFocusOnLeave();
 }
 
 //-----------------------------------------------------------------------------
@@ -205,13 +207,13 @@ void TPanel::restoreFloatingPanelState() {
 TPanelTitleBarButton::TPanelTitleBarButton(QWidget *parent,
                                            const QString &standardPixmapName)
     : QWidget(parent)
-    , m_standardPixmap(standardPixmapName)
     , m_standardPixmapName(standardPixmapName)
     , m_rollover(false)
     , m_pressed(false)
     , m_buttonSet(0)
     , m_id(0) {
-  setFixedSize(m_standardPixmap.size());
+  updatePixmaps();
+  setFixedSize(m_onPixmap.size() / m_onPixmap.devicePixelRatio());
 }
 
 //-----------------------------------------------------------------------------
@@ -219,7 +221,9 @@ TPanelTitleBarButton::TPanelTitleBarButton(QWidget *parent,
 TPanelTitleBarButton::TPanelTitleBarButton(QWidget *parent,
                                            const QPixmap &standardPixmap)
     : QWidget(parent)
-    , m_standardPixmap(standardPixmap)
+    , m_onPixmap(standardPixmap)
+    , m_offPixmap(standardPixmap)
+    , m_overPixmap(standardPixmap)
     , m_rollover(false)
     , m_pressed(false)
     , m_buttonSet(0)
@@ -247,25 +251,85 @@ void TPanelTitleBarButton::setPressed(bool pressed) {
 
 //-----------------------------------------------------------------------------
 
-void TPanelTitleBarButton::paintEvent(QPaintEvent *event) {
-  // Set unique pressed colors if filename contains the following words:
-  QColor bgColor = getPressedColor();
-  if (m_standardPixmapName.contains("freeze", Qt::CaseInsensitive))
+void TPanelTitleBarButton::setOverColor(const QColor &color) {
+  if (m_overColor != color) {
+    m_overColor = color;
+    updatePixmaps();
+  }
+}
+
+QColor TPanelTitleBarButton::getOverColor() const { return m_overColor; }
+
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBarButton::setPressedColor(const QColor &color) {
+  if (m_pressedColor != color) {
+    m_pressedColor = color;
+    updatePixmaps();
+  }
+}
+
+QColor TPanelTitleBarButton::getPressedColor() const { return m_pressedColor; }
+
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBarButton::setFreezeColor(const QColor &color) {
+  if (m_freezeColor != color) {
+    m_freezeColor = color;
+    updatePixmaps();
+  }
+}
+
+QColor TPanelTitleBarButton::getFreezeColor() const { return m_freezeColor; }
+
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBarButton::setPreviewColor(const QColor &color) {
+  if (m_previewColor != color) {
+    m_previewColor = color;
+    updatePixmaps();
+  }
+}
+
+QColor TPanelTitleBarButton::getPreviewColor() const { return m_previewColor; }
+
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBarButton::updatePixmaps() {
+  // Get background color used by some icons and states
+  QColor bgColor;
+  if (m_standardPixmapName.contains("freeze", Qt::CaseInsensitive)) {
     bgColor = getFreezeColor();
-  if (m_standardPixmapName.contains("preview", Qt::CaseInsensitive))
+  } else if (m_standardPixmapName.contains("preview", Qt::CaseInsensitive)) {
     bgColor = getPreviewColor();
+  } else {
+    bgColor = getPressedColor();
+  }
 
-  QPixmap panePixmap    = recolorPixmap(svgToPixmap(m_standardPixmapName));
-  QPixmap panePixmapOff = compositePixmap(panePixmap, 0.8);
-  QPixmap panePixmapOver =
-      compositePixmap(panePixmap, 1, QSize(), 0, 0, getOverColor());
-  QPixmap panePixmapOn = compositePixmap(panePixmap, 1, QSize(), 0, 0, bgColor);
+  ThemeManager &themeManager = ThemeManager::getInstance();
+  const qreal offOpacity     = themeManager.getOffOpacity();
 
+  // Compute icon
+  QImage baseImg = svgToImage(m_standardPixmapName);
+  baseImg        = themeManager.recolorBlackPixels(baseImg);
+  QImage onImg   = compositeImage(baseImg, QSize(), false, bgColor);
+  QImage offImg  = adjustImageOpacity(baseImg, offOpacity);
+  QImage overImg = compositeImage(baseImg, QSize(), false, getOverColor());
+
+  // Store in member variables
+  m_onPixmap   = convertImageToPixmap(onImg);
+  m_offPixmap  = convertImageToPixmap(offImg);
+  m_overPixmap = convertImageToPixmap(overImg);
+}
+
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBarButton::paintEvent(QPaintEvent *event) {
   QPainter painter(this);
-  painter.drawPixmap(
-      0, 0,
-      m_pressed ? panePixmapOn : m_rollover ? panePixmapOver : panePixmapOff);
-  painter.end();
+  painter.drawPixmap(0, 0,
+                     m_pressed    ? m_onPixmap
+                     : m_rollover ? m_overPixmap
+                                  : m_offPixmap);
 }
 
 //-----------------------------------------------------------------------------
@@ -437,17 +501,17 @@ TPanelTitleBarButtonForGrids::TPanelTitleBarButtonForGrids(
     emit updateViewer();
   });
 
-  QCheckBox *perspectiveCheckbox = new QCheckBox(tr("Perspective Grids"), this);
-  perspectiveCheckbox->setChecked(ShowPerspectiveGrids != 0);
-  connect(perspectiveCheckbox, &QCheckBox::stateChanged, [=](int value) {
-    ShowPerspectiveGrids = value > 0 ? 1 : 0;
+  QCheckBox *sceneOverlayCheckbox = new QCheckBox(tr("Scene Overlay"), this);
+  connect(sceneOverlayCheckbox, &QCheckBox::stateChanged, [=](int value) {
+    ShowSceneOverlay = value > 0 ? 1 : 0;
     emit updateViewer();
-    });
+  });
+  sceneOverlayCheckbox->setChecked(ShowSceneOverlay != 0);
 
   gridLayout->addWidget(thirdsCheckbox, 0, 0, 1, 2);
   gridLayout->addWidget(goldenRationCheckbox, 1, 0, 1, 2);
   gridLayout->addWidget(fieldGuideCheckbox, 2, 0, 1, 2);
-  gridLayout->addWidget(perspectiveCheckbox, 3, 0, 1, 2);
+  gridLayout->addWidget(sceneOverlayCheckbox, 4, 0, 1, 2);
 
   gridWidget->setLayout(gridLayout);
   gridsAction->setDefaultWidget(gridWidget);
@@ -459,6 +523,58 @@ TPanelTitleBarButtonForGrids::TPanelTitleBarButtonForGrids(
 void TPanelTitleBarButtonForGrids::mousePressEvent(QMouseEvent *e) {
   m_menu->exec(e->globalPos() + QPoint(-100, 12));
 }
+
+//=============================================================================
+// TPanelTitleBarButtonForPreview
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBarButtonForPreview::mousePressEvent(QMouseEvent *e) {
+  if (e->button() != Qt::RightButton) {
+    m_pressed = !m_pressed;
+    emit toggled(m_pressed);
+    update();
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBarButtonForPreview::contextMenuEvent(QContextMenuEvent *e) {
+  QMenu menu(this);
+
+  // 0: current frame
+  // 1: all frames in the preview range
+  // 2: selected cell, auto play once & stop
+  QStringList behaviorsStrList = {tr("Current frame"),
+                                  tr("All preview range frames"),
+                                  tr("Selected cells - Auto play")};
+
+  QActionGroup *behaviorGroup = new QActionGroup(this);
+
+  for (int i = 0; i < behaviorsStrList.size(); i++) {
+    QAction *action = menu.addAction(behaviorsStrList.at(i));
+    action->setData(i);
+    connect(action, SIGNAL(triggered()), this, SLOT(onSetPreviewBehavior()));
+    action->setCheckable(true);
+    behaviorGroup->addAction(action);
+    if (i == EnvViewerPreviewBehavior) action->setChecked(true);
+  }
+
+  menu.exec(e->globalPos());
+}
+
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBarButtonForPreview::onSetPreviewBehavior() {
+  int behaviorId = qobject_cast<QAction *>(sender())->data().toInt();
+  // change safearea if the different one is selected
+  if (EnvViewerPreviewBehavior != behaviorId) {
+    EnvViewerPreviewBehavior = behaviorId;
+    // emit sceneChanged without setting dirty flag
+    TApp::instance()->getCurrentScene()->notifySceneChanged(false);
+  }
+}
+
+//-----------------------------------------------------------------------------
 
 //=============================================================================
 // TPanelTitleBarButtonSet
@@ -489,11 +605,36 @@ TPanelTitleBar::TPanelTitleBar(QWidget *parent,
   setMouseTracking(true);
   setFocusPolicy(Qt::NoFocus);
   setCursor(Qt::ArrowCursor);
+  generateCloseButtonPixmaps();
 }
 
 //-----------------------------------------------------------------------------
 
 QSize TPanelTitleBar::minimumSizeHint() const { return QSize(20, 18); }
+
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBar::generateCloseButtonPixmaps() {
+  // Icon theme vars
+  ThemeManager &themeManager = ThemeManager::getInstance();
+  const qreal offOpacity     = themeManager.getOffOpacity();
+
+  // Use overColor from stylesheet for bgColor of rollover
+  QColor overColor = getOverColor();
+
+  // Generate base icon image
+  QImage baseImg = generateIconImage("pane_close");
+  baseImg        = compositeImage(baseImg, QSize(20, 18));
+
+  // Off icon image
+  QImage offImg = adjustImageOpacity(baseImg, offOpacity);
+
+  // Over icon image
+  QImage overImg = compositeImage(baseImg, QSize(), false, overColor);
+
+  m_closeButtonPixmap     = convertImageToPixmap(offImg);
+  m_closeButtonOverPixmap = convertImageToPixmap(overImg);
+}
 
 //-----------------------------------------------------------------------------
 
@@ -505,18 +646,11 @@ void TPanelTitleBar::paintEvent(QPaintEvent *) {
 
   TPanel *dw = qobject_cast<TPanel *>(parentWidget());
   Q_ASSERT(dw != 0);
-  // docked panel
-  if (!dw->isFloating()) {
+
+  if (!dw->isFloating()) {  // docked panel
     isPanelActive = dw->widgetInThisPanelIsFocused();
-    qDrawBorderPixmap(&painter, rect, QMargins(3, 3, 3, 3),
-                      (isPanelActive) ? m_activeBorderPm : m_borderPm);
-  }
-  // floating panel
-  else {
+  } else {                  // floating panel
     isPanelActive = isActiveWindow();
-    qDrawBorderPixmap(
-        &painter, rect, QMargins(3, 3, 3, 3),
-        (isPanelActive) ? m_floatActiveBorderPm : m_floatBorderPm);
   }
 
   if (dw->getOrientation() == TDockWidget::vertical) {
@@ -529,21 +663,37 @@ void TPanelTitleBar::paintEvent(QPaintEvent *) {
   }
 
   if (dw->isFloating()) {
-    QIcon paneCloseIcon = createQIcon("pane_close");
-    const static QPixmap closeButtonPixmap(
-        paneCloseIcon.pixmap(20, 18, QIcon::Normal, QIcon::Off));
-    const static QPixmap closeButtonPixmapOver(
-        paneCloseIcon.pixmap(20, 18, QIcon::Active));
-
-    QPoint closeButtonPos(rect.right() - 20, rect.top());
+    QPoint closeButtonPos(rect.right() - 19, rect.top());
 
     if (m_closeButtonHighlighted)
-      painter.drawPixmap(closeButtonPos, closeButtonPixmapOver);
+      painter.drawPixmap(closeButtonPos, m_closeButtonOverPixmap);
     else
-      painter.drawPixmap(closeButtonPos, closeButtonPixmap);
+      painter.drawPixmap(closeButtonPos, m_closeButtonPixmap);
   }
+}
 
-  painter.end();
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBar::setOverColor(const QColor &color) {
+  if (m_overColor != color) {
+    m_overColor = color;
+    generateCloseButtonPixmaps();
+  }
+}
+
+QColor TPanelTitleBar::getOverColor() const { return m_overColor; }
+
+//-----------------------------------------------------------------------------
+
+void TPanelTitleBar::leaveEvent(QEvent *) {
+  TPanel *dw = qobject_cast<TPanel *>(parentWidget());
+  Q_ASSERT(dw != 0);
+
+  // Mouse left the widget, reset the highlighted flag
+  if (dw->isFloating()) {
+    m_closeButtonHighlighted = false;
+    update();
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -640,6 +790,16 @@ TPanel *TPanelFactory::createPanel(QWidget *parent, QString panelType) {
 
   QMap<QString, TPanelFactory *>::iterator it = tableInstance().find(panelType);
   if (it == tableInstance().end()) {
+    if (panelType.startsWith("Custom_")) {
+      panelType = panelType.right(panelType.size() - 7);
+      panel =
+          CustomPanelManager::instance()->createCustomPanel(panelType, parent);
+      panel->getTitleBar()->showTitleBar(TApp::instance()->getShowTitleBars());
+      connect(TApp::instance(), SIGNAL(showTitleBars(bool)),
+              panel->getTitleBar(), SLOT(showTitleBar(bool)));
+      return panel;
+    }
+
     TPanel *panel = new TPanel(parent);
     panel->setPanelType(panelType.toStdString());
     return panel;

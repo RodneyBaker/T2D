@@ -5,10 +5,13 @@
 #include "tapp.h"
 #include "sceneviewer.h"
 #include "stopmotion.h"
+#include "cellselection.h"
+#include "xsheetdragtool.h"
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
 #include "toonzqt/flipconsole.h"
+#include "toonzqt/tselectionhandle.h"
 
 // TnzLib includes
 #include "toonz/txsheet.h"
@@ -40,7 +43,20 @@ public:
       : MenuItemHandler(cmdId), m_buttonId(buttonId) {}
   void execute() override {
     FlipConsole *console = FlipConsole::getCurrent();
-    if (console) console->pressButton(m_buttonId);
+    if (console) {
+      console->pressButton(m_buttonId);
+
+      if (m_buttonId != FlipConsole::eFirst &&
+          m_buttonId != FlipConsole::eLast &&
+          m_buttonId != FlipConsole::eNext && m_buttonId != FlipConsole::ePrev)
+        return;
+
+      int row = TApp::instance()->getCurrentFrame()->getFrame();
+      int col = TApp::instance()->getCurrentColumn()->getColumnIndex();
+      TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+          TApp::instance()->getCurrentSelection()->getSelection());
+      if (cellSelection) cellSelection->selectCells(row, col, row, col);
+    }
   }
 };
 
@@ -64,6 +80,10 @@ public:
       if (xsh->getCell(row, col).isEmpty()) continue;
       if (xsh->getCell(row, col) != cell) {
         TApp::instance()->getCurrentFrame()->setFrame(row);
+
+        TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+            TApp::instance()->getCurrentSelection()->getSelection());
+        if (cellSelection) cellSelection->selectCells(row, col, row, col);
         break;
       }
     }
@@ -99,6 +119,10 @@ public:
       // Get *first* cell in current uniform cell block
       while (row > 0 && xsh->getCell(row - 1, col) == cell) --row;
       TApp::instance()->getCurrentFrame()->setFrame(row);
+
+      TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+          TApp::instance()->getCurrentSelection()->getSelection());
+      if (cellSelection) cellSelection->selectCells(row, col, row, col);
     }
   }
 };
@@ -111,9 +135,15 @@ public:
 
   void execute() override {
     int row  = TApp::instance()->getCurrentFrame()->getFrame();
+    int col  = TApp::instance()->getCurrentColumn()->getColumnIndex();
     int step = Preferences::instance()->getXsheetStep();
 
     TApp::instance()->getCurrentFrame()->setFrame(row + step);
+
+    TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+        TApp::instance()->getCurrentSelection()->getSelection());
+    if (cellSelection)
+      cellSelection->selectCells(row + step, col, row + step, col);
   }
 };
 
@@ -125,9 +155,15 @@ public:
 
   void execute() override {
     int row  = TApp::instance()->getCurrentFrame()->getFrame();
+    int col  = TApp::instance()->getCurrentColumn()->getColumnIndex();
     int step = Preferences::instance()->getXsheetStep();
 
     TApp::instance()->getCurrentFrame()->setFrame(std::max(row - step, 0));
+
+    TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+        TApp::instance()->getCurrentSelection()->getSelection());
+    if (cellSelection)
+      cellSelection->selectCells(row - step, col, row - step, col);
   }
 };
 
@@ -178,6 +214,12 @@ public:
         if (std::find(navControlList, navControlList + 6, pane) !=
             (navControlList + 6)) {
           TApp::instance()->getCurrentFrame()->emitTriggerNextKeyframe(panel);
+
+          int row = TApp::instance()->getCurrentFrame()->getFrame();
+          int col = TApp::instance()->getCurrentColumn()->getColumnIndex();
+          TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+              TApp::instance()->getCurrentSelection()->getSelection());
+          if (cellSelection) cellSelection->selectCells(row, col, row, col);
           break;
         } else
           panel = TApp::instance()->getActiveViewer()->parentWidget();
@@ -207,12 +249,32 @@ public:
         if (std::find(navControlList, navControlList + 6, pane) !=
             (navControlList + 6)) {
           TApp::instance()->getCurrentFrame()->emitTriggerPrevKeyframe(panel);
+
+          int row = TApp::instance()->getCurrentFrame()->getFrame();
+          int col = TApp::instance()->getCurrentColumn()->getColumnIndex();
+          TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+              TApp::instance()->getCurrentSelection()->getSelection());
+          if (cellSelection) cellSelection->selectCells(row, col, row, col);
           break;
         } else
           panel = TApp::instance()->getActiveViewer()->parentWidget();
       } else
         panel = panel->parentWidget();
     }
+  }
+};
+
+//-----------------------------------------------------------------------------
+
+class InbetweenFlipCommand final : public MenuItemHandler {
+public:
+  InbetweenFlipCommand() : MenuItemHandler(MI_InbetweenFlip) {}
+
+  void execute() override {
+    FlipConsole *console = FlipConsole::getCurrent();
+    if (!console) return;
+
+    console->triggerInbetweenFlip();
   }
 };
 
@@ -223,6 +285,7 @@ public:
 VcrCommand playCommand(MI_Play, FlipConsole::ePlay),
     pauseCommand(MI_Pause, FlipConsole::ePause),
     loopCommand(MI_Loop, FlipConsole::eLoop),
+    pingPongCommand(MI_PingPong, FlipConsole::ePingPong),
     firstFrameCommand(MI_FirstFrame, FlipConsole::eFirst),
     lastFrameCommand(MI_LastFrame, FlipConsole::eLast),
     nextFrameCommand(MI_NextFrame, FlipConsole::eNext),
@@ -237,7 +300,9 @@ VcrCommand playCommand(MI_Play, FlipConsole::ePlay),
     greenChannelGComman(MI_GreenChannelGreyscale, FlipConsole::eGGreen),
     blueChannelGCommand(MI_BlueChannelGreyscale, FlipConsole::eGBlue),
 
-    compareCommand(MI_CompareToSnapshot, FlipConsole::eCompare);
+    compareCommand(MI_CompareToSnapshot, FlipConsole::eCompare),
+    blankFramesCommand(MI_ToggleBlankFrames, FlipConsole::eBlankFrames),
+    histogramCommand(MI_Histogram, FlipConsole::eHisto);
 
 NextDrawingCommand nextDrawingCommand;
 PrevDrawingCommand prevDrawingCommand;
@@ -247,3 +312,5 @@ ShortPlayCommand shortPlayCommand;
 
 NextKeyframeCommand nextKeyframeCommand;
 PrevKeyframeCommand prevKeyframeCommand;
+
+InbetweenFlipCommand inbetweenFlipCommand;

@@ -44,6 +44,12 @@ class RowArea final : public QWidget {
   // panning by middle-drag
   bool m_isPanning;
 
+  QTimer *m_resetMenuTimer;
+  int m_contextMenuRow;
+  bool m_editTagEnabled;
+
+  // returns true if the frame area can have extra space
+  bool checkExpandFrameArea();
   void drawRows(QPainter &p, int r0, int r1);
   void drawPlayRangeBackground(QPainter &p, int r0, int r1);
   void drawPlayRange(QPainter &p, int r0, int r1);
@@ -55,6 +61,7 @@ class RowArea final : public QWidget {
   void drawCurrentTimeLine(QPainter &p);
   void drawShiftTraceMarker(QPainter &p);
   void drawStopMotionCameraIndicator(QPainter &p);
+  void drawNavigationTags(QPainter &p, int r0, int r1);
 
   DragTool *getDragTool() const;
   void setDragTool(DragTool *dragTool);
@@ -63,12 +70,10 @@ class RowArea final : public QWidget {
   bool canSetAutoMarkers();
 
 public:
-#if QT_VERSION >= 0x050500
-  RowArea(XsheetViewer *parent, Qt::WindowFlags flags = 0);
-#else
-  RowArea(XsheetViewer *parent, Qt::WFlags flags = 0);
-#endif
+  RowArea(XsheetViewer *parent, Qt::WindowFlags flags = Qt::WindowFlags());
   ~RowArea();
+
+  int getContextMenuRow() { return m_contextMenuRow; }
 
 protected:
   void paintEvent(QPaintEvent *) override;
@@ -80,6 +85,10 @@ protected:
   void mouseDoubleClickEvent(QMouseEvent *event) override;
   bool event(QEvent *event) override;
 
+protected slots:
+  void onJumpToTag();
+  void onHideMenu();
+  void resetContextMenu();
 };
 
 }  // namespace XsheetGUI;

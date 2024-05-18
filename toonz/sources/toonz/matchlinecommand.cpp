@@ -328,19 +328,15 @@ void doCloneLevelNoSave(const TCellSelection::Range &range,
 
     // OverwriteDialog* dialog = new OverwriteDialog();
     for (int r = range.m_r0; r <= range.m_r1; ++r) {
-      TXshCell cell = xsh->getCell(r, c);
-
-      TImageP img = cell.getImage(true);
-      if (!img) continue;
+      TXshCell cell = xsh->getCell(r, c, false);
 
       fid = cell.getFrameId();
 
+      TImageP img = cell.getImage(true);
+      if (!img && !fid.isStopFrame()) continue;
+
       if (cell.getSimpleLevel() == 0 ||
-          cell.getSimpleLevel()->getPath().getType() == "psd" ||
-          cell.getSimpleLevel()->getPath().getType() == "gif" ||
-          cell.getSimpleLevel()->getPath().getType() == "mp4" ||
-          cell.getSimpleLevel()->getPath().getType() == "webm" ||
-          cell.getSimpleLevel()->getPath().getType() == "mov")
+          cell.getSimpleLevel()->getPath().isUneditable())
         continue;
 
       std::map<TXshSimpleLevel *, TXshLevelP>::iterator it =
@@ -378,23 +374,26 @@ void doCloneLevelNoSave(const TCellSelection::Range &range,
 
       TXshCell oldCell(cell);
       cell.m_level = xl;
-      int k;
-      for (k = range.m_r0; k < r; k++) {
-        if (xsh->getCell(k, c).getImage(true).getPointer() ==
-            img.getPointer()) {
-          TFrameId oldFid = xsh->getCell(k, c).getFrameId();
-          assert(fid == oldFid);
-          sl->setFrame(fid,
-                       xsh->getCell(k, c + range.getColCount()).getImage(true));
-          break;
+      if (!fid.isStopFrame()) {
+        int k;
+        for (k = range.m_r0; k < r; k++) {
+          if (xsh->getCell(k, c, false).getImage(true).getPointer() ==
+              img.getPointer()) {
+            TFrameId oldFid = xsh->getCell(k, c, false).getFrameId();
+            assert(fid == oldFid);
+            sl->setFrame(
+                fid,
+                xsh->getCell(k, c + range.getColCount(), false).getImage(true));
+            break;
+          }
         }
-      }
 
-      if (!keepOldLevel && k >= r) {
-        TImageP newImg(img->cloneImage());
-        assert(newImg);
+        if (!keepOldLevel && k >= r) {
+          TImageP newImg(img->cloneImage());
+          assert(newImg);
 
-        sl->setFrame(fid, newImg);
+          sl->setFrame(fid, newImg);
+        }
       }
 
       cell.m_frameId = fid;
@@ -478,7 +477,7 @@ public:
 
     TFilePath newLevelPath;
     TXshCell c = TApp::instance()->getCurrentXsheet()->getXsheet()->getCell(
-        cells.m_r0, destColumn);
+        cells.m_r0, destColumn, false);
     if (!c.isEmpty() && c.getSimpleLevel())
       newLevelPath = c.getSimpleLevel()->getPath();
 

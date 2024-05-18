@@ -114,6 +114,14 @@ public:
 
   TPixel32 m_filterColor;
 
+  static bool m_isLightTableEnabled;
+
+  bool m_currentDrawingOnTop;
+
+  bool m_isMask;
+  bool m_isInvertedMask;
+  bool m_canRenderMask;
+
 public:
   Player();
 

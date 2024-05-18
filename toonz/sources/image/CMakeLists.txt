@@ -16,11 +16,14 @@ set(HEADERS
     ../include/tnzimage.h
     ffmpeg/tiio_gif.h
     ffmpeg/tiio_webm.h
+    ffmpeg/tiio_apng.h
     ffmpeg/tiio_mp4.h
-    ffmpeg/tiio_mov.h
     ffmpeg/tiio_ffmpeg.h
+    ffmpeg/tiio_ff_mov.h
     sprite/tiio_sprite.h
     mesh/tiio_mesh.h
+    exr/tinyexr_otmod.h
+    exr/tiio_exr.h
 )
 
 set(SOURCES
@@ -42,11 +45,13 @@ set(SOURCES
     tzl/tiio_tzl.cpp
     ffmpeg/tiio_gif.cpp
     ffmpeg/tiio_webm.cpp
+    ffmpeg/tiio_apng.cpp
     ffmpeg/tiio_mp4.cpp
-    ffmpeg/tiio_mov.cpp
     ffmpeg/tiio_ffmpeg.cpp
+    ffmpeg/tiio_ff_mov.cpp
     sprite/tiio_sprite.cpp
     mesh/tiio_mesh.cpp
+    exr/tiio_exr.cpp
 )
 
 
@@ -63,6 +68,7 @@ if(NOT BUILD_TARGET_BSD)
         tif/tiio_tif.cpp
         tzp/tiio_plt.cpp
         tzp/tiio_tzp.cpp
+        tzp/toonzrle.cpp
         tzp/avl.c
     )
 endif()
@@ -120,6 +126,10 @@ if(BUILD_TARGET_WIN AND PLATFORM EQUAL 32)
     )
 endif()
 
+include_directories(
+    ${SDKROOT}/tinyexr
+)
+
 
 _find_toonz_library(TNZLIBS "tnzcore;tnzbase;toonzlib")
 
@@ -161,4 +171,4 @@ elseif(BUILD_ENV_UNIXLIKE)
     endif()
 endif()
 
-target_link_libraries(image Qt5::Core Qt5::Gui Qt5::Network ${Z_LIB} ${GLUT_LIB} ${GL_LIB} ${JPEG_LIB} ${TIFF_LIB} ${PNG_LIB} ${EXTRA_LIBS})
+target_link_libraries(image Qt5::Core Qt5::Widgets Qt5::Gui Qt5::Network ${Z_LIB} ${GLUT_LIB} ${GL_LIB} ${JPEG_LIB} ${TIFF_LIB} ${PNG_LIB} ${EXTRA_LIBS})

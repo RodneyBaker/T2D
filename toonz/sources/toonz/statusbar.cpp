@@ -197,6 +197,10 @@ std::unordered_map<std::string, QString> StatusBar::makeMap(
                    spacer +
                    tr("%1%2Allow or Disallow Snapping")
                        .arg(trModKey("Ctrl+Shift"))
+                       .arg(cmdTextSeparator) +
+                   spacer +
+                   tr("%1%2Intermediate Stroke in Range")
+                       .arg(trModKey("Ctrl+Alt+Shift"))
                        .arg(cmdTextSeparator)});
   lMap.insert({"T_BrushSmartRaster",
                tr("Brush Tool : Draws in the work area freehand") + spacer +
@@ -254,7 +258,11 @@ std::unordered_map<std::string, QString> StatusBar::makeMap(
            spacer +
            tr("%1%2Snap to Angle")
                .arg(trModKey("Shift"))
-               .arg(cmd2TextSeparator)});
+               .arg(cmd2TextSeparator) +
+           spacer +
+           tr("%1%2Change Curve Handle Angle")
+               .arg(trModKey("Alt"))
+               .arg(cmd2TextSeparator) });
   lMap.insert({"T_GeometricVector",
                tr("Geometry Tool: Draws geometric shapes") + spacer +
                    tr("%1%2Allow or Disallow Snapping")
@@ -361,6 +369,14 @@ std::unordered_map<std::string, QString> StatusBar::makeMap(
                    tr("%1%2Move object along horizon")
                        .arg(trModKey("Shift+Alt"))
                        .arg(cmdTextSeparator)});
+  lMap.insert(
+      {"T_Symmetry",
+       tr("Symmetry Tool: Set up symmetrical guide") + spacer +
+           tr("%1%2Move entire object")
+               .arg(trModKey("Shift"))
+               .arg(cmdTextSeparator) +
+           spacer +
+           tr("%1%2Snap rotation").arg(trModKey("Alt")).arg(cmdTextSeparator)});
   lMap.insert(
       {"T_Finger", tr("Finger Tool: Smudges small areas to cover with line")});
   lMap.insert({"T_Dummy", tr("This tool doesn't work on this layer type.")});

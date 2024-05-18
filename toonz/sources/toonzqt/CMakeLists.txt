@@ -33,6 +33,7 @@ set(MOC_HEADERS
     ../include/toonzqt/fxselection.h
     ../include/toonzqt/fxsettings.h
     ../include/toonzqt/gutil.h
+    ../include/toonzqt/hexcolornames.h
     ../include/toonzqt/histogram.h
     ../include/toonzqt/icongenerator.h
     ../include/toonzqt/imageutils.h
@@ -69,6 +70,7 @@ set(MOC_HEADERS
     ../include/toonzqt/tselectionhandle.h
     ../include/toonzqt/updatechecker.h
     ../include/toonzqt/validatedchoicedialog.h
+    ../include/toonzqt/insertfxpopup.h
 )
 
 set(HEADERS
@@ -122,6 +124,7 @@ set(SOURCES
     fxhistogramrender.cpp
     fxsettings.cpp
     gutil.cpp
+    hexcolornames.cpp
     histogram.cpp
     icongenerator.cpp
     imageutils.cpp
@@ -198,6 +201,7 @@ set(SOURCES
     plugin_ui_page_interface.cpp
     toonz_params.cpp
 	lutcalibrator.cpp
+    insertfxpopup.cpp
 )
 
 set(RESOURCES toonzqt.qrc)

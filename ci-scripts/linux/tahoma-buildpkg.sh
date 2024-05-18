@@ -35,6 +35,8 @@ mv appdir/usr/share/tahoma2d/stuff Tahoma2D/tahomastuff
 chmod -R 777 Tahoma2D/tahomastuff
 rmdir appdir/usr/share/tahoma2d
 
+find Tahoma2D/tahomastuff -name .gitkeep -exec rm -f {} \;
+
 if [ -d ../../thirdparty/apps/ffmpeg/bin ]
 then
    echo ">>> Copying FFmpeg to Tahoma2D/ffmpeg"
@@ -59,6 +61,14 @@ then
    chmod 755 -R Tahoma2D/rhubarb
 fi
 
+echo ">>> Copying libghoto2 supporting directories"
+cp -r /usr/local/lib/libgphoto2 appdir/usr/lib
+cp -r /usr/local/lib/libgphoto2_port appdir/usr/lib
+
+rm appdir/usr/lib/libgphoto2/print-camera-list
+find appdir/usr/lib/libgphoto2* -name *.la -exec rm -f {} \;
+find appdir/usr/lib/libgphoto2* -name *.so -exec patchelf --set-rpath '$ORIGIN/../..' {} \;
+
 echo ">>> Creating Tahoma2D/Tahoma2D.AppImage"
 
 if [ ! -f linuxdeployqt*.AppImage ]
@@ -68,7 +78,7 @@ then
 fi
 
 export LD_LIBRARY_PATH=appdir/usr/lib/tahoma2d
-./linuxdeployqt*.AppImage appdir/usr/bin/Tahoma2D -bundle-non-qt-libs -verbose=0 -always-overwrite \
+./linuxdeployqt*.AppImage appdir/usr/bin/Tahoma2D -bundle-non-qt-libs -verbose=0 -always-overwrite -no-strip \
    -executable=appdir/usr/bin/lzocompress \
    -executable=appdir/usr/bin/lzodecompress \
    -executable=appdir/usr/bin/tcleanup \
@@ -76,7 +86,12 @@ export LD_LIBRARY_PATH=appdir/usr/lib/tahoma2d
    -executable=appdir/usr/bin/tconverter \
    -executable=appdir/usr/bin/tfarmcontroller \
    -executable=appdir/usr/bin/tfarmserver 
-./linuxdeployqt*.AppImage appdir/usr/bin/Tahoma2D -appimage
+
+rm appdir/AppRun
+cp ../sources/scripts/AppRun appdir
+chmod 775 appdir/AppRun
+
+./linuxdeployqt*.AppImage appdir/usr/bin/Tahoma2D -appimage -no-strip 
 
 mv Tahoma2D*.AppImage Tahoma2D/Tahoma2D.AppImage
 

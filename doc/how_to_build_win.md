@@ -1,13 +1,13 @@
 # Build Tahoma2D on Windows
 
-This software can be built using Visual Studio 2015 or above and Qt 5.9 (later Qt versions still not working correctly.)
+This software can be built using Visual Studio 2019 or above and Qt 5.9 (later Qt versions still not working correctly.)
 
 Throughout these instructions `$tahoma2d` represents the full path to your local Git repository for Tahoma2D.
 
 ## Required Software
 
-### Visual Studio Express 2015 or higher for Windows Desktop
-- [ ] Install Visual Studio Express 2015 or higher for Windows Desktop, https://www.visualstudio.com/vs/older-downloads/
+### Microsoft Visual Studio 2019 or higher for Windows Desktop
+- [ ] Install Microsoft Visual Studio 2019 or higher for Windows Desktop, https://www.visualstudio.com/vs/older-downloads/
   - Community and Professional versions of Visual Studio for Windows Desktop also work.
   - [ ] Make sure the target platform is "for Windows Desktop", not "for Windows".
   - [ ] During the installation, make sure to select all the Visual C++ packages.
@@ -16,7 +16,7 @@ Throughout these instructions `$tahoma2d` represents the full path to your local
 - [ ] Install via **one** of the following methods.
   - (option 1) Install Qt 5.9.9 from here: https://www.qt.io/download-open-source/. Click the `Download the Qt Online Installer` button at the bottom of the page. It should recommend the Windows installer, if not, select it. The installer is a small file and any additional needed files are downloaded during the install.
     - [ ] Run the the downloaded file. 
-    - [ ] On the filter tick the Archive checkbox to see older verions in the list. In the list choose version `Qt 5.9.9`. 
+    - [ ] On the filter tick the Archive checkbox to see older versions in the list. In the list choose version `Qt 5.9.9`. 
 
   - (option 2) Install using the [Qt 5.9.9 Offline Installer](http://download.qt.io/official_releases/qt/5.9/5.9.9/qt-opensource-windows-x86-5.9.9.exe). It is a large installer file which can be run offline.
 
@@ -86,10 +86,10 @@ You can use GitHub Desktop https://desktop.github.com/ or Git command line.
 Rename the following files:
 - [ ] `$tahoma2d/thirdparty/LibJPEG/jpeg-9/jconfig.vc` to
   - `$tahoma2d/thirdparty/LibJPEG/jpeg-9/jconfig.h`
-- [ ] `$tahoma2d/thirdparty/tiff-4.0.3/libtiff/tif_config.vc.h` to
-  - `$tahoma2d/thirdparty/tiff-4.0.3/libtiff/tif_config.h`
-- [ ] `$tahoma2d/thirdparty/tiff-4.0.3/libtiff/tiffconf.vc.h` to
-  - `$tahoma2d/thirdparty/tiff-4.0.3/libtiff/tiffconf.h`
+- [ ] `$tahoma2d/thirdparty/tiff-4.2.0/libtiff/tif_config.vc.h` to
+  - `$tahoma2d/thirdparty/tiff-4.2.0/libtiff/tif_config.h`
+- [ ] `$tahoma2d/thirdparty/tiff-4.2.0/libtiff/tiffconf.vc.h` to
+  - `$tahoma2d/thirdparty/tiff-4.2.0/libtiff/tiffconf.h`
 - [ ] `$tahoma2d/thirdparty/libpng-1.6.21/scripts/pnglibconf.h.prebuilt` to
   - `$tahoma2d/thirdparty/libpng-1.6.21/pnglibconf.h` 
   - Note that the destination folder is different for this file.
@@ -108,7 +108,7 @@ You will need two additional libraries.
 Copy the following folders into the `$tahoma2d/thirdparty` folder.
  - [ ] Copy the Header and library folders from the Canon SDK to `$tahoma2d/thirdparty/canon`
  - Make sure that the library is the one from the EDSDK_64 folder.
- - [ ] Copy the lib and include folders from libjpeg-turbo64 into `$tahoma2d/thirdparty/libjpeg-turbo64`.
+ - [ ] Copy the lib and include folders from libjpeg-turbo64 into `$tahoma2d/thirdparty/libjpeg-turbo`.
  - [ ] Check the checkbox in CMake to build with stop motion support.
 
 To run the program with stop motion support, you will need to copy the .dll files from opencv2, libjpeg-turbo and the Canon SDK into the folder where your project is built.
@@ -134,7 +134,7 @@ To run the program with stop motion support, you will need to copy the .dll file
 ## Run the Program - More Steps, Individual File Copying - more awareness over which files are used
 1. - [ ] Copy the entire contents of $tahoma2d/toonz/build/Release to an appropriate folder.
 2. - [ ] Do **one** of:
-      - (option 1) Open a Command Prompt and navigate to `QT_DIR/msvc2015_64/bin`. Run the Qt program `windeployqt.exe` with the path for `Tahoma2D.exe` as an argument. 
+      - (option 1) Open a Command Prompt and navigate to `QT_DIR/msvc2019_64/bin`. Run the Qt program `windeployqt.exe` with the path for `Tahoma2D.exe` as an argument. 
 
       - (option 2) Another way to do this is to open two windows in Windows Explorer. In the first window navigate to the folder containing `windeployqt.exe`. In a second window navigate to the Release folder contining the Tahoma2D.exe you built. Drag and drop Tahoma2D.exe onto `windeployqt.exe` in the other window.
     - This will automatically generate the QT files and folders you will need.

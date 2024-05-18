@@ -9,13 +9,14 @@
 #include "toonzqt/doublefield.h"
 #include "toonzqt/colorfield.h"
 #include "toonzqt/checkbox.h"
+#include "toonzqt/filefield.h"
 
 // forward declaration
 class TSceneProperties;
 class QComboBox;
 class QLineEdit;
 
-class CellMarksPopup final : public QDialog {
+class CellMarksPopup final : public DVGui::Dialog {
   Q_OBJECT
   struct MarkerField {
     int id;
@@ -33,11 +34,29 @@ protected slots:
   void onNameChanged();
 };
 
+class ColorFiltersPopup final : public DVGui::Dialog {
+  Q_OBJECT
+  struct FilterField {
+    DVGui::ColorField *colorField;
+    QLineEdit *nameField;
+    QPushButton *clearBtn;
+  };
+
+  QMap<int, FilterField> m_fields;
+
+public:
+  ColorFiltersPopup(QWidget *parent);
+  void updateContents();
+protected slots:
+  void onColorChanged(const TPixel32 &, bool);
+  void onNameChanged();
+  void onClearButtonClicked();
+};
 //=============================================================================
 // SceneSettingsPopup
 //-----------------------------------------------------------------------------
 
-class SceneSettingsPopup final : public QDialog {
+class SceneSettingsPopup final : public DVGui::Dialog {
   Q_OBJECT
 
   DVGui::DoubleLineEdit *m_frameRateFld;
@@ -57,7 +76,13 @@ class SceneSettingsPopup final : public QDialog {
   TSceneProperties *getProperties() const;
 
   CellMarksPopup *m_cellMarksPopup;
+ ColorFiltersPopup *m_colorFiltersPopup;
 
+  DVGui::DoubleLineEdit *m_colorSpaceGammaFld;
+
+  DVGui::FileField *m_overlayFile;
+  DVGui::IntField *m_overlayOpacity;
+  
 public:
   SceneSettingsPopup();
   void configureNotify();
@@ -76,14 +101,17 @@ public slots:
 
   void onFullColorSubsampEditingFinished();
   void onTlvSubsampEditingFinished();
-  void onMakerIntervalEditingFinished();
-  void onStartFrameEditingFinished();
+  void onMakerInformationChanged();
 
   void setBgColor(const TPixel32 &value, bool isDragging);
 
   void onColorFilterOnRenderChanged();
 
   void onEditCellMarksButtonClicked();
+  void onEditColorFiltersButtonClicked();
+
+  void onOverlayFileChanged();
+  void onOverlayOpacityChanged(bool isDragging);
 };
 
 #endif  // SCENESETTINGSPOPUP_H

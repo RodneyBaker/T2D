@@ -24,9 +24,6 @@
 // TnzCore includes
 #include "drawutil.h"
 
-// boost includes
-#include <boost/bind.hpp>
-
 using namespace ToolUtils;
 using namespace DragSelectionTool;
 
@@ -41,6 +38,9 @@ TEnv::IntVar l_strokeSelectConstantThickness("SelectionToolConstantThickness",
                                              0);
 TEnv::IntVar l_strokeSelectIncludeIntersection(
     "SelectionToolIncludeIntersection", 0);
+TEnv::StringVar l_strokeSelectionTarget("SelectionToolVectorTarget",
+                                        "Standard");
+TEnv::StringVar l_strokeSelectionType("SelectionToolVectorType", "Rectangular");
 
 const int l_dragThreshold = 10;  //!< Distance, in pixels, the user has to
                                  //!  move from a button press to trigger a
@@ -652,7 +652,7 @@ void DragSelectionTool::VectorDeformTool::transformWholeLevel() {
   // Remove unwanted fids
   fids.erase(std::remove_if(
                  fids.begin(), fids.end(),
-                 boost::bind(::currentOrNotSelected, boost::cref(*tool), _1)),
+                 [tool](const TFrameId &fid) { return currentOrNotSelected(*tool, fid); }),
              fids.end());
 
   TUndoManager::manager()->beginBlock();
@@ -701,9 +701,9 @@ void DragSelectionTool::VectorDeformTool::transformWholeLevel() {
 
   // Finally, notify changed frames
   std::for_each(fids.begin(), fids.end(),
-                boost::bind(  // NOTE: current frame is not here - it should be,
-                    &TTool::notifyImageChanged, m_tool,
-                    _1));  //       but it's currently unnecessary, in fact...
+  // NOTE: current frame is not here - it should be,
+  // but it's currently unnecessary, in fact...
+  [this](const TFrameId &fid) { m_tool->notifyImageChanged(fid); });
 
   // notifyImageChanged(fid) must be invoked OUTSIDE of the loop - since it
   // seems to imply notifyImageChanged()
@@ -970,15 +970,15 @@ void DragSelectionTool::VectorChangeThicknessTool::setStrokesThickness(
   if (levelSelection.isEmpty()) {
     StrokeSelection *strokeSelection =
         static_cast<StrokeSelection *>(m_tool->getSelection());
-    const std::set<int> &selectedStrokeIdxs = strokeSelection->getSelection();
+    const std::vector<int> &selectedStrokeIdxs = strokeSelection->getSelection();
 
     std::for_each(selectedStrokeIdxs.begin(), selectedStrokeIdxs.end(),
-                  boost::bind(locals::setThickness, boost::cref(data), _1));
+      [&data](int s) { locals::setThickness(data, s); });
   } else {
     std::vector<int> strokeIdxs = getSelectedStrokes(vi, levelSelection);
 
     std::for_each(strokeIdxs.begin(), strokeIdxs.end(),
-                  boost::bind(locals::setThickness, boost::cref(data), _1));
+      [&data](int s) { locals::setThickness(data, s); });
   }
 }
 
@@ -1024,15 +1024,15 @@ void DragSelectionTool::VectorChangeThicknessTool::changeImageThickness(
   if (levelSelection.isEmpty()) {
     StrokeSelection *strokeSelection =
         static_cast<StrokeSelection *>(m_tool->getSelection());
-    const std::set<int> &selectedStrokeIdxs = strokeSelection->getSelection();
+    const std::vector<int> &selectedStrokeIdxs = strokeSelection->getSelection();
 
     std::for_each(selectedStrokeIdxs.begin(), selectedStrokeIdxs.end(),
-                  boost::bind(locals::changeThickness, boost::ref(data), _1));
+      [&data](int s) { locals::changeThickness(data, s); });
   } else {
     std::vector<int> strokeIdxs = getSelectedStrokes(vi, levelSelection);
 
     std::for_each(strokeIdxs.begin(), strokeIdxs.end(),
-                  boost::bind(locals::changeThickness, boost::ref(data), _1));
+      [&data](int s) { locals::changeThickness(data, s); });
   }
 }
 
@@ -1058,8 +1058,7 @@ void DragSelectionTool::VectorChangeThicknessTool::addUndo() {
 
     // Remove unwanted frames
     fids.erase(std::remove_if(fids.begin(), fids.end(),
-                              boost::bind(::currentOrNotSelected,
-                                          boost::cref(*vtool), _1)),
+      [vtool](const TFrameId &fid) { return currentOrNotSelected(*vtool, fid); }),
                fids.end());
 
     TUndoManager::manager()->beginBlock();
@@ -1095,9 +1094,7 @@ void DragSelectionTool::VectorChangeThicknessTool::addUndo() {
 
     // Finally, notify changed frames
     std::for_each(fids.begin(), fids.end(),
-                  boost::bind(  // NOTE: current frame is not here - it was
-                      &TTool::notifyImageChanged, m_tool,
-                      _1));  //       aldready notified
+      [this](const TFrameId &fid) { m_tool->notifyImageChanged(fid); });
   } else
     TUndoManager::manager()->add(m_undo.release());  // Outside any undo block
 }
@@ -1107,20 +1104,19 @@ void DragSelectionTool::VectorChangeThicknessTool::addUndo() {
 void DragSelectionTool::VectorChangeThicknessTool::leftButtonDown(
     const TPointD &pos, const TMouseEvent &e) {
   m_curPos   = pos;
-  m_firstPos = pos;
+  m_firstPos = e.m_pos;
 }
 
 //-----------------------------------------------------------------------------
 
 void DragSelectionTool::VectorChangeThicknessTool::leftButtonDrag(
     const TPointD &pos, const TMouseEvent &e) {
-  TAffine aff;
-  TPointD delta    = pos - m_curPos;
+  TPointD delta = e.m_pos - m_firstPos;
   TVectorImageP vi = getTool()->getImage(true);
   if (!vi) return;
   VectorSelectionTool *tool = dynamic_cast<VectorSelectionTool *>(m_tool);
   tool->setResetCenter(false);
-  m_thicknessChange = (pos.y - m_firstPos.y) * 0.2;
+  m_thicknessChange = delta.y * m_tool->getViewer()->getPixelSize() * 0.2;
   changeImageThickness(*vi, m_thicknessChange);
   getTool()->m_deformValues.m_maxSelectionThickness = m_thicknessChange;
   getTool()->computeBBox();
@@ -1177,6 +1173,7 @@ public:
     TTool::getApplication()->getCurrentXsheet()->notifyXsheetChanged();
   }
   int getSize() const override { return sizeof(*this); }
+  QString getHistoryString() override { return QObject::tr("Enter Group"); }
 };
 
 //=============================================================================
@@ -1200,6 +1197,8 @@ public:
   }
 
   int getSize() const override { return sizeof(*this); }
+
+  QString getHistoryString() override { return QObject::tr("Exit Group"); }
 };
 
 }  // namespace
@@ -1269,8 +1268,9 @@ void VectorSelectionTool::setNewFreeDeformer() {
   if (!vi) return;
 
   // Current freeDeformer always at index 0
-  m_freeDeformers.push_back(
-      new VectorFreeDeformer(vi, m_strokeSelection.getSelection()));
+  std::vector<int> &selection = m_strokeSelection.getSelection();
+  std::set<int> selectionSet(selection.begin(), selection.end());
+  m_freeDeformers.push_back(new VectorFreeDeformer(vi, selectionSet));
 
   if (isLevelType() || isSelectedFramesType()) {
     TXshSimpleLevel *level =
@@ -1283,7 +1283,7 @@ void VectorSelectionTool::setNewFreeDeformer() {
 
     fids.erase(std::remove_if(
                    fids.begin(), fids.end(),
-                   boost::bind(::currentOrNotSelected, boost::cref(*this), _1)),
+                   [this](const TFrameId &fid) { return currentOrNotSelected(*this, fid); }),
                fids.end());
 
     std::vector<TFrameId>::iterator ft, fEnd = fids.end();
@@ -1366,7 +1366,8 @@ void VectorSelectionTool::updateTranslation() {
 void VectorSelectionTool::updateSelectionTarget() {
   // Make the correct selection current
   if (m_selectionTarget.getIndex() == NORMAL_TYPE_IDX) {
-    std::set<int> selectedStrokes;  // Retain previously selected strokes across
+    std::vector<int>
+        selectedStrokes;  // Retain previously selected strokes across
     selectedStrokes.swap(
         m_strokeSelection.getSelection());  // current selection change
 
@@ -1436,7 +1437,7 @@ void VectorSelectionTool::updateSelectionTarget() {
 void VectorSelectionTool::finalizeSelection() {
   TVectorImageP vi = getImage(false);
   if (vi && !m_levelSelection.isEmpty()) {
-    std::set<int> &selection = m_strokeSelection.getSelection();
+    std::vector<int> &selection = m_strokeSelection.getSelection();
     selection.clear();
 
     // Apply base additive selection
@@ -1444,8 +1445,7 @@ void VectorSelectionTool::finalizeSelection() {
       // Apply filters
       std::vector<int> selectedStrokes =
           getSelectedStrokes(*vi, m_levelSelection);
-      std::set<int>(selectedStrokes.begin(), selectedStrokes.end())
-          .swap(selection);
+      selectedStrokes.swap(selection);
     }
   }
 
@@ -1537,8 +1537,10 @@ void VectorSelectionTool::leftButtonDoubleClick(const TPointD &pos,
   if (m_strokeSelectionType.getIndex() == POLYLINE_SELECTION_IDX &&
       !m_polyline.empty()) {
     closePolyline(pos);
-    selectRegionVectorImage(m_includeIntersection.getValue());
+    selectRegionVectorImage(m_includeIntersection.getValue(),
+                            m_strokeSelectionType.getIndex());
 
+    m_polyline.reset();
     m_selecting = false;
     invalidate();
 
@@ -1591,7 +1593,25 @@ void VectorSelectionTool::leftButtonDrag(const TPointD &pos,
     TRectD rect(m_firstPos, pos);
     m_selectingRect = rect;
 
-    std::set<int> oldSelection;
+    if (m_polyline.size() > 1 && m_polyline.hasSymmetryBrushes()) {
+      m_polyline.clear();
+      m_polyline.push_back(m_selectingRect.getP00());
+      m_polyline.push_back(m_selectingRect.getP01());
+      m_polyline.push_back(m_selectingRect.getP11());
+      m_polyline.push_back(m_selectingRect.getP10());
+      m_polyline.push_back(m_selectingRect.getP00());
+
+      if (!m_shiftPressed) clearSelectedStrokes();
+
+      m_stroke = m_polyline.makePolylineStroke(0);
+      selectRegionVectorImage(m_includeIntersection.getValue(),
+                              POLYLINE_SELECTION_IDX);
+      invalidate();
+      m_stroke = 0;
+      return;
+    }
+
+    std::vector<int> oldSelection;
     if (m_shiftPressed) oldSelection = m_strokeSelection.getSelection();
 
     clearSelectedStrokes();
@@ -1614,7 +1634,9 @@ void VectorSelectionTool::leftButtonDrag(const TPointD &pos,
                              ? rect.overlaps(stroke->getBBox())
                              : rect.contains(stroke->getBBox());
 
-      if (inSelection || (m_shiftPressed && oldSelection.count(s)))
+      if (inSelection || (m_shiftPressed &&
+                          std::find(oldSelection.begin(), oldSelection.end(),
+                                    s) != oldSelection.end()))
         selectionChanged = (selectStroke(s, false) || selectionChanged);
     }
 
@@ -1663,15 +1685,18 @@ void VectorSelectionTool::leftButtonUp(const TPointD &pos,
   TVectorImageP vi = getImage(false);
 
   if (vi) {
-    if (m_strokeSelectionType.getIndex() == RECT_SELECTION_IDX)
+    if (m_strokeSelectionType.getIndex() == RECT_SELECTION_IDX) {
+      m_polyline.reset();
+
       notifySelectionChanged();
-    else if (m_strokeSelectionType.getIndex() == FREEHAND_SELECTION_IDX) {
+    } else if (m_strokeSelectionType.getIndex() == FREEHAND_SELECTION_IDX) {
       QMutexLocker lock(vi->getMutex());
 
       closeFreehand(pos);
 
       if (m_stroke->getControlPointCount() > 3)
-        selectRegionVectorImage(m_includeIntersection.getValue());
+        selectRegionVectorImage(m_includeIntersection.getValue(),
+                                m_strokeSelectionType.getIndex());
 
       delete m_stroke;  // >:(
       m_stroke = 0;
@@ -1941,6 +1966,10 @@ void VectorSelectionTool::onActivate() {
     m_constantThickness.setValue(l_strokeSelectConstantThickness ? 1 : 0);
     m_strokeSelection.setSceneHandle(
         TTool::getApplication()->getCurrentScene());
+    m_selectionTarget.setValue(
+        ::to_wstring(l_strokeSelectionTarget.getValue()));
+    m_strokeSelectionType.setValue(
+        ::to_wstring(l_strokeSelectionType.getValue()));
   }
 
   SelectionTool::onActivate();
@@ -1983,10 +2012,10 @@ void VectorSelectionTool::onImageChanged() {
   } else {
     // Remove any eventual stroke index outside the valid range
     if (!m_strokeSelection.isEmpty()) {
-      const std::set<int> &indexes = m_strokeSelection.getSelection();
+      const std::vector<int> indexes = m_strokeSelection.getSelection();
       int strokesCount             = selectedImg->getStrokeCount();
 
-      std::set<int>::const_iterator it;
+      std::vector<int>::const_iterator it;
       for (it = indexes.begin(); it != indexes.end(); ++it) {
         int index = *it;
 
@@ -2036,15 +2065,19 @@ TPropertyGroup *VectorSelectionTool::getProperties(int idx) {
 bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
   if (!m_strokeSelection.isEditable()) return false;
 
+  if (propertyName == m_strokeSelectionType.getName())
+    l_strokeSelectionType = ::to_string(m_strokeSelectionType.getValue());
+
   if (SelectionTool::onPropertyChanged(propertyName)) return true;
 
   if (propertyName == m_includeIntersection.getName())
     l_strokeSelectIncludeIntersection = (int)(m_includeIntersection.getValue());
-  if (propertyName == m_constantThickness.getName())
+  else if (propertyName == m_constantThickness.getName())
     l_strokeSelectConstantThickness = (int)(m_constantThickness.getValue());
-  else if (propertyName == m_selectionTarget.getName())
+  else if (propertyName == m_selectionTarget.getName()) {
+    l_strokeSelectionTarget = ::to_string(m_selectionTarget.getValue());
     doOnActivate();
-  else if (propertyName == m_capStyle.getName()) {
+  } else if (propertyName == m_capStyle.getName()) {
     if (m_strokeSelection.isEmpty()) return true;
 
     TXshSimpleLevel *level =
@@ -2056,9 +2089,9 @@ bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
 
     TVectorImageP vi = m_strokeSelection.getImage();
 
-    const std::set<int> &indices = m_strokeSelection.getSelection();
+    const std::vector<int> &indices = m_strokeSelection.getSelection();
 
-    std::set<int>::iterator it;
+    std::vector<int>::const_iterator it;
     for (it = indices.begin(); it != indices.end(); ++it) {
       TStroke *stroke = vi->getStroke(*it);
 
@@ -2088,9 +2121,9 @@ bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
 
     TVectorImageP vi = m_strokeSelection.getImage();
 
-    const std::set<int> &indices = m_strokeSelection.getSelection();
+    const std::vector<int> &indices = m_strokeSelection.getSelection();
 
-    std::set<int>::iterator it;
+    std::vector<int>::const_iterator it;
     for (it = indices.begin(); it != indices.end(); ++it) {
       TStroke *stroke = vi->getStroke(*it);
 
@@ -2120,9 +2153,9 @@ bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
 
     TVectorImageP vi = m_strokeSelection.getImage();
 
-    const std::set<int> &indices = m_strokeSelection.getSelection();
+    const std::vector<int> &indices = m_strokeSelection.getSelection();
 
-    std::set<int>::iterator it;
+    std::vector<int>::const_iterator it;
     for (it = indices.begin(); it != indices.end(); ++it) {
       TStroke *stroke = vi->getStroke(*it);
 
@@ -2149,7 +2182,7 @@ bool VectorSelectionTool::onPropertyChanged(std::string propertyName) {
 
 void VectorSelectionTool::selectionOutlineStyle(int &capStyle, int &joinStyle) {
   // Check the selection's outline style group validity
-  const std::set<int> &selection = m_strokeSelection.getSelection();
+  const std::vector<int> &selection = m_strokeSelection.getSelection();
   if (selection.empty()) {
     capStyle = joinStyle = -1;
     return;
@@ -2162,7 +2195,7 @@ void VectorSelectionTool::selectionOutlineStyle(int &capStyle, int &joinStyle) {
   capStyle  = beginOptions.m_capStyle;
   joinStyle = beginOptions.m_joinStyle;
 
-  std::set<int>::const_iterator it;
+  std::vector<int>::const_iterator it;
   for (it = selection.begin(); it != selection.end(); ++it) {
     const TStroke::OutlineOptions &options =
         vi->getStroke(*it)->outlineOptions();
@@ -2175,7 +2208,8 @@ void VectorSelectionTool::selectionOutlineStyle(int &capStyle, int &joinStyle) {
 
 //-----------------------------------------------------------------------------
 
-void VectorSelectionTool::selectRegionVectorImage(bool includeIntersect) {
+void VectorSelectionTool::selectRegionVectorImage(bool includeIntersect,
+                                                  int selectionIndex) {
   if (!m_stroke) return;
 
   TVectorImageP vi(getImage(false));
@@ -2185,6 +2219,23 @@ void VectorSelectionTool::selectRegionVectorImage(bool includeIntersect) {
 
   TVectorImage selectImg;
   selectImg.addStroke(new TStroke(*m_stroke));
+
+  std::vector<TStroke *> symmStrokes;
+  if (selectionIndex == POLYLINE_SELECTION_IDX) {
+    if (m_polyline.size() > 1 && m_polyline.hasSymmetryBrushes()) {
+      for (int i = 1; i < m_polyline.getBrushCount(); i++)
+        symmStrokes.push_back(m_polyline.makePolylineStroke(i));
+    }
+  } else if (selectionIndex == FREEHAND_SELECTION_IDX) {
+    if (m_track.hasSymmetryBrushes()) {
+      double pixelSize = getPixelSize();
+      double error     = (30.0 / 11) * pixelSize;
+      symmStrokes      = m_track.makeSymmetryStrokes(error);
+    }
+  }
+  for (int i = 0; i < symmStrokes.size(); i++)
+    selectImg.addStroke(symmStrokes[i]);
+
   selectImg.findRegions();
 
   int sCount = int(vi->getStrokeCount()),
@@ -2208,6 +2259,14 @@ void VectorSelectionTool::selectRegionVectorImage(bool includeIntersect) {
       if (intersections.size() > 0) {
         selectionChanged = selectStroke(s, false) || selectionChanged;
       }
+      for (int i = 0; i < symmStrokes.size(); i++) {
+        intersections.clear();
+        intersect(symmStrokes[i], currentStroke, intersections, false);
+        if (intersections.size() > 0) {
+          selectionChanged = selectStroke(s, false) || selectionChanged;
+        }
+      }
+
     }
   }
 

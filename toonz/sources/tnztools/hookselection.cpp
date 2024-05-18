@@ -96,7 +96,7 @@ void HooksData::storeHookPositions(const std::vector<int> &ids) {
   if (ids.empty()) return;
   TTool::Application *app = TTool::getApplication();
   TXshLevelP level        = app->getCurrentLevel()->getLevel();
-  assert(level = m_level);
+  assert(level == m_level);
   if (level != m_level || !m_level || m_level->getSimpleLevel()->isReadOnly())
     return;
   HookSet *hookSet = m_level->getHookSet();
@@ -218,6 +218,7 @@ void HookSelection::enableCommands() {
 //---------------------------------------------------------------------------
 
 void HookSelection::deleteSelectedHooks() {
+  if (isEmpty()) return;
   TTool::Application *app = TTool::getApplication();
   TTool *tool             = app->getCurrentTool()->getTool();
   if (!app) return;
@@ -265,6 +266,7 @@ void HookSelection::copySelectedHooks() {
 //---------------------------------------------------------------------------
 
 void HookSelection::cutSelectedHooks() {
+  if (isEmpty()) return;
   copySelectedHooks();
   TXshLevel *xl    = TTool::getApplication()->getCurrentLevel()->getLevel();
   TUndo *undo      = new HookUndo(xl);
@@ -285,6 +287,7 @@ void HookSelection::cutSelectedHooks() {
 //---------------------------------------------------------------------------
 
 void HookSelection::pasteSelectedHooks() {
+  if (isEmpty()) return;
   const QMimeData *data      = QApplication::clipboard()->mimeData();
   const HooksData *hooksData = dynamic_cast<const HooksData *>(data);
   if (!hooksData) return;

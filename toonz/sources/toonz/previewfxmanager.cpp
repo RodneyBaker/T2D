@@ -558,6 +558,9 @@ void PreviewFxInstance::updateFrameRange() {
   properties->getRange(m_start, m_end, m_step);
   if (m_end < 0) m_end = frameCount - 1;
 
+  if (m_end >= frameCount && Preferences::instance()->isImplicitHoldEnabled())
+    frameCount = m_end;
+
   // Intersect with the fx active frame range
   TRasterFxP rasterFx(m_fx);
   TFxTimeRegion timeRegion(rasterFx->getTimeRegion());
@@ -713,7 +716,13 @@ void PreviewFxInstance::updateRenderSettings() {
 
   m_subcamera = properties->isSubcameraPreview();
 
-  const TRenderSettings &renderSettings = properties->getRenderSettings();
+  TRenderSettings renderSettings = properties->getRenderSettings();
+
+  int lastFrame = scene->getPreviewFrameCount();
+  if (Preferences::instance()->isImplicitHoldEnabled())
+    lastFrame = std::max(lastFrame,
+                         TApp::instance()->getCurrentFrame()->getFrameIndex());
+  renderSettings.m_lastFrame = lastFrame;
 
   if (m_renderSettings != renderSettings) {
     m_renderSettings = renderSettings;
@@ -1067,10 +1076,20 @@ void PreviewFxInstance::doOnRenderRasterCompleted(
   else
     ras = 0;
 
-  /*-- 16bpcで計算された場合、結果をDitheringする --*/
   TRasterP rasA = renderData.m_rasA;
   TRasterP rasB = renderData.m_rasB;
-  if (rasA->getPixelSize() == 8)  // render in 64 bits
+
+  // Linear Color Space -> sRGB
+  if (rasA->isLinear()) {
+    TRop::tosRGB(rasA, m_renderSettings.m_colorSpaceGamma);
+    if (m_renderSettings.m_stereoscopic)
+      TRop::tosRGB(rasB, m_renderSettings.m_colorSpaceGamma);
+  }
+
+  /*-- 16bpc縺ｧ險育ｮ励＆繧後◆蝣ｴ蜷医∫ｵ先棡繧奪ithering縺吶ｋ --*/
+  // dither the 16bpc image IF the "30bit display" preference option is OFF
+  if (rasA->getPixelSize() == 8 &&
+      !Preferences::instance()->is30bitDisplayEnabled())  // render in 64 bits
   {
     TRaster32P auxA(rasA->getLx(), rasA->getLy());
     TRop::convert(auxA, rasA);  // dithering
@@ -1454,6 +1473,7 @@ void PreviewFxManager::onLevelChanged() {
     // Build the level name as an alias keyword. All cache images associated
     // with an alias containing the level name will be updated.
     TXshLevel *xl = TApp::instance()->getCurrentLevel()->getLevel();
+    if (!xl) return;
     std::string aliasKeyword;
     TFilePath fp = xl->getPath();
     aliasKeyword = ::to_string(fp.withType(""));

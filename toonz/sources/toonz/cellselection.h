@@ -5,6 +5,7 @@
 
 #include "toonzqt/selection.h"
 #include "tgeometry.h"
+#include "tinbetween.h"
 #include <set>
 
 class TimeStretchPopup;
@@ -40,13 +41,18 @@ public:
   ~TCellSelection();
 
   void enableCommands() override;
+  void setAlternativeCommandNames();
 
   bool isEmpty() const override;
 
   void copyCells();
   void pasteCells();
+  void doPaste();  // choose pasting behavior by preference option
   void pasteDuplicateCells();
-  void deleteCells();
+  void deleteCells(bool withShift = false);
+  void clearCells();
+  void removeCells();
+  void clearFrames();
   void cutCells();
   void cutCells(bool withoutCopy);
 
@@ -125,7 +131,15 @@ public:
 
   void createBlankDrawing(int row, int col, bool inRange);
   void createBlankDrawings();
+  void stopFrameHold(int row, int col, bool inRange);
+  void stopFrameHold();
   void fillEmptyCell();
+
+  void inbetween(TInbetween::TweenAlgorithm algorithm);
+  void inbetweenLinear() { inbetween(TInbetween::LinearInterpolation); }
+  void inbetweenEaseIn() { inbetween(TInbetween::EaseInInterpolation); }
+  void inbetweenEaseOut() { inbetween(TInbetween::EaseOutInterpolation); }
+  void inbetweenEaseInOut() { inbetween(TInbetween::EaseInOutInterpolation); }
 };
 
 #endif  // TCELLSELECTION_H

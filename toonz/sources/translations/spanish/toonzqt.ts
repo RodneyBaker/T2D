@@ -27,6 +27,14 @@
         <source>Replace </source>
         <translation>Reemplazar</translation>
     </message>
+    <message>
+        <source>Plugins</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Macro</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>AddWordButton</name>
@@ -167,7 +175,7 @@ Es posible que el archivo de dicho ajuste se encuentre corrupto.</translation>
     </message>
     <message>
         <source>A/R</source>
-        <translation type="vanished">Proporción</translation>
+        <translation>Proporción</translation>
     </message>
     <message>
         <source>&lt;custom&gt;</source>
@@ -175,6 +183,30 @@ Es posible que el archivo de dicho ajuste se encuentre corrupto.</translation>
     </message>
     <message>
         <source>Size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>cm</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>mm</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>inch</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>field</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>pixel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use Scene Overlay Settings</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -198,7 +230,11 @@ Es posible que el archivo de dicho ajuste se encuentre corrupto.</translation>
     </message>
     <message>
         <source>RGBA</source>
-        <translation>RVAα</translation>
+        <translation type="vanished">RVAα</translation>
+    </message>
+    <message>
+        <source>RGB</source>
+        <translation type="unfinished">RVA</translation>
     </message>
 </context>
 <context>
@@ -323,6 +359,14 @@ Es posible que el archivo de dicho ajuste se encuentre corrupto.</translation>
         <source>R:%1 G:%2 B:%3</source>
         <translation>R:%1 V:%2 A:%3</translation>
     </message>
+    <message>
+        <source> A:%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A:%1</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ComboHistogram</name>
@@ -341,6 +385,18 @@ Es posible que el archivo de dicho ajuste se encuentre corrupto.</translation>
     <message>
         <source>Y:</source>
         <translation>Y:</translation>
+    </message>
+    <message>
+        <source>8bit (0-255)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>16bit (0-65535)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>0.0-1.0</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -407,6 +463,18 @@ Es posible que el archivo de dicho ajuste se encuentre corrupto.</translation>
         <source>R:</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Paste Color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Paste Color of %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy Color</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>DVGui::DvTextEdit</name>
@@ -440,6 +508,89 @@ Es posible que el archivo de dicho ajuste se encuentre corrupto.</translation>
     <message>
         <source>...</source>
         <translation>...</translation>
+    </message>
+</context>
+<context>
+    <name>DVGui::HexColorNamesEditor</name>
+    <message>
+        <source>Hex Color Names Editor</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation type="unfinished">Aceptar</translation>
+    </message>
+    <message>
+        <source>Apply</source>
+        <translation type="unfinished">Aplicar</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unselect</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add Color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete Color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>User Defined Colors</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Default Main Colors</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enable Auto-Complete</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open Color Names</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Text or XML (*.txt *.xml);;Text files (*.txt);;XML files (*.xml)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hex Color Names Import</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Do you want to merge with existing entries?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error importing color names XML</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save Color Names</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>XML files (*.xml);;Text files (*.txt)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error exporting color names XML</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -818,6 +969,27 @@ Control click to reset.</source>
         <source>&amp;Next Frame</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Gain Controls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&amp;Reduce gain 1/2 stop (divide by sqrt(2))</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle gain between 1 and the previous setting.
+Gain is shown as an f-stop and the &quot;neutral&quot; or 1.0 gain f-stop is f/8.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&amp;Increase gain 1/2 stop (multiply by sqrt(2))</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source> (gain %1)</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>FontParamField</name>
@@ -1086,6 +1258,13 @@ Control click to reset.</source>
     <message>
         <source>Function Editor</source>
         <translation>Editor de funciones</translation>
+    </message>
+</context>
+<context>
+    <name>FunctionSheetButtonArea</name>
+    <message>
+        <source>Toggle synchronizing zoom with xsheet</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -1402,6 +1581,17 @@ Manually changing any keyframe will clear the warning.</source>
     </message>
 </context>
 <context>
+    <name>FxPassThroughPainter</name>
+    <message>
+        <source>&amp;Paste Add</source>
+        <translation type="unfinished">&amp;Pegar (agregar)</translation>
+    </message>
+    <message>
+        <source>&amp;Preview</source>
+        <translation type="unfinished">&amp;Previsualizar</translation>
+    </message>
+</context>
+<context>
     <name>FxSchematicLink</name>
     <message>
         <source>&amp;Delete</source>
@@ -1417,6 +1607,13 @@ Manually changing any keyframe will clear the warning.</source>
     <message>
         <source>Output</source>
         <translation>Salida</translation>
+    </message>
+</context>
+<context>
+    <name>FxSchematicPassThroughNode</name>
+    <message>
+        <source> (Pass Through)</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -1532,6 +1729,17 @@ Seleccionar los nodos de efecto y sus vínculos relacionados antes de copiar o c
     </message>
 </context>
 <context>
+    <name>HexColorNamesEditor</name>
+    <message>
+        <source>OK</source>
+        <translation type="obsolete">Aceptar</translation>
+    </message>
+    <message>
+        <source>Apply</source>
+        <translation type="obsolete">Aplicar</translation>
+    </message>
+</context>
+<context>
     <name>Histogram</name>
     <message>
         <source>Logarithmic Scale</source>
@@ -1596,6 +1804,33 @@ Seleccionar los nodos de efecto y sus vínculos relacionados antes de copiar o c
     <message>
         <source>Plain color</source>
         <translation type="vanished">Color pleno</translation>
+    </message>
+</context>
+<context>
+    <name>NewStyleSetPopup</name>
+    <message>
+        <source>New Style Set</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Style Set Name:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Create as Favorite</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Style Set Type:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation type="unfinished">Aceptar</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation type="unfinished">Cancelar</translation>
     </message>
 </context>
 <context>
@@ -1791,15 +2026,7 @@ Seleccionar los nodos de efecto y sus vínculos relacionados antes de copiar o c
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Save palette with a different name.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Save the palette.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Save the palette as the default for new levels of the current level type.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1812,6 +2039,22 @@ Seleccionar los nodos de efecto y sus vínculos relacionados antes de copiar o c
     </message>
     <message>
         <source>Show New Style Button</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name Editor</source>
+        <translation type="unfinished">Editor de nombres</translation>
+    </message>
+    <message>
+        <source>Visible Toolbar Buttons</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>KeyFrame</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Palette Gizmo</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -1831,11 +2074,11 @@ Seleccionar los nodos de efecto y sus vínculos relacionados antes de copiar o c
     </message>
     <message>
         <source>New Page</source>
-        <translation>Nueva página</translation>
+        <translation type="vanished">Nueva página</translation>
     </message>
     <message>
         <source>Name Editor</source>
-        <translation>Editor de nombres</translation>
+        <translation type="vanished">Editor de nombres</translation>
     </message>
     <message>
         <source> + </source>
@@ -1885,6 +2128,12 @@ It can&apos;t be changed.  Ever.</source>
     </message>
     <message>
         <source>View help page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This Fx does not support rendering in floating point channel width (32bit).
+The output pixel values from this fx will be clamped to 0.0 - 1.0
+and tone may be slightly discretized.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -2530,6 +2779,159 @@ La segunda línea debería tener la forma &quot;Mesh [profundidad de bits de ent
         <source>Erase</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Removing a Style will permanently delete the style file. This cannot be undone!
+Are you sure?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Emptying Set &quot;%1&quot; will permanently delete all style files for this set. This cannot be undone!
+Are you sure?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Removing Style Set &quot;%1&quot; will permanently delete all style files for this set. This cannot be undone!
+Are you sure?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Removing the selected Styles will permanently delete style files from their sets. This cannot be undone!
+Are you sure?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sample Type: </source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name Editor</source>
+        <translation type="unfinished">Editor de nombres</translation>
+    </message>
+    <message>
+        <source>New Style</source>
+        <translation type="unfinished">Nuevo estilo</translation>
+    </message>
+    <message>
+        <source>New Page</source>
+        <translation type="unfinished">Nueva página</translation>
+    </message>
+    <message>
+        <source>R</source>
+        <translation type="unfinished">R</translation>
+    </message>
+    <message>
+        <source>G</source>
+        <translation type="unfinished">V</translation>
+    </message>
+    <message>
+        <source>B</source>
+        <translation type="unfinished">A</translation>
+    </message>
+    <message>
+        <source>A</source>
+        <translation type="unfinished">α</translation>
+    </message>
+    <message>
+        <source>H</source>
+        <translation type="unfinished">T</translation>
+    </message>
+    <message>
+        <source>S</source>
+        <translation type="unfinished">S</translation>
+    </message>
+    <message>
+        <source>V</source>
+        <translation type="unfinished">V</translation>
+    </message>
+    <message>
+        <source>Alpha controls the transparency. 
+Zero is fully transparent.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Style Set Manager:              %1+click - Add Style to Palette              %2+click - Multi-Style Select</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add Selected to Palette</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove Selected from Favorites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add Selected to Favorites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy Selected to Style Set...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move Selected to Style Set...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove Selected from Sets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add to Palette</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add to Favorites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy to Style Set...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move to Style Set...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove from Set</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add Set to Palette</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Empty Set</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New Style Set...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rename Style Set...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reload Style Set</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scan for Style Set Changes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove &apos;%1&apos; Style Set</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Autopaint for Lines</source>
+        <translation type="unfinished">Pintar (líneas) automáticamente al rellenar</translation>
+    </message>
+    <message>
+        <source>Reset to default</source>
+        <translation type="unfinished">Restablecer a predefinido</translation>
+    </message>
 </context>
 <context>
     <name>QPushButton</name>
@@ -2546,6 +2948,13 @@ La segunda línea debería tener la forma &quot;Mesh [profundidad de bits de ent
     </message>
 </context>
 <context>
+    <name>RenameStyleSet</name>
+    <message>
+        <source> (Favorites)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>RgbLinkButtons</name>
     <message>
         <source>Copy RGB : %1 &gt; %2</source>
@@ -2554,6 +2963,29 @@ La segunda línea debería tener la forma &quot;Mesh [profundidad de bits de ent
     <message>
         <source>Swap %1 and %2</source>
         <translation>Intercambiar %1 y %2</translation>
+    </message>
+</context>
+<context>
+    <name>SchematicName</name>
+    <message>
+        <source>Cu&amp;t</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&amp;Copy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&amp;Paste</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&amp;Delete</source>
+        <translation type="unfinished">&amp;Borrar</translation>
+    </message>
+    <message>
+        <source>Select &amp;All</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -2600,7 +3032,7 @@ La segunda línea debería tener la forma &quot;Mesh [profundidad de bits de ent
     </message>
     <message>
         <source>&amp;Swtich output port display mode</source>
-        <translation>&amp;Cambiar visualización de conectores</translation>
+        <translation type="vanished">&amp;Cambiar visualización de conectores</translation>
     </message>
     <message>
         <source>&amp;Toggle node icons</source>
@@ -2617,6 +3049,10 @@ La segunda línea debería tener la forma &quot;Mesh [profundidad de bits de ent
     <message>
         <source>&amp;Hand Mode</source>
         <translation>Modo de &amp;desplazamiento</translation>
+    </message>
+    <message>
+        <source>&amp;Switch output port display mode</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -2921,7 +3357,7 @@ Are you sure ?</source>
     </message>
     <message>
         <source>Vector Brush</source>
-        <translation>Pinceles vectoriales</translation>
+        <translation type="vanished">Pinceles vectoriales</translation>
     </message>
     <message>
         <source>Settings</source>
@@ -2963,7 +3399,7 @@ Autom</translation>
     </message>
     <message>
         <source>Trail</source>
-        <translation>Rastros</translation>
+        <translation type="vanished">Rastros</translation>
     </message>
     <message>
         <source>Color</source>
@@ -2983,7 +3419,7 @@ Autom</translation>
     </message>
     <message>
         <source>Toggle orientation of the Color Page.</source>
-        <translation>Alterna la orientación de los controles en la solapa Color.</translation>
+        <translation type="vanished">Alterna la orientación de los controles en la solapa Color.</translation>
     </message>
     <message>
         <source>No Style Selected</source>
@@ -3025,41 +3461,105 @@ Autom</translation>
         <source>Level </source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Hex</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle Orientation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hex Color Names...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show or hide style sets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>My Favorites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source> (Favorites)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source> (External)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show All</source>
+        <translation type="unfinished">Mostrar todos</translation>
+    </message>
+    <message>
+        <source>Hide All</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Collapse All</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Expand All</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Style Set Name cannot be empty or contain any of the following characters:
+ \ / : * ? &quot; &lt; &gt; |</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Style Set Name already exists. Please try another name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Search</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hide Auto/Apply</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear Search</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show Auto/Apply</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>StyleEditorGUI::ColorChannelControl</name>
     <message>
         <source>R</source>
-        <translation>R</translation>
+        <translation type="vanished">R</translation>
     </message>
     <message>
         <source>G</source>
-        <translation>V</translation>
+        <translation type="vanished">V</translation>
     </message>
     <message>
         <source>B</source>
-        <translation>A</translation>
+        <translation type="vanished">A</translation>
     </message>
     <message>
         <source>A</source>
-        <translation>α</translation>
+        <translation type="vanished">α</translation>
     </message>
     <message>
         <source>H</source>
-        <translation>T</translation>
+        <translation type="vanished">T</translation>
     </message>
     <message>
         <source>S</source>
-        <translation>S</translation>
+        <translation type="vanished">S</translation>
     </message>
     <message>
         <source>V</source>
-        <translation>V</translation>
-    </message>
-    <message>
-        <source>Alpha controls the transparency. 
-Zero is fully transparent.</source>
-        <translation type="unfinished"></translation>
+        <translation type="vanished">V</translation>
     </message>
 </context>
 <context>
@@ -3089,11 +3589,11 @@ Zero is fully transparent.</source>
     <name>StyleEditorGUI::SettingsPage</name>
     <message>
         <source>Autopaint for Lines</source>
-        <translation>Pintar (líneas) automáticamente al rellenar</translation>
+        <translation type="vanished">Pintar (líneas) automáticamente al rellenar</translation>
     </message>
     <message>
         <source>Reset to default</source>
-        <translation>Restablecer a predefinido</translation>
+        <translation type="vanished">Restablecer a predefinido</translation>
     </message>
 </context>
 <context>

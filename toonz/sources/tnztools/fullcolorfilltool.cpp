@@ -10,6 +10,9 @@
 #include "toonz/preferences.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/tframehandle.h"
+#include "toonz/tonionskinmaskhandle.h"
+#include "toonz/tpalettehandle.h"
+#include "toonz/tcolumnhandle.h"
 
 #include "tools/toolhandle.h"
 #include "tools/toolutils.h"
@@ -17,12 +20,20 @@
 #include "tenv.h"
 #include "tpalette.h"
 #include "tsystem.h"
+#include "symmetrytool.h"
+#include "tinbetween.h"
 
 using namespace ToolUtils;
 
 TEnv::IntVar FullColorMinFillDepth("InknpaintFullColorMinFillDepth", 4);
 TEnv::IntVar FullColorMaxFillDepth("InknpaintFullColorMaxFillDepth", 12);
 TEnv::IntVar FullColorFillReferenced("InknpaintFullColorFillReferenced", 0);
+
+TEnv::StringVar FullColorRasterGapSetting("InknpaintFullColorRasterGapSetting",
+                                          "Ignore Gaps");
+TEnv::IntVar FullColorFillRange("InknpaintFullColorFillRange", 0);
+
+extern TEnv::DoubleVar AutocloseDistance;
 
 namespace {
 
@@ -83,7 +94,8 @@ public:
 
 void doFill(const TImageP &img, const TPointD &pos, FillParameters &params,
             bool isShiftFill, TXshSimpleLevel *sl, const TFrameId &fid,
-            TXsheet *xsheet, int frameIndex) {
+            TXsheet *xsheet, int frameIndex, bool fillGaps = false,
+            bool closeGaps = false, int closeStyleIndex = -1) {
   TTool::Application *app = TTool::getApplication();
   if (!app || !sl) return;
 
@@ -114,7 +126,8 @@ void doFill(const TImageP &img, const TPointD &pos, FillParameters &params,
       return;
     }
 
-    fullColorFill(ras, params, &tileSaver, xsheet, frameIndex);
+    fullColorFill(ras, params, &tileSaver, xsheet, frameIndex, fillGaps,
+                  closeGaps, closeStyleIndex, AutocloseDistance);
 
     if (tileSaver.getTileSet()->getTileCount() != 0) {
       static int count = 0;
@@ -148,15 +161,52 @@ void doFill(const TImageP &img, const TPointD &pos, FillParameters &params,
 FullColorFillTool::FullColorFillTool()
     : TTool("T_Fill")
     , m_fillDepth("Fill Depth", 0, 15, 4, 12)
-    , m_referenced("Refer Visible", false) {
+    , m_referenced("Refer Visible", false)
+    , m_closeStyleIndex("Style Index:", L"current")  // W_ToolOptions_InkIndex
+    , m_rasterGapDistance("Distance:", 1, 100, 10)
+    , m_closeRasterGaps("Gaps:")
+    , m_frameRange("Frame Range:") 
+    , m_currCell(-1, -1) {
   bind(TTool::RasterImage);
   m_prop.bind(m_fillDepth);
+  m_prop.bind(m_closeRasterGaps);
+  m_prop.bind(m_rasterGapDistance);
+  m_prop.bind(m_closeStyleIndex);
   m_prop.bind(m_referenced);
+  m_prop.bind(m_frameRange);
+
+  m_closeRasterGaps.setId("CloseGaps");
+  m_rasterGapDistance.setId("RasterGapDistance");
+  m_closeStyleIndex.setId("RasterGapInkIndex");
+  m_frameRange.setId("FrameRange");
+
+  m_closeRasterGaps.addValue(IGNOREGAPS);
+  m_closeRasterGaps.addValue(FILLGAPS);
+  m_closeRasterGaps.addValue(CLOSEANDFILLGAPS);
+
+  m_frameRange.addValue(L"Off");
+  m_frameRange.addValue(LINEAR_INTERPOLATION);
+  m_frameRange.addValue(EASE_IN_INTERPOLATION);
+  m_frameRange.addValue(EASE_OUT_INTERPOLATION);
+  m_frameRange.addValue(EASE_IN_OUT_INTERPOLATION);
 }
 
 void FullColorFillTool::updateTranslation() {
   m_fillDepth.setQStringName(tr("Fill Depth"));
   m_referenced.setQStringName(tr("Refer Visible"));
+  m_rasterGapDistance.setQStringName(tr("Distance:"));
+  m_closeStyleIndex.setQStringName(tr("Style Index:"));
+  m_closeRasterGaps.setQStringName(tr("Gaps:"));
+  m_closeRasterGaps.setItemUIName(IGNOREGAPS, tr("Ignore Gaps"));
+  m_closeRasterGaps.setItemUIName(FILLGAPS, tr("Fill Gaps"));
+  m_closeRasterGaps.setItemUIName(CLOSEANDFILLGAPS, tr("Close and Fill"));
+
+  m_frameRange.setQStringName(tr("Frame Range:"));
+  m_frameRange.setItemUIName(L"Off", tr("Off"));
+  m_frameRange.setItemUIName(LINEAR_INTERPOLATION, tr("Linear"));
+  m_frameRange.setItemUIName(EASE_IN_INTERPOLATION, tr("Ease In"));
+  m_frameRange.setItemUIName(EASE_OUT_INTERPOLATION, tr("Ease Out"));
+  m_frameRange.setItemUIName(EASE_IN_OUT_INTERPOLATION, tr("Ease In/Out"));
 }
 
 FillParameters FullColorFillTool::getFillParameters() const {
@@ -179,21 +229,82 @@ void FullColorFillTool::leftButtonDown(const TPointD &pos,
   m_level       = xl ? xl->getSimpleLevel() : 0;
   FillParameters params = getFillParameters();
 
-  int frameIndex = app->getCurrentFrame()->getFrameIndex();
+  int closeStyleIndex = m_closeStyleIndex.getStyleIndex();
+  if (closeStyleIndex == -1) {
+    closeStyleIndex = app->getCurrentPalette()->getStyleIndex();
+  }
 
   TXsheetHandle *xsh = app->getCurrentXsheet();
   TXsheet *xsheet =
-    params.m_referenced && !app->getCurrentFrame()->isEditingLevel() && xsh
-    ? xsh->getXsheet()
-    : 0;
+      params.m_referenced && !app->getCurrentFrame()->isEditingLevel() && xsh
+          ? xsh->getXsheet()
+          : 0;
 
-  doFill(getImage(true), pos, params, e.isShiftPressed(), m_level.getPointer(),
-         getCurrentFid(), xsheet, frameIndex);
+  if (m_frameRange.getIndex()) {
+    bool isEditingLevel = app->getCurrentFrame()->isEditingLevel();
+
+    if (!m_firstClick) {
+      m_currCell = std::pair<int, int>(getColumnIndex(), getFrame());
+
+      m_firstClick   = true;
+      m_firstPoint   = pos;
+      m_firstFrameId = m_veryFirstFrameId = getCurrentFid();
+      m_firstFrameIdx = app->getCurrentFrame()->getFrameIndex();
+
+      invalidate();
+    } else {
+      qApp->processEvents();
+
+      TFrameId fid   = getCurrentFid();
+      m_lastFrameIdx = app->getCurrentFrame()->getFrameIndex();
+
+      TImageP image     = getImage(false);
+      TToonzImageP ti   = image;
+      TRasterCM32P ras  = ti ? ti->getRaster() : TRasterCM32P();
+      TPointD rasCenter = ti ? ras->getCenterD() : TPointD(0, 0);
+      TPointD dpiScale  = getViewer()->getDpiScale();
+      if (isEditingLevel)
+        processSequence(pos, params, closeStyleIndex, m_level.getPointer(),
+                        m_firstFrameId, fid, m_frameRange.getIndex());
+      else
+        processSequence(pos, params, closeStyleIndex, xsheet, m_firstFrameIdx,
+                        m_lastFrameIdx, m_frameRange.getIndex());
+      if (e.isShiftPressed()) {
+        m_firstPoint = pos;
+        if (isEditingLevel)
+          m_firstFrameId = getCurrentFid();
+        else {
+          m_firstFrameIdx = m_lastFrameIdx;
+          app->getCurrentFrame()->setFrame(m_firstFrameIdx);
+        }
+      } else {
+        m_firstClick = false;
+        if (app->getCurrentFrame()->isEditingScene()) {
+          app->getCurrentColumn()->setColumnIndex(m_currCell.first);
+          app->getCurrentFrame()->setFrame(m_currCell.second);
+        } else
+          app->getCurrentFrame()->setFid(m_veryFirstFrameId);
+      }
+      TTool *t = app->getCurrentTool()->getTool();
+      if (t) t->notifyImageChanged();
+    }
+
+    return;
+  }
+
+  int frameIndex = app->getCurrentFrame()->getFrameIndex();
+
+  applyFill(getImage(true), pos, params, e.isShiftPressed(),
+            m_level.getPointer(), getCurrentFid(), xsheet, frameIndex,
+            m_closeRasterGaps.getIndex() > 0, m_closeRasterGaps.getIndex() > 1,
+            closeStyleIndex, false);
   invalidate();
 }
 
 void FullColorFillTool::leftButtonDrag(const TPointD &pos,
                                        const TMouseEvent &e) {
+  if (m_frameRange.getIndex()) return;
+
   FillParameters params = getFillParameters();
   if (m_clickPoint == pos) return;
   if (!m_level || !params.m_palette) return;
@@ -223,9 +334,25 @@ void FullColorFillTool::leftButtonDrag(const TPointD &pos,
           ? xsh->getXsheet()
           : 0;
 
-  doFill(img, pos, params, e.isShiftPressed(), m_level.getPointer(),
-         getCurrentFid(), xsheet, frameIndex);
+  int closeStyleIndex = m_closeStyleIndex.getStyleIndex();
+  if (closeStyleIndex == -1) {
+    closeStyleIndex = app->getCurrentPalette()->getStyleIndex();
+  }
+
+  applyFill(img, pos, params, e.isShiftPressed(), m_level.getPointer(),
+            getCurrentFid(), xsheet, frameIndex,
+            m_closeRasterGaps.getIndex() > 0, m_closeRasterGaps.getIndex() > 1,
+            closeStyleIndex, false);
+
   invalidate();
+}
+
+void FullColorFillTool::resetMulti() {
+  m_firstClick   = false;
+  m_firstFrameId = -1;
+  m_firstPoint   = TPointD();
+  TXshLevel *xl  = TTool::getApplication()->getCurrentLevel()->getLevel();
+  m_level        = xl ? xl->getSimpleLevel() : 0;
 }
 
 bool FullColorFillTool::onPropertyChanged(std::string propertyName) {
@@ -233,7 +360,26 @@ bool FullColorFillTool::onPropertyChanged(std::string propertyName) {
   if (propertyName == m_fillDepth.getName()) {
     FullColorMinFillDepth = (int)m_fillDepth.getValue().first;
     FullColorMaxFillDepth = (int)m_fillDepth.getValue().second;
+  } else if (propertyName == m_rasterGapDistance.getName()) {
+    AutocloseDistance       = m_rasterGapDistance.getValue();
+    TTool::Application *app = TTool::getApplication();
+    // This is a hack to get the viewer to update with the distance.
+    app->getCurrentOnionSkin()->notifyOnionSkinMaskChanged();
   }
+
+  else if (propertyName == m_closeStyleIndex.getName()) {
+  }
+
+  else if (propertyName == m_closeRasterGaps.getName()) {
+    FullColorRasterGapSetting = ::to_string(m_closeRasterGaps.getValue());
+  }
+
+  // Frame Range
+  else if (propertyName == m_frameRange.getName()) {
+    FullColorFillRange = m_frameRange.getIndex();
+    resetMulti();
+  }
+
   return true;
 }
 
@@ -244,6 +390,13 @@ void FullColorFillTool::onActivate() {
                                                     FullColorMaxFillDepth));
     firstTime = false;
   }
+
+  m_closeRasterGaps.setValue(
+      ::to_wstring(FullColorRasterGapSetting.getValue()));
+  m_rasterGapDistance.setValue(AutocloseDistance);
+  m_frameRange.setIndex(FullColorFillRange);
+
+  resetMulti();
 }
 
 int FullColorFillTool::getCursorId() const {
@@ -251,6 +404,178 @@ int FullColorFillTool::getCursorId() const {
   if (ToonzCheck::instance()->getChecks() & ToonzCheck::eBlackBg)
     ret = ret | ToolCursor::Ex_Negate;
   return ret;
+}
+
+void FullColorFillTool::draw() {
+  if (m_frameRange.getIndex() && m_firstClick) {
+    tglColor(TPixel::Red);
+    drawCross(m_firstPoint, 6);
+
+    SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+        TTool::getTool("T_Symmetry", TTool::RasterImage));
+    if (symmetryTool && symmetryTool->isGuideEnabled()) {
+      TImageP image     = getImage(false);
+      TToonzImageP ti   = image;
+      TPointD dpiScale  = getViewer()->getDpiScale();
+      TRasterCM32P ras  = ti ? ti->getRaster() : TRasterCM32P();
+      TPointD rasCenter = ti ? ras->getCenterD() : TPointD(0, 0);
+      TPointD fillPt    = m_firstPoint + rasCenter;
+      std::vector<TPointD> symmPts =
+          symmetryTool->getSymmetryPoints(fillPt, rasCenter, dpiScale);
+
+      for (int i = 1; i < symmPts.size(); i++) {
+        drawCross(symmPts[i] - rasCenter, 6);
+      }
+    }
+  }
+}
+
+void FullColorFillTool::applyFill(const TImageP &img, const TPointD &pos,
+                                  FillParameters &params, bool isShiftFill,
+                                  TXshSimpleLevel *sl, const TFrameId &fid,
+                                  TXsheet *xsheet, int frameIndex, bool fillGap,
+                                  bool closeGap, int closeStyleIndex,
+                                  bool undoBlockStarted) {
+  TRasterImageP ri = TRasterImageP(img);
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  if (ri && symmetryTool && symmetryTool->isGuideEnabled()) {
+    if (!undoBlockStarted) TUndoManager::manager()->beginBlock();
+  }
+
+  doFill(img, pos, params, isShiftFill, sl, fid, xsheet, frameIndex, fillGap,
+         closeGap, closeStyleIndex);
+
+  if (ri && symmetryTool && symmetryTool->isGuideEnabled()) {
+    TPointD dpiScale  = getViewer()->getDpiScale();
+    TRasterP ras      = ri->getRaster();
+    TPointD rasCenter = ras ? ras->getCenterD() : TPointD(0, 0);
+    TPointD fillPt    = pos + rasCenter;
+    std::vector<TPointD> symmPts =
+        symmetryTool->getSymmetryPoints(fillPt, rasCenter, dpiScale);
+
+    for (int i = 0; i < symmPts.size(); i++) {
+      if (symmPts[i] == fillPt) continue;
+      doFill(img, symmPts[i] - rasCenter, params, isShiftFill, sl, fid, xsheet,
+             frameIndex, fillGap, closeGap, closeStyleIndex);
+    }
+
+    if (!undoBlockStarted) TUndoManager::manager()->endBlock();
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+void FullColorFillTool::processSequence(const TPointD &pos,
+                                        FillParameters &params,
+                                        int closeStyleIndex,
+                                        TXshSimpleLevel *sl, TFrameId firstFid,
+                                        TFrameId lastFid, int multi) {
+  TTool::Application *app = TTool::getApplication();
+
+  bool backward           = false;
+  if (firstFid > lastFid) {
+    std::swap(firstFid, lastFid);
+    backward = true;
+  }
+  assert(firstFid <= lastFid);
+  std::vector<TFrameId> allFids;
+  sl->getFids(allFids);
+
+  std::vector<TFrameId>::iterator i0 = allFids.begin();
+  while (i0 != allFids.end() && *i0 < firstFid) i0++;
+  if (i0 == allFids.end()) return;
+  std::vector<TFrameId>::iterator i1 = i0;
+  while (i1 != allFids.end() && *i1 <= lastFid) i1++;
+  assert(i0 < i1);
+  std::vector<TFrameId> fids(i0, i1);
+  int m = fids.size();
+  assert(m > 0);
+
+  enum TInbetween::TweenAlgorithm algorithm = TInbetween::LinearInterpolation;
+  if (multi == 2) {  // EASE_IN_INTERPOLATION)
+    algorithm = TInbetween::EaseInInterpolation;
+  } else if (multi == 3) {  // EASE_OUT_INTERPOLATION)
+    algorithm = TInbetween::EaseOutInterpolation;
+  } else if (multi == 4) {  // EASE_IN_OUT_INTERPOLATION)
+    algorithm = TInbetween::EaseInOutInterpolation;
+  }
+
+  TUndoManager::manager()->beginBlock();
+  for (int i = 0; i < m; ++i) {
+    TFrameId fid = fids[i];
+    assert(firstFid <= fid && fid <= lastFid);
+    TImageP img             = sl->getFrame(fid, true);
+    double t                = m > 1 ? (double)i / (double)(m - 1) : 0.5;
+    t                       = TInbetween::interpolation(t, algorithm);
+    if (backward) t         = 1 - t;
+    TPointD p               = m_firstPoint * (1 - t) + pos * t;
+    if (app) app->getCurrentFrame()->setFid(fid);
+    applyFill(img, p, params, false, sl, fid, 0, -1,
+              m_closeRasterGaps.getIndex() > 0,
+              m_closeRasterGaps.getIndex() > 1, closeStyleIndex, true);
+  }
+  TUndoManager::manager()->endBlock();
+}
+
+//-----------------------------------------------------------------------------
+
+void FullColorFillTool::processSequence(const TPointD &pos,
+                                        FillParameters &params,
+                                        int closeStyleIndex, TXsheet *xsheet,
+                                        int firstFidx, int lastFidx,
+                                        int multi) {
+  bool backwardidx = false;
+  if (firstFidx > lastFidx) {
+    std::swap(firstFidx, lastFidx);
+    backwardidx = true;
+  }
+
+  TTool::Application *app = TTool::getApplication();
+  TFrameId lastFrameId;
+  int col = app->getCurrentColumn()->getColumnIndex();
+  int row;
+
+  std::vector<std::pair<int, TXshCell>> cellList;
+
+  for (row = firstFidx; row <= lastFidx; row++) {
+    TXshCell cell = app->getCurrentXsheet()->getXsheet()->getCell(row, col);
+    if (cell.isEmpty()) continue;
+    TFrameId fid = cell.getFrameId();
+    if (lastFrameId == fid) continue;  // Skip held cells
+    cellList.push_back(std::pair<int, TXshCell>(row, cell));
+    lastFrameId = fid;
+  }
+
+  int m = cellList.size();
+
+  enum TInbetween::TweenAlgorithm algorithm = TInbetween::LinearInterpolation;
+  if (multi == 2) {  // EASE_IN_INTERPOLATION)
+    algorithm = TInbetween::EaseInInterpolation;
+  } else if (multi == 3) {  // EASE_OUT_INTERPOLATION)
+    algorithm = TInbetween::EaseOutInterpolation;
+  } else if (multi == 4) {  // EASE_IN_OUT_INTERPOLATION)
+    algorithm = TInbetween::EaseInOutInterpolation;
+  }
+
+  TUndoManager::manager()->beginBlock();
+  for (int i = 0; i < m; i++) {
+    row           = cellList[i].first;
+    TXshCell cell = cellList[i].second;
+    TFrameId fid  = cell.getFrameId();
+    TImageP img   = cell.getImage(true);
+    if (!img) continue;
+    double t           = m > 1 ? (double)i / (double)(m - 1) : 1.0;
+    t                  = TInbetween::interpolation(t, algorithm);
+    if (backwardidx) t = 1 - t;
+    TPointD p          = m_firstPoint * (1 - t) + pos * t;
+    if (app) app->getCurrentFrame()->setFrame(row);
+    applyFill(img, p, params, false, m_level.getPointer(), fid, xsheet, row,
+              m_closeRasterGaps.getIndex() > 0,
+              m_closeRasterGaps.getIndex() > 1, closeStyleIndex, true);
+  }
+  TUndoManager::manager()->endBlock();
 }
 
 FullColorFillTool FullColorRasterFillTool;

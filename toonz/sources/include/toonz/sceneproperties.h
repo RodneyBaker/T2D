@@ -52,6 +52,17 @@ public:
   struct CellMark {
     QString name;
     TPixel32 color;
+    bool operator==(const CellMark &cm) {
+      return name == cm.name && color == cm.color;
+    }
+  };
+
+  struct ColorFilter {
+    QString name;
+    TPixel32 color;
+    bool operator==(const ColorFilter &cf) {
+      return name == cf.name && color == cf.color;
+    }
   };
 
 private:
@@ -81,8 +92,14 @@ private:
   // Cell Mark colors and names
   QList<CellMark> m_cellMarks;
 
+  // Color Filter colors and names
+  QList<ColorFilter> m_colorFilters;
+
   bool m_columnColorFilterOnRender;
   TFilePath m_camCapSaveInPath;
+
+  TFilePath m_overlayFile;
+  int m_overlayOpacity;
 
 public:
   /*!
@@ -187,10 +204,8 @@ Set the distance between two markers to \p distance and \b offset to markers
 offset,
 \sa setMarkers()
   */
-  void getMarkers(int &distance, int &offset) const {
-    distance = m_markerDistance;
-    offset   = m_markerOffset;
-  }
+  void getMarkers(int &distance, int &offset, int &secDistance) const;
+
   /*!
           Sets information about xsheet markers, xsheet horizontal line.
           Sets the distance between two markers to \p distance and \b offset,row
@@ -199,6 +214,7 @@ of first
 \sa getMarkers()
   */
   void setMarkers(int distance, int offset);
+
   /*!
           Returns full-color images subsampling in scene. Subsampling value is
 the simplifying
@@ -287,6 +303,26 @@ and height.
   void setCellMark(const CellMark &mark, int index);
   bool hasDefaultCellMarks()
       const;  // check if the cell mark settings are modified
+
+  QList<ColorFilter> getColorFilters() const;
+  ColorFilter getColorFilter(int index) const;
+  TPixel32 getColorFilterColor(int index) const;
+  void setColorFilter(const ColorFilter &filter, int index);
+  bool hasDefaultColorFilters()
+      const;  // check if the color filter settings are modified
+
+  // templateFId in preview settings is used for "input" file format
+  // such as new raster level, captured images by camera capture feature, etc.
+  TFrameId &formatTemplateFIdForInput();
+
+  // Scene Overlay Image
+  TFilePath getOverlayFile() { return m_overlayFile; }
+  void setOverlayFile(TFilePath overlayFile) { m_overlayFile = overlayFile; }
+
+  int getOverlayOpacity() { return m_overlayOpacity; }
+  void setOverlayOpacity(int overlayOpacity) {
+    m_overlayOpacity = overlayOpacity;
+  }
 
 private:
   // not implemented

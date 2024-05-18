@@ -24,7 +24,7 @@ void makeRectCoherent(TRectD &rect, const TPointD &pos) {
   rect.y1 = tceil(rect.y1);
   rect += pos;
 }
-}
+}  // namespace
 
 //******************************************************************************************
 //    TImageCombinationFx  declaration
@@ -82,6 +82,11 @@ public:
                                   std::string &portName) override;
 
   int getPreferredInputPort() override { return 1; }
+
+  bool toBeComputedInLinearColorSpace(bool settingsIsLinear,
+                                      bool tileIsLinear) const override {
+    return settingsIsLinear;
+  }
 };
 
 //******************************************************************************************
@@ -92,6 +97,7 @@ TImageCombinationFx::TImageCombinationFx() : m_group("Source", 2) {
   addInputPort("Source1", new TRasterFxPort, 0);
   addInputPort("Source2", new TRasterFxPort, 0);
   setName(L"ImageCombinationFx");
+  enableComputeInFloat(true);
 }
 
 //---------------------------------------------------------------------------
@@ -407,7 +413,7 @@ public:
 };
 
 //==================================================================
-
+/*
 class LinearBurnFx final : public TImageCombinationFx {
   FX_DECLARATION(LinearBurnFx)
 
@@ -435,7 +441,7 @@ public:
     TRop::overlay(up, down, down);
   }
 };
-
+*/
 //==================================================================
 
 class BlendFx final : public TImageCombinationFx {
@@ -476,6 +482,7 @@ public:
     addInputPort("Source", m_source);
     addInputPort("Matte", m_matte);
     setName(L"InFx");
+    enableComputeInFloat(true);
   }
 
   ~InFx() {}
@@ -540,6 +547,7 @@ public:
     addInputPort("Source", m_source);
     addInputPort("Matte", m_matte);
     setName(L"OutFx");
+    enableComputeInFloat(true);
   }
 
   ~OutFx() {}
@@ -607,6 +615,7 @@ public:
   AtopFx() {
     addInputPort("Up", m_up);
     addInputPort("Down", m_dn);
+    enableComputeInFloat(true);
   }
 
   bool canHandle(const TRenderSettings &info, double frame) override {
@@ -675,6 +684,80 @@ public:
   }
 };
 
+//******************************************************************************************
+//    ColumnMaskFx  definition
+//
+//  This is similar to InFx/OutFx but is not visible to the user. It is meant to
+//  work with and use the original Mask column logic of the normal viewer so
+//  that the results are the same.
+//******************************************************************************************
+
+class ColumnMaskFx final : public TBaseRasterFx {
+  FX_DECLARATION(ColumnMaskFx)
+
+  TRasterFxPort m_source, m_mask;
+
+public:
+  ColumnMaskFx() {
+    addInputPort("Source", m_source);
+    addInputPort("Mask", m_mask);
+    setName(L"ColumnMaskFx");
+    enableComputeInFloat(true);
+  }
+
+  ~ColumnMaskFx() {}
+
+  bool doGetBBox(double frame, TRectD &bbox,
+                 const TRenderSettings &info) override {
+    if (m_source.isConnected()) {
+      TRenderSettings maskInfo(info);
+      maskInfo.m_useMaskBox = true;
+
+      return m_source->doGetBBox(frame, bbox, maskInfo);
+    }
+
+    bbox = TRectD();
+    return false;
+  }
+
+  bool canHandle(const TRenderSettings &info, double frame) override {
+    return true;
+  }
+
+  void doCompute(TTile &tile, double frame,
+                 const TRenderSettings &ri) override {
+    if (!m_source.isConnected()) return;
+
+    TRenderSettings maskRi(ri);
+    maskRi.m_useMaskBox = true;
+
+    TTile srcTile;
+    m_source->allocateAndCompute(srcTile, tile.m_pos,
+                                 tile.getRaster()->getSize(), tile.getRaster(),
+                                 frame, maskRi);
+
+    maskRi.m_applyMask = true;
+    m_mask->compute(srcTile, frame, maskRi);
+
+    // Replace original tile with masked tile
+    TRop::copy(tile.getRaster(), srcTile.getRaster());
+  }
+
+  void doDryCompute(TRectD &rect, double frame,
+                    const TRenderSettings &info) override {
+    if (!m_source.isConnected()) return;
+
+    m_source->dryCompute(rect, frame, info);
+
+    if (m_mask.isConnected()) m_mask->dryCompute(rect, frame, info);
+  }
+
+  int getMemoryRequirement(const TRectD &rect, double frame,
+                           const TRenderSettings &info) override {
+    return TRasterFx::memorySize(rect, info.m_bpp);
+  }
+};
+
 //==================================================================
 
 //=======================
@@ -691,9 +774,11 @@ FX_IDENTIFIER(AtopFx, "atopFx")
 // FX_IDENTIFIER(XorFx,       "xorFx")
 FX_IDENTIFIER(MinFx, "minFx")
 FX_IDENTIFIER(MaxFx, "maxFx")
-FX_IDENTIFIER(LinearBurnFx, "linearBurnFx")
-FX_IDENTIFIER(OverlayFx, "overlayFx")
+// FX_IDENTIFIER(LinearBurnFx, "linearBurnFx")
+// FX_IDENTIFIER(OverlayFx, "overlayFx")
 FX_IDENTIFIER(BlendFx, "blendFx")
 FX_IDENTIFIER(ColorDodgeFx, "colorDodgeFx")
 FX_IDENTIFIER(ColorBurnFx, "colorBurnFx")
 FX_IDENTIFIER(ScreenFx, "screenFx")
+//--------
+FX_IDENTIFIER(ColumnMaskFx, "columnMaskFx")

@@ -72,6 +72,8 @@ protected:
 
 class FxPalettePainter final : public QObject, public QGraphicsItem {
   Q_OBJECT
+  Q_INTERFACES(QGraphicsItem)
+
   FxSchematicPaletteNode *m_parent;
   double m_width, m_height;
   QString m_name;
@@ -117,6 +119,8 @@ public:
   void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
              QWidget *widget = 0) override;
   void setName(const QString &name) { m_name = name; }
+
+  FxSchematicNode *getNode() { return m_parent; }
 
 protected:
   void contextMenuEvent(QGraphicsSceneContextMenuEvent *cme) override;
@@ -264,6 +268,8 @@ public:
 class FxSchematicNode : public SchematicNode {
   Q_OBJECT
 
+  int m_columnIndex;
+
 protected:
   enum eDropActionMode { eShift, eNone };
 
@@ -346,6 +352,9 @@ public:
 
   void toggleNormalIconView() { m_isNormalIconView = !m_isNormalIconView; }
   bool isNormalIconView() { return m_isNormalIconView; }
+
+  void setColumnIndex(int columnIndex) { m_columnIndex = columnIndex; }
+  int getColumnIndex() { return m_columnIndex; }
 signals:
 
   void switchCurrentFx(TFx *fx);
@@ -436,7 +445,6 @@ class FxSchematicZeraryNode final : public FxSchematicNode {
   Q_OBJECT
 
   FxPainter *m_painter;
-  int m_columnIndex;
   SchematicToggle *m_renderToggle, *m_cameraStandToggle;
 
 public:
@@ -449,7 +457,6 @@ public:
 
   void resize(bool maximizeNode) override;
 
-  int getColumnIndex() { return m_columnIndex; }
   bool isCached() const override;
 
 protected:
@@ -473,7 +480,6 @@ class FxSchematicColumnNode final : public FxSchematicNode {
   SchematicThumbnailToggle *m_resizeItem;
   SchematicToggle *m_renderToggle, *m_cameraStandToggle;
   FxColumnPainter *m_columnPainter;
-  int m_columnIndex;
   bool m_isOpened;
 
 public:
@@ -489,7 +495,6 @@ public:
   void getLevelTypeAndName(int &, QString &);
 
   void resize(bool maximizeNode) override;
-  int getColumnIndex() { return m_columnIndex; }
 
 protected:
   void mouseDoubleClickEvent(QGraphicsSceneMouseEvent *me) override;
@@ -515,7 +520,6 @@ class FxSchematicPaletteNode final : public FxSchematicNode {
 
   SchematicToggle *m_renderToggle;
   FxPalettePainter *m_palettePainter;
-  int m_columnIndex;
 
 public:
   FxSchematicPaletteNode(FxSchematicScene *scene, TPaletteColumnFx *fx);
@@ -526,7 +530,6 @@ public:
              QWidget *widget = 0) override;
   QPixmap getPixmap();
   bool isOpened() override { return false; }
-  int getColumnIndex() { return m_columnIndex; }
 
   QString getPaletteName();
 

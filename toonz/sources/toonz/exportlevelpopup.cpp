@@ -36,6 +36,7 @@
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/tscenehandle.h"
+#include "toutputproperties.h"
 
 // TnzCore includes
 #include "tiio.h"
@@ -354,7 +355,8 @@ ExportLevelPopup::ExportLevelPopup()
     }
     mainLayout->addLayout(bottomLay, 0);
   }
-  setLayout(mainLayout);
+  m_topLayout->setMargin(0);
+  m_topLayout->addLayout(mainLayout);
 
   // Establish connections
   bool ret = true;
@@ -477,6 +479,10 @@ IoCmd::ExportLevelOptions ExportLevelPopup::getOptions(const std::string &ext) {
   opts.m_props    = getFormatProperties(ext);
   opts.m_forRetas = (m_retas->checkState() == Qt::Checked);
 
+  ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
+  opts.m_formatTemplateFId =
+      scene->getProperties()->formatTemplateFIdForInput();
+
   return opts;
 }
 
@@ -521,14 +527,19 @@ void ExportLevelPopup::checkAlpha() {
 void ExportLevelPopup::onOptionsClicked() {
   std::string ext       = m_format->currentText().toStdString();
   TPropertyGroup *props = getFormatProperties(ext);
+  // use preview settings' frame format.
+  // hide options when the Retas option is enabled.
+  TFrameId *tmplFId = nullptr;
+  if (!m_retas->isChecked()) {
+    ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
+    tmplFId           = &scene->getProperties()->formatTemplateFIdForInput();
+  }
+
   setModal(false);
 
-  if (DVGui::Dialog *dialog =
-          openFormatSettingsPopup(this, ext, props, m_browser->getFolder())) {
-    bool ret;
-    ret = connect(dialog, SIGNAL(dialogClosed()), SLOT(checkAlpha())),
-    assert(ret);
-  }
+  if (openFormatSettingsPopup(this, ext, props, tmplFId, true,
+                              m_browser->getFolder()))
+    checkAlpha();
 }
 
 //--------------------------------------------------------------
@@ -616,14 +627,19 @@ bool ExportLevelPopup::execute() {
   const std::string &ext                = m_format->currentText().toStdString();
   const IoCmd::ExportLevelOptions &opts = getOptions(ext);
 
+  TApp *app = TApp::instance();
+
+  ToonzScene *scene = app->getCurrentScene()->getScene();
+  TFrameId tmplFId  = scene->getProperties()->formatTemplateFIdForInput();
+
   // Retrieve current column selection
-  TApp *app                      = TApp::instance();
+
   TSelection *selection          = app->getCurrentSelection()->getSelection();
   TColumnSelection *colSelection = dynamic_cast<TColumnSelection *>(selection);
   if (colSelection && colSelection->getIndices().size() > 1) {
     fp = TFilePath(m_browser->getFolder() + TFilePath("a"))
              .withType(ext)
-             .withFrame();
+             .withFrame(tmplFId);
 
     bool ret = true;
     MultiExportOverwriteCB overwriteCB;
@@ -661,7 +677,7 @@ bool ExportLevelPopup::execute() {
     if (isReservedFileName_message(QString::fromStdString(fp.getName())))
       return false;
 
-    return IoCmd::exportLevel(fp.withType(ext).withFrame(), 0, opts);
+    return IoCmd::exportLevel(fp.withType(ext).withFrame(tmplFId), 0, opts);
   }
 }
 

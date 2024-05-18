@@ -25,6 +25,7 @@
 #include "tsound_io.h"
 #include "toutputproperties.h"
 #include "toonz/tproject.h"
+#include "thirdparty.h"
 
 // TnzCore includes
 #include "filebrowsermodel.h"
@@ -122,8 +123,10 @@ void LipSyncUndo::undo() const {
 void LipSyncUndo::redo() const {
   TXsheet *xsh = TApp::instance()->getCurrentScene()->getScene()->getXsheet();
   int i        = 0;
-  int currentLine = 0;
-  int size        = m_textLines.size();
+  int currentLine      = 0;
+  int size             = m_textLines.size();
+  bool useImplicitHold = Preferences::instance()->isImplicitHoldEnabled();
+  const TXshCell emptyCell;
   while (currentLine < m_textLines.size()) {
     int endAt;
     if (currentLine + 2 >= m_textLines.size()) {
@@ -165,6 +168,7 @@ void LipSyncUndo::redo() const {
       continue;
     }
 
+    bool firstCell = true;
     while (i < endAt && i < m_lastFrame - m_startFrame) {
       int currFrame = i + m_startFrame;
       TXshCell cell = xsh->getCell(currFrame, m_col);
@@ -173,11 +177,20 @@ void LipSyncUndo::redo() const {
       else
         cell.m_level = m_cl;
       cell.m_frameId = currentId;
-      xsh->setCell(currFrame, m_col, cell);
+      if (useImplicitHold && !firstCell)
+        xsh->setCell(currFrame, m_col, emptyCell);
+      else {
+        xsh->setCell(currFrame, m_col, cell);
+        firstCell = false;
+      }
       i++;
     }
     currentLine += 2;
   }
+  if (useImplicitHold)
+    xsh->setCell(m_lastFrame, m_col,
+                 TXshCell((m_sl ? m_sl : m_cl), TFrameId::STOP_FRAME));
+
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
 }
@@ -236,7 +249,7 @@ LipSyncPopup::LipSyncPopup()
   m_progressDialog =
       new DVGui::ProgressDialog("Analyzing audio...", "", 1, 100, this);
   m_progressDialog->hide();
-  
+
   m_soundLevels = new QComboBox(this);
   m_playButton  = new QPushButton(tr(""), this);
   m_playIcon    = createQIcon("play");
@@ -486,18 +499,18 @@ LipSyncPopup::LipSyncPopup()
 void LipSyncPopup::setPage(int index) {
   m_stackedChooser->setCurrentIndex(index);
   if (index == 1) {
-      m_insertAtLabel->show();
-      m_startAt->show();
+    m_insertAtLabel->show();
+    m_startAt->show();
   }
   else {
-      if (m_soundLevels->currentIndex() < m_soundLevels->count() - 1) {
-          m_insertAtLabel->hide();
-          m_startAt->hide();
-      }
-      else {
-          m_insertAtLabel->show();
-          m_startAt->show();
-      }
+    if (m_soundLevels->currentIndex() < m_soundLevels->count() - 1) {
+      m_insertAtLabel->hide();
+      m_startAt->hide();
+    }
+    else {
+      m_insertAtLabel->show();
+      m_startAt->show();
+    }
   }
 }
 
@@ -518,7 +531,7 @@ void LipSyncPopup::showEvent(QShowEvent *) {
   m_startAt->setValue(row + 1);
   m_startAt->clearFocus();
 
-  if (checkRhubarb()) m_rhubarbPath = Preferences::instance()->getRhubarbPath();
+  if (ThirdParty::checkRhubarb()) m_rhubarbPath = ThirdParty::getRhubarbDir();
 
   TXshLevelHandle *level = app->getCurrentLevel();
   m_sl                   = level->getSimpleLevel();
@@ -575,12 +588,12 @@ void LipSyncPopup::refreshSoundLevels() {
   if (currentIndex < m_soundLevels->count())
     m_soundLevels->setCurrentIndex(currentIndex);
   if (m_soundLevels->currentIndex() < m_soundLevels->count() - 1) {
-      m_insertAtLabel->hide();
-      m_startAt->hide();
+    m_insertAtLabel->hide();
+    m_startAt->hide();
   }
   else {
-      m_insertAtLabel->show();
-      m_startAt->show();
+    m_insertAtLabel->show();
+    m_startAt->show();
   }
 }
 
@@ -690,46 +703,6 @@ void LipSyncPopup::saveAudio() {
 
 //-----------------------------------------------------------------------------
 
-bool LipSyncPopup::checkRhubarb() {
-  QString exe = "rhubarb";
-#if defined(_WIN32)
-  exe = exe + ".exe";
-#endif
-
-  // check the user defined path in preferences first
-  QString path = Preferences::instance()->getRhubarbPath() + "/" + exe;
-  if (TSystem::doesExistFileOrLevel(TFilePath(path))) return true;
-
-  // Let's try and autodetect the exe included with release
-  QStringList folderList;
-
-  folderList.append(".");
-  folderList.append("./rhubarb");  // rhubarb folder
-
-#ifdef MACOSX
-  // Look inside app
-  folderList.append("./" +
-                    QString::fromStdString(TEnv::getApplicationFileName()) +
-                    ".app/rhubarb");  // rhubarb folder
-#elif defined(LINUX) || defined(FREEBSD)
-  // Need to account for symbolic links
-  folderList.append(TEnv::getWorkingDirectory().getQString() +
-                    "/rhubarb");  // rhubarb folder
-#endif
-
-  QString exePath = TSystem::findFileLocation(folderList, exe);
-
-  if (!exePath.isEmpty()) {
-    Preferences::instance()->setValue(rhubarbPath, exePath);
-    return true;
-  }
-
-  // give up
-  return false;
-}
-
-//-----------------------------------------------------------------------------
-
 void LipSyncPopup::runRhubarb() {
   QString cacheRoot = ToonzFolder::getCacheRootFolder().getQString();
   if (!TSystem::doesExistFileOrLevel(TFilePath(cacheRoot + "/rhubarb"))) {
@@ -812,12 +785,12 @@ void LipSyncPopup::onLevelChanged(int index) {
     m_audioFile->hide();
   }
   if (m_soundLevels->currentIndex() < m_soundLevels->count() - 1) {
-      m_insertAtLabel->hide();
-      m_startAt->hide();
+    m_insertAtLabel->hide();
+    m_startAt->hide();
   }
   else {
-      m_insertAtLabel->show();
-      m_startAt->show();
+    m_insertAtLabel->show();
+    m_startAt->show();
   }
 }
 
@@ -920,7 +893,7 @@ void LipSyncPopup::onApplyButton() {
   int lastFrame = m_textLines.at(m_textLines.size() - 2).toInt() + startFrame;
 
   if (m_restToEnd->isChecked()) {
-    int r0, r1, step;
+    int r0, r1;
     TApp::instance()->getCurrentXsheet()->getXsheet()->getCellRange(m_col, r0,
                                                                     r1);
     if (lastFrame < r1 + 1) lastFrame = r1 + 1;
@@ -929,7 +902,12 @@ void LipSyncPopup::onApplyButton() {
   std::vector<TXshLevelP> previousLevels;
   for (int previousFrame = startFrame; previousFrame < lastFrame;
        previousFrame++) {
-    TXshCell cell = xsh->getCell(previousFrame, m_col);
+    TXshCell cell = xsh->getCell(previousFrame, m_col, false);
+    previousFrameIds.push_back(cell.m_frameId);
+    previousLevels.push_back(cell.m_level);
+  }
+  if (Preferences::instance()->isImplicitHoldEnabled()) {
+    TXshCell cell = xsh->getCell(lastFrame, m_col, false);
     previousFrameIds.push_back(cell.m_frameId);
     previousLevels.push_back(cell.m_level);
   }
@@ -959,7 +937,7 @@ void LipSyncPopup::imageNavClicked(int id) {
   else if (frameIndex == 0 && direction == -1)
     newIndex = m_levelFrameIds.size() - 1;
   else
-    newIndex                    = frameIndex + direction;
+    newIndex = frameIndex + direction;
   m_activeFrameIds[frameNumber] = m_levelFrameIds.at(newIndex);
   TXshCell newCell =
       TApp::instance()->getCurrentScene()->getScene()->getXsheet()->getCell(

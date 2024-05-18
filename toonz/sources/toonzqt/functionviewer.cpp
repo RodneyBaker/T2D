@@ -56,11 +56,7 @@ TEnv::IntVar FunctionEditorToggleStatus("FunctionEditorToggleStatus", 1);
 //
 //-----------------------------------------------------------------------------
 
-#if QT_VERSION >= 0x050500
 FunctionViewer::FunctionViewer(QWidget *parent, Qt::WindowFlags flags)
-#else
-FunctionViewer::FunctionViewer(QWidget *parent, Qt::WFlags flags)
-#endif
     : QSplitter(parent)
     , m_xshHandle(0)
     , m_frameHandle(0)
@@ -178,13 +174,13 @@ FunctionViewer::FunctionViewer(QWidget *parent, Qt::WFlags flags)
   //---- signal-slot connections
   bool ret = true;
   ret      = ret && connect(m_toolbar, SIGNAL(numericalColumnToggled()), this,
-                       SLOT(toggleMode()));
+                            SLOT(toggleMode()));
   ret      = ret && connect(ftModel, SIGNAL(activeChannelsChanged()),
-                       m_functionGraph, SLOT(update()));
+                            m_functionGraph, SLOT(update()));
   ret      = ret && connect(ftModel, SIGNAL(activeChannelsChanged()),
-                       m_numericalColumns, SLOT(updateAll()));
+                            m_numericalColumns, SLOT(updateAll()));
   ret      = ret && connect(ftModel, SIGNAL(curveChanged(bool)), m_treeView,
-                       SLOT(update()));
+                            SLOT(update()));
   ret = ret && connect(ftModel, SIGNAL(curveChanged(bool)), m_functionGraph,
                        SLOT(update()));
   ret = ret && connect(ftModel, SIGNAL(curveChanged(bool)), m_numericalColumns,
@@ -225,12 +221,17 @@ FunctionViewer::FunctionViewer(QWidget *parent, Qt::WFlags flags)
     bool toolBarVisible =
         Preferences::instance()->isShowQuickToolbarEnabled() &&
         Preferences::instance()->isExpandFunctionHeaderEnabled();
+    bool breadcrumbsVisible =
+        Preferences::instance()->isShowXsheetBreadcrumbsEnabled() &&
+        Preferences::instance()->isExpandFunctionHeaderEnabled();
     if (QSpacerItem *spacer = m_leftLayout->itemAt(0)->spacerItem()) {
-      spacer->changeSize(1, m_spacing + ((toolBarVisible) ? 10 : 0),
+      spacer->changeSize(1, m_spacing + ((toolBarVisible) ? 10 : 0) +
+                                ((breadcrumbsVisible) ? 10 : 0),
                          QSizePolicy::Fixed, QSizePolicy::Fixed);
       spacer->invalidate();
     } else
-      m_leftLayout->setSpacing(m_spacing + ((toolBarVisible) ? 30 : 0));
+      m_leftLayout->setSpacing(m_spacing + ((toolBarVisible) ? 30 : 0) +
+                               ((breadcrumbsVisible) ? 10 : 0));
     if (m_toggleStart ==
         Preferences::FunctionEditorToggle::ShowGraphEditorInPopup) {
       m_functionGraph->hide();
@@ -373,9 +374,9 @@ void FunctionViewer::refreshModel() {
 
     m_treeView->setCurrentScenePath(scenePath);
 
-    int distance, offset;
-    scene->getProperties()->getMarkers(distance, offset);
-    m_numericalColumns->setMarkRow(distance, offset);
+    int distance, offset, secDistance;
+    scene->getProperties()->getMarkers(distance, offset, secDistance);
+    m_numericalColumns->setMarkRow(distance, offset, secDistance);
   }
 
   m_treeView->updateAll();
@@ -434,7 +435,7 @@ void FunctionViewer::setObjectHandle(TObjectHandle *objectHandle) {
 
     bool ret = true;
     ret      = connect(m_objectHandle, SIGNAL(objectSwitched()), this,
-                  SLOT(onStageObjectSwitched())) &&
+                       SLOT(onStageObjectSwitched())) &&
           ret;
     ret = connect(m_objectHandle, SIGNAL(objectChanged(bool)), this,
                   SLOT(onStageObjectChanged(bool))) &&
@@ -515,14 +516,19 @@ void FunctionViewer::toggleMode() {
       bool toolBarVisible =
           Preferences::instance()->isShowQuickToolbarEnabled() &&
           Preferences::instance()->isExpandFunctionHeaderEnabled();
+      bool breadcrumbsVisible =
+          Preferences::instance()->isShowXsheetBreadcrumbsEnabled() &&
+          Preferences::instance()->isExpandFunctionHeaderEnabled();
       if (QSpacerItem *spacer = m_leftLayout->itemAt(0)->spacerItem()) {
-        spacer->changeSize(1, m_spacing + ((toolBarVisible) ? 10 : 0),
+        spacer->changeSize(1, m_spacing + ((toolBarVisible) ? 10 : 0) +
+                                  ((breadcrumbsVisible) ? 10 : 0),
                            QSizePolicy::Fixed, QSizePolicy::Fixed);
         spacer->invalidate();
         m_numericalColumns->updateHeaderHeight();
         m_leftLayout->setSpacing(0);
       } else
-        m_leftLayout->setSpacing(m_spacing + ((toolBarVisible) ? 30 : 0));
+        m_leftLayout->setSpacing(m_spacing + ((toolBarVisible) ? 30 : 0) +
+                                 ((breadcrumbsVisible) ? 10 : 0));
       updateGeometry();
       m_toggleStatus = 0;
     } else {
@@ -553,7 +559,7 @@ void FunctionViewer::onCurveChanged(bool isDragging) {
     if (ftModel) {
       FunctionTreeModel::Channel *currChan = ftModel->getCurrentChannel();
       if (currChan) {
-        //カレントチャンネルがFxChannelGroupに含まれていたらEmit
+        // カレントチャンネルがFxChannelGroupに含まれていたらEmit
         FxChannelGroup *fxChanGroup =
             dynamic_cast<FxChannelGroup *>(currChan->getChannelGroup());
         if (fxChanGroup) m_fxHandle->notifyFxChanged();
@@ -596,8 +602,8 @@ void FunctionViewer::onStageObjectSwitched() {
 
   const TStageObjectId &objId = m_objectHandle->getObjectId();
   TStageObject *obj           = (objId == TStageObjectId::NoneId)
-                          ? (TStageObject *)0
-                          : xsh->getStageObject(objId);
+                                    ? (TStageObject *)0
+                                    : xsh->getStageObject(objId);
 
   static_cast<FunctionTreeModel *>(m_treeView->model())
       ->setCurrentStageObject(obj);
@@ -613,8 +619,8 @@ void FunctionViewer::onStageObjectChanged(bool isDragging) {
 
   const TStageObjectId &objId = m_objectHandle->getObjectId();
   TStageObject *obj           = (objId == TStageObjectId::NoneId)
-                          ? (TStageObject *)0
-                          : xsh->getStageObject(objId);
+                                    ? (TStageObject *)0
+                                    : xsh->getStageObject(objId);
 
   static_cast<FunctionTreeModel *>(m_treeView->model())
       ->setCurrentStageObject(obj);
@@ -670,7 +676,9 @@ void FunctionViewer::doSwitchCurrentObject(TStageObject *obj) {
 //-----------------------------------------------------------------------------
 
 void FunctionViewer::onPreferenceChanged(const QString &prefName) {
-  if (prefName != "XSheetToolbar" && !prefName.isEmpty()) return;
+  if (prefName != "QuickToolbar" && prefName != "XsheetBreadcrumbs" &&
+      !prefName.isEmpty())
+    return;
   if (!Preferences::instance()->isExpandFunctionHeaderEnabled()) return;
   if (m_toggleStart ==
       Preferences::FunctionEditorToggle::ShowFunctionSpreadsheetInPopup)
@@ -693,16 +701,21 @@ void FunctionViewer::onPreferenceChanged(const QString &prefName) {
   bool toolBarVisible =
       Preferences::instance()->isShowQuickToolbarEnabled() &&
       Preferences::instance()->isExpandFunctionHeaderEnabled();
+  bool breadcrumbsVisible =
+      Preferences::instance()->isShowXsheetBreadcrumbsEnabled() &&
+      Preferences::instance()->isExpandFunctionHeaderEnabled();
   m_functionGraph->hide();
   m_numericalColumns->show();
   if (QSpacerItem *spacer = m_leftLayout->itemAt(0)->spacerItem()) {
-    spacer->changeSize(1, m_spacing + ((toolBarVisible) ? 10 : 0),
+    spacer->changeSize(1, m_spacing + ((toolBarVisible) ? 10 : 0) +
+                              ((breadcrumbsVisible) ? 10 : 0),
                        QSizePolicy::Fixed, QSizePolicy::Fixed);
     spacer->invalidate();
     m_numericalColumns->updateHeaderHeight();
     m_leftLayout->setSpacing(0);
   } else
-    m_leftLayout->setSpacing(m_spacing + ((toolBarVisible) ? 30 : 0));
+    m_leftLayout->setSpacing(m_spacing + ((toolBarVisible) ? 30 : 0) +
+                             ((breadcrumbsVisible) ? 30 : 0));
   updateGeometry();
 }
 
@@ -803,7 +816,7 @@ bool FunctionViewer::isExpressionPageActive() {
 
 //----------------------------------------------------------------------------
 
-void FunctionViewer::save(QSettings &settings) const {
+void FunctionViewer::save(QSettings &settings, bool forPopupIni) const {
   FunctionEditorToggleStatus = m_toggleStatus;
   settings.setValue("toggleStatus", m_toggleStatus);
   settings.setValue("showIbtwnValuesInSheet",

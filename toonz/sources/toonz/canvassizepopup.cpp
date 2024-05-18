@@ -15,6 +15,7 @@
 // TnzLib includes
 #include "toonz/txshlevelhandle.h"
 #include "toonz/levelproperties.h"
+#include "toonz/preferences.h"
 
 // TnzBase includes
 #include "tunit.h"
@@ -137,7 +138,7 @@ int getPixelLength(double measuredLength, TMeasure *measure, double dpi,
   double inchValue = measure->getCurrentUnit()->convertFrom(measuredLength);
   return tround(inchValue * dpi);
 }
-}
+}  // namespace
 //=============================================================================
 // PeggingWidget
 //-----------------------------------------------------------------------------
@@ -266,7 +267,7 @@ void PeggingWidget::on00() {
   m_01->setIcon(m_topPix.transformed(QMatrix().rotate(m_cutLx ? -90 : 90),
                                      Qt::SmoothTransformation));
   m_11->setIcon(
-      m_topRightPix.transformed(QMatrix().rotate(m_cutLx || m_cutLx ? -90 : 90),
+      m_topRightPix.transformed(QMatrix().rotate(m_cutLx || m_cutLy ? -90 : 90),
                                 Qt::SmoothTransformation));
   m_10->setIcon(m_topPix.transformed(QMatrix().rotate(m_cutLy ? 0 : 180),
                                      Qt::SmoothTransformation));
@@ -539,17 +540,21 @@ CanvasSizePopup::CanvasSizePopup()
 
   addSeparator(tr("New Size"));
 
-  //// Unit
-  //m_unit = new QComboBox(this);
-  //m_unit->addItem(tr("pixel"), "pixel");
-  //m_unit->addItem(tr("mm"), "mm");
-  //m_unit->addItem(tr("cm"), "cm");
-  //m_unit->addItem(tr("field"), "field");
-  //m_unit->addItem(tr("inch"), "inch");
-  //m_unit->setFixedHeight(DVGui::WidgetHeight);
-  //addWidget(tr("Unit:"), m_unit);
-  //connect(m_unit, SIGNAL(currentIndexChanged(int)), this,
-  //        SLOT(onUnitChanged(int)));
+  // Unit
+  m_unit = new QComboBox(this);
+  m_unit->addItem(tr("pixel"), "pixel");
+  m_unit->addItem(tr("mm"), "mm");
+  m_unit->addItem(tr("cm"), "cm");
+  m_unit->addItem(tr("field"), "field");
+  m_unit->addItem(tr("inch"), "inch");
+  m_unit->setFixedHeight(DVGui::WidgetHeight);
+  m_unit->hide();
+  if (Preferences::instance()->isShowAdvancedOptionsEnabled()) {
+    m_unit->show();
+    addWidget(tr("Unit:"), m_unit);
+    connect(m_unit, SIGNAL(currentIndexChanged(int)), this,
+            SLOT(onUnitChanged(int)));
+  }
 
   // New Xsize
   m_xSizeFld = new DVGui::DoubleLineEdit(this, dim.lx);
@@ -601,7 +606,7 @@ void CanvasSizePopup::showEvent(QShowEvent *e) {
   TPointD dpi    = m_sl->getDpi();
   double dimLx   = getMeasuredLength(dim.lx, m_xMeasure, dpi.x,
                                    "pixel");
-  double dimLy = getMeasuredLength(dim.ly, m_yMeasure, dpi.y,
+  double dimLy   = getMeasuredLength(dim.ly, m_yMeasure, dpi.y,
       "pixel");
   m_currentXSize->setText(QString::number(dimLx));
   m_currentYSize->setText(QString::number(dimLy));

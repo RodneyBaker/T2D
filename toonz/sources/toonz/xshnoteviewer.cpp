@@ -166,6 +166,10 @@ NotePopup::NotePopup(XsheetViewer *viewer, int noteIndex)
 
 //-----------------------------------------------------------------------------
 
+void NotePopup::setCurrentViewer(XsheetViewer *viewer) { m_viewer = viewer; }
+
+//-----------------------------------------------------------------------------
+
 void NotePopup::setCurrentNoteIndex(int index) { m_noteIndex = index; }
 
 //-----------------------------------------------------------------------------
@@ -426,14 +430,17 @@ void NoteWidget::paint(QPainter *painter, QPoint pos, bool isCurrent) {
 //-----------------------------------------------------------------------------
 
 void NoteWidget::openNotePopup() {
-  if (!m_noteEditor) {
-    m_noteEditor.reset(new XsheetGUI::NotePopup(m_viewer, m_noteIndex));
+  if (!NotePopupWidget)
+    NotePopupWidget = new XsheetGUI::NotePopup(m_viewer, m_noteIndex);
+  else {
+    NotePopupWidget->setCurrentViewer(m_viewer);
+    NotePopupWidget->setCurrentNoteIndex(m_noteIndex);
   }
 
-  if (m_noteEditor->isVisible()) {
-    m_noteEditor->activateWindow();
+  if (NotePopupWidget->isVisible()) {
+    NotePopupWidget->activateWindow();
   } else {
-    m_noteEditor->show();
+    NotePopupWidget->show();
   }
 }
 
@@ -448,14 +455,10 @@ void NoteWidget::paintEvent(QPaintEvent *event) {
 // NoteArea
 //-----------------------------------------------------------------------------
 
-#if QT_VERSION >= 0x050500
 NoteArea::NoteArea(XsheetViewer *parent, Qt::WindowFlags flags)
-#else
-NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
-#endif
     : QFrame(parent)
     , m_viewer(parent)
-    // , m_flipOrientationButton(nullptr)
+    , m_flipOrientationButton(nullptr)
     , m_noteButton(nullptr)
     , m_precNoteButton(nullptr)
     , m_nextNoteButton(nullptr)
@@ -464,11 +467,10 @@ NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
     , m_hamburgerButton(nullptr)
     , m_popup(nullptr)
     , m_currentLayout(nullptr) {
-
   setFrameStyle(QFrame::StyledPanel);
   setObjectName("cornerWidget");
 
-  // m_flipOrientationButton  = new QPushButton(this);
+  m_flipOrientationButton  = new QPushButton(this);
   m_noteButton             = new QToolButton(this);
   m_precNoteButton         = new QToolButton(this);
   m_nextNoteButton         = new QToolButton(this);
@@ -477,13 +479,13 @@ NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
   m_layerHeaderPanel       = new LayerHeaderPanel(m_viewer, this);
 
   //-----
-  //
-  // m_flipOrientationButton->setObjectName("flipOrientationButton");
-  // m_flipOrientationButton->setFocusPolicy(Qt::FocusPolicy::NoFocus);
-  // m_flipOrientationButton->setFixedSize(QSize(70, 23));
-  // m_flipOrientationButton->setIconSize(QSize(20, 20));
-  // m_flipOrientationButton->setIcon(createQIcon("toggle_xsheet_orientation"));
-  // m_flipOrientationButton->setToolTip(tr("Toggle Xsheet/Timeline"));
+
+  m_flipOrientationButton->setObjectName("flipOrientationButton");
+  m_flipOrientationButton->setFocusPolicy(Qt::FocusPolicy::NoFocus);
+  m_flipOrientationButton->setFixedSize(QSize(70, 23));
+  m_flipOrientationButton->setIconSize(QSize(20, 20));
+  m_flipOrientationButton->setIcon(createQIcon("toggle_xsheet_orientation"));
+  m_flipOrientationButton->setToolTip(tr("Toggle Xsheet/Timeline"));
 
   m_newLevelButton->setObjectName("ToolbarToolButton");
   m_newLevelButton->setFixedSize(34, 25);
@@ -497,8 +499,6 @@ NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
   m_noteButton->setFixedSize(32, 16);
   m_noteButton->setIconSize(QSize(30, 15));
   QIcon addNoteIcon = createQIcon("footermemo");
-  addNoteIcon.addFile(QString(":Resources/footermemo_disabled.svg"), QSize(),
-                      QIcon::Disabled);
   m_noteButton->setIcon(addNoteIcon);
   m_noteButton->setToolTip(tr("Add New Memo"));
 
@@ -520,14 +520,18 @@ NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
   m_frameDisplayStyleCombo->addItems(frameDisplayStyles);
   m_frameDisplayStyleCombo->setCurrentIndex(
       (int)m_viewer->getFrameDisplayStyle());
-  m_frameDisplayStyleCombo->hide();
+
+  if (!Preferences::instance()->isShowAdvancedOptionsEnabled()) {
+    m_flipOrientationButton->hide();
+    m_frameDisplayStyleCombo->hide();
+  }
 
   createLayout();
 
   // signal-slot connections
   bool ret = true;
-  // ret      = ret && connect(m_flipOrientationButton, SIGNAL(clicked()),
-  //                     SLOT(flipOrientation()));
+  ret      = ret && connect(m_flipOrientationButton, SIGNAL(clicked()),
+                            SLOT(flipOrientation()));
 
   ret = ret && connect(m_noteButton, SIGNAL(clicked()), SLOT(toggleNewNote()));
   ret = ret &&
@@ -556,7 +560,7 @@ NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
 void NoteArea::removeLayout() {
   if (!m_currentLayout) return;
 
-  // m_currentLayout->removeWidget(m_flipOrientationButton);
+  m_currentLayout->removeWidget(m_flipOrientationButton);
   m_currentLayout->removeWidget(m_noteButton);
   m_currentLayout->removeWidget(m_precNoteButton);
   m_currentLayout->removeWidget(m_nextNoteButton);
@@ -617,6 +621,8 @@ void NoteArea::createLayout() {
     mainLayout->setMargin(1);
     mainLayout->setSpacing(0);
     {
+      mainLayout->addWidget(m_flipOrientationButton, 0, centerAlign);
+
       mainLayout->addStretch(1);
 
       mainLayout->addWidget(m_newLevelButton, 0, centerAlign);
@@ -674,13 +680,13 @@ void NoteArea::updateButtons() {
 
 //-----------------------------------------------------------------------------
 
-// void NoteArea::flipOrientation() { m_viewer->flipOrientation(); }
+void NoteArea::flipOrientation() { m_viewer->flipOrientation(); }
 
 void NoteArea::onXsheetOrientationChanged(const Orientation *newOrientation) {
-  //  m_flipOrientationButton->setText(newOrientation->caption());
+  // m_flipOrientationButton->setText(newOrientation->caption());
 
-  // m_flipOrientationButton->setIcon(createQIcon("toggle_xsheet_orientation"));
-  // m_flipOrientationButton->setIconSize(QSize(20, 20));
+  m_flipOrientationButton->setIcon(createQIcon("toggle_xsheet_orientation"));
+  m_flipOrientationButton->setIconSize(QSize(20, 20));
 
   removeLayout();
   createLayout();
@@ -689,13 +695,17 @@ void NoteArea::onXsheetOrientationChanged(const Orientation *newOrientation) {
 //-----------------------------------------------------------------------------
 
 void NoteArea::toggleNewNote() {
-  if (!m_newNotePopup)
-    m_newNotePopup.reset(new XsheetGUI::NotePopup(m_viewer, -1));
+  if (!NotePopupWidget)
+    NotePopupWidget = new XsheetGUI::NotePopup(m_viewer, -1);
+  else {
+    NotePopupWidget->setCurrentViewer(m_viewer);
+    NotePopupWidget->setCurrentNoteIndex(-1);
+  }
 
-  if (m_newNotePopup->isVisible()) {
-    m_newNotePopup->activateWindow();
+  if (NotePopupWidget->isVisible()) {
+    NotePopupWidget->activateWindow();
   } else {
-    m_newNotePopup->show();
+    NotePopupWidget->show();
   }
 }
 
@@ -738,18 +748,13 @@ void NoteArea::onClickHamburger() {
 // FooterNoteArea
 //-----------------------------------------------------------------------------
 
-#if QT_VERSION >= 0x050500
 FooterNoteArea::FooterNoteArea(QWidget *parent, XsheetViewer *viewer,
                                Qt::WindowFlags flags)
-#else
-NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
-#endif
     : QFrame(parent)
     , m_viewer(viewer)
     , m_noteButton(nullptr)
     , m_precNoteButton(nullptr)
     , m_nextNoteButton(nullptr) {
-
   setFrameStyle(QFrame::StyledPanel);
   setObjectName("cornerWidget");
 
@@ -770,9 +775,7 @@ NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
   m_noteButton->setObjectName("ToolbarToolButton");
   m_noteButton->setFixedSize(32, 16);
   m_noteButton->setIconSize(QSize(30, 15));
-  QIcon addNoteIcon; // = createQIcon("footermemo");
-  addNoteIcon.addFile(QString(":icons/light/misc/footermemo.svg"), QSize(),
-                      QIcon::Normal);
+  QIcon addNoteIcon = createQIcon("footermemo");
   m_noteButton->setIcon(addNoteIcon);
   m_noteButton->setToolTip(tr("Add New Memo"));
 
@@ -780,8 +783,6 @@ NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
   m_precNoteButton->setFixedSize(16, 16);
   m_precNoteButton->setIconSize(QSize(16, 16));
   QIcon precNoteIcon = createQIcon("prevkey");
-  precNoteIcon.addFile(QString(":Resources/prevkey_disabled.svg"), QSize(),
-                       QIcon::Disabled);
   m_precNoteButton->setIcon(precNoteIcon);
   m_precNoteButton->setToolTip(tr("Previous Memo"));
 
@@ -789,8 +790,6 @@ NoteArea::NoteArea(XsheetViewer *parent, Qt::WFlags flags)
   m_nextNoteButton->setFixedSize(16, 16);
   m_nextNoteButton->setIconSize(QSize(16, 16));
   QIcon nextNoteIcon = createQIcon("nextkey");
-  nextNoteIcon.addFile(QString(":Resources/nextkey_disabled.svg"), QSize(),
-                       QIcon::Disabled);
   m_nextNoteButton->setIcon(nextNoteIcon);
   m_nextNoteButton->setToolTip(tr("Next Memo"));
 
@@ -872,13 +871,17 @@ void FooterNoteArea::onXsheetOrientationChanged(
 //-----------------------------------------------------------------------------
 
 void FooterNoteArea::toggleNewNote() {
-  if (!m_newNotePopup)
-    m_newNotePopup.reset(new XsheetGUI::NotePopup(m_viewer, -1));
+  if (!NotePopupWidget)
+    NotePopupWidget = new XsheetGUI::NotePopup(m_viewer, -1);
+  else {
+    NotePopupWidget->setCurrentViewer(m_viewer);
+    NotePopupWidget->setCurrentNoteIndex(-1);
+  }
 
-  if (m_newNotePopup->isVisible()) {
-    m_newNotePopup->activateWindow();
+  if (NotePopupWidget->isVisible()) {
+    NotePopupWidget->activateWindow();
   } else {
-    m_newNotePopup->show();
+    NotePopupWidget->show();
   }
 }
 

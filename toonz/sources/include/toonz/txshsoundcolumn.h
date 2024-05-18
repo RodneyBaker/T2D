@@ -31,61 +31,61 @@ class TFilePath;
 //=============================================================================
 
 class ColumnLevel {
-    TXshSoundLevelP m_soundLevel;
+  TXshSoundLevelP m_soundLevel;
 
-    /*!Offsets: in frames. Start offset is a positive number.*/
-    int m_startOffset;
-    /*!Offsets: in frames. End offset is a positive number(to subtract to..).*/
-    int m_endOffset;
+  /*!Offsets: in frames. Start offset is a positive number.*/
+  int m_startOffset;
+  /*!Offsets: in frames. End offset is a positive number(to subtract to..).*/
+  int m_endOffset;
 
-    //! Starting frame in the timeline
-    int m_startFrame;
+  //! Starting frame in the timeline
+  int m_startFrame;
 
-    //! frameRate
-    double m_fps;
+  //! frameRate
+  double m_fps;
 
 public:
-    ColumnLevel(TXshSoundLevel* soundLevel = 0, int startFrame = -1,
-        int startOffset = -1, int endOffset = -1, double fps = -1);
-    ~ColumnLevel();
-    ColumnLevel* clone() const;
+  ColumnLevel(TXshSoundLevel* soundLevel = 0, int startFrame = -1,
+              int startOffset = -1, int endOffset = -1, double fps = -1);
+  ~ColumnLevel();
+  ColumnLevel* clone() const;
 
-    //! Overridden from TXshLevel
-    TXshSoundLevel* getSoundLevel() const { return m_soundLevel.getPointer(); }
-    void setSoundLevel(TXshSoundLevelP level) { m_soundLevel = level; }
+  //! Overridden from TXshLevel
+  TXshSoundLevel* getSoundLevel() const { return m_soundLevel.getPointer(); }
+  void setSoundLevel(TXshSoundLevelP level) { m_soundLevel = level; }
 
-    void loadData(TIStream& is);
-    void saveData(TOStream& os);
+  void loadData(TIStream& is);
+  void saveData(TOStream& os);
 
-    void setStartOffset(int value);
-    int getStartOffset() const { return m_startOffset; }
+  void setStartOffset(int value);
+  int getStartOffset() const { return m_startOffset; }
 
-    void setEndOffset(int value);
-    int getEndOffset() const { return m_endOffset; }
+  void setEndOffset(int value);
+  int getEndOffset() const { return m_endOffset; }
 
-    void setOffsets(int startOffset, int endOffset);
+  void setOffsets(int startOffset, int endOffset);
 
-    //! Return the starting frame without offsets.
-    void setStartFrame(int frame) { m_startFrame = frame; }
-    int getStartFrame() const { return m_startFrame; }
+  //! Return the starting frame without offsets.
+  void setStartFrame(int frame) { m_startFrame = frame; }
+  int getStartFrame() const { return m_startFrame; }
 
-    //! Return the ending frame without offsets.
-    int getEndFrame() const;
+  //! Return the ending frame without offsets.
+  int getEndFrame() const;
 
-    //! Return frame count without offset.
-    int getFrameCount() const;
+  //! Return frame count without offset.
+  int getFrameCount() const;
 
-    //! Return frame count with offset.
-    int getVisibleFrameCount() const;
+  //! Return frame count with offset.
+  int getVisibleFrameCount() const;
 
-    //! Return start frame with offset.
-    int getVisibleStartFrame() const;
-    //! Return last frame with offset.
-    int getVisibleEndFrame() const;
-    //! Updates m_startOfset and m_endOffset.
-    void updateFrameRate(double newFrameRate);
+  //! Return start frame with offset.
+  int getVisibleStartFrame() const;
+  //! Return last frame with offset.
+  int getVisibleEndFrame() const;
+  //! Updates m_startOfset and m_endOffset.
+  void updateFrameRate(double newFrameRate);
 
-    void setFrameRate(double fps) { m_fps = fps; }
+  void setFrameRate(double fps) { m_fps = fps; }
 };
 
 //=============================================================================
@@ -129,17 +129,18 @@ public:
   void saveData(TOStream &os) override;
 
   /*! r0 : min row not empty, r1 : max row not empty. Return row count.*/
-  int getRange(int &r0, int &r1) const override;
+  int getRange(int &r0, int &r1, bool ignoreLastStop = false) const override;
   /*! Last not empty row - first not empty row. */
   int getRowCount() const override;
   /*! Return max row not empty. */
-  int getMaxFrame() const override;
+  int getMaxFrame(bool ignoreLastStop = false) const override;
   /*! Return min row not empty.*/
   int getFirstRow() const override;
 
-  const TXshCell &getCell(int row) const override;
+  const TXshCell &getCell(int row, bool implicitLookup = false) const override;
   TXshCell getSoundCell(int row);
-  void getCells(int row, int rowCount, TXshCell cells[]) override;
+  void getCells(int row, int rowCount, TXshCell cells[],
+                bool implicitLookup = false) override;
 
   bool setCell(int row, const TXshCell &cell) override;
   /*! Return false if cannot set cells.*/

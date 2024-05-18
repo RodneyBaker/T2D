@@ -80,7 +80,6 @@
 #include "tcg/boost/permuted_range.h"
 
 // boost includes
-#include <boost/bind.hpp>
 #include <boost/iterator/counting_iterator.hpp>
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/transformed.hpp>
@@ -144,22 +143,12 @@ QMutex levelFileMutex;
 
 }  // namespace
 
-inline bool isMultipleFrameType(std::string type) {
-  return (type == "tlv" || type == "tzl" || type == "pli" || type == "avi" ||
-          type == "gif" || type == "mp4" || type == "webm" || type == "mov");
-}
-
 //=============================================================================
 // FileBrowser
 //-----------------------------------------------------------------------------
 
-#if QT_VERSION >= 0x050500
 FileBrowser::FileBrowser(QWidget *parent, Qt::WindowFlags flags,
                          bool noContextMenu, bool multiSelectionEnabled)
-#else
-FileBrowser::FileBrowser(QWidget *parent, Qt::WFlags flags, bool noContextMenu,
-                         bool multiSelectionEnabled)
-#endif
     : QFrame(parent), m_folderName(0), m_itemViewer(0) {
   // style sheet
   setObjectName("FileBrowser");
@@ -337,7 +326,7 @@ void FileBrowser::storeFolderHistory() {
     m_indexHistoryList << currentModelIndex;
     m_currentPosition++;
   }
-  // If the next hitory item is the same as the current one, just move to it
+  // If the next history item is the same as the current one, just move to it
   else if (m_indexHistoryList[m_currentPosition + 1] == currentModelIndex) {
     m_currentPosition++;
   }
@@ -445,7 +434,7 @@ void FileBrowser::sortByDataModel(DataType dataType, bool isDiscendent) {
 
     std::stable_sort(
         new2OldIdx.begin(), new2OldIdx.end(),
-        boost::bind(locals::itemLess, _1, _2, boost::ref(*this), dataType));
+        [this, dataType](int x, int y) { return locals::itemLess(x, y, *this, dataType); });
 
     // Use the renumbering table to permutate elements
     std::vector<Item>(
@@ -463,15 +452,13 @@ void FileBrowser::sortByDataModel(DataType dataType, bool isDiscendent) {
           boost::make_counting_iterator(int(m_items.size())));
 
       std::sort(old2NewIdx.begin(), old2NewIdx.end(),
-                boost::bind(locals::indexLess, _1, _2, boost::ref(new2OldIdx)));
+                [&new2OldIdx](int aIdx, int bIdx){ return locals::indexLess(aIdx, bIdx, new2OldIdx); });
 
       std::vector<int> newSelectedIndices;
       tcg::substitute(
           newSelectedIndices,
           tcg::permuted_range(old2NewIdx, fs->getSelectedIndices() |
-                                              ba::filtered(boost::bind(
-                                                  std::less<int>(), _1,
-                                                  int(old2NewIdx.size())))));
+                                              ba::filtered([&old2NewIdx](int x){ return x < old2NewIdx.size(); })));
 
       fs->select(!newSelectedIndices.empty() ? &newSelectedIndices.front() : 0,
                  int(newSelectedIndices.size()));
@@ -496,8 +483,8 @@ void FileBrowser::sortByDataModel(DataType dataType, bool isDiscendent) {
       tcg::substitute(
           newSelectedIndices,
           fs->getSelectedIndices() |
-              ba::filtered(boost::bind(std::less<int>(), _1, iCount)) |
-              ba::transformed(boost::bind(locals::complement, _1, lastIdx)));
+              ba::filtered([iCount](int x){ return x < iCount; }) |
+              ba::transformed([lastIdx](int x){ return locals::complement(x, lastIdx); }));
 
       fs->select(!newSelectedIndices.empty() ? &newSelectedIndices.front() : 0,
                  int(newSelectedIndices.size()));
@@ -535,7 +522,7 @@ void FileBrowser::refreshCurrentFolderItems() {
   if (parentFp != TFilePath("") && parentFp != m_folder)
     m_items.push_back(Item(parentFp, true, false));
 
-  // register the all folder items by using the folde tree model
+  // register all folder items by using the folder tree model
   DvDirModel *model        = DvDirModel::instance();
   QModelIndex currentIndex = model->getIndexByPath(m_folder);
   if (currentIndex.isValid()) {
@@ -621,6 +608,10 @@ void FileBrowser::refreshCurrentFolderItems() {
         DVGui::warning(QString::fromStdWString(
             tmfe.getMessage() + L": " +
             QObject::tr("Skipping frame.").toStdWString()));
+        continue;
+      } catch (...) {
+        DVGui::warning(QString::fromStdWString(
+            QObject::tr("Unhandled exception encountered: Skipping frame.").toStdWString()));
         continue;
       }
 
@@ -919,22 +910,19 @@ QVariant FileBrowser::getItemData(int index, DataType dataType,
     QSize iconSize = m_itemViewer->getPanel()->getIconSize();
     // parent folder icons
     if (item.m_path == m_folder.getParentDir()) {
-      static QPixmap folderUpPixmap(
-          svgToPixmap(getIconThemePath("actions/60/folder_browser_up.svg"),
-                      iconSize, Qt::KeepAspectRatio));
+      static QPixmap folderUpPixmap(generateIconPixmap(
+          "folder_browser_up", qreal(1.0), iconSize, Qt::KeepAspectRatio));
       return folderUpPixmap;
     }
     // folder icons
     else if (item.m_isFolder) {
       if (item.m_isLink) {
-        static QPixmap folderLinkPixmap(
-            svgToPixmap(getIconThemePath("actions/60/folder_browser_link.svg"),
-                        iconSize, Qt::KeepAspectRatio));
+        static QPixmap folderLinkPixmap(generateIconPixmap(
+            "folder_browser_link", qreal(1.0), iconSize, Qt::KeepAspectRatio));
         return folderLinkPixmap;
       } else {
-        static QPixmap folderPixmap(
-            svgToPixmap(getIconThemePath("actions/60/folder_browser.svg"),
-                        iconSize, Qt::KeepAspectRatio));
+        static QPixmap folderPixmap(generateIconPixmap(
+            "folder_browser", qreal(1.0), iconSize, Qt::KeepAspectRatio));
         return folderPixmap;
       }
     }
@@ -1237,13 +1225,13 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
        files[1].getType() == "TIFF" || files[1].getType() == "PNG")) {
     QAction *action = new QAction(tr("Convert to Painted TLV"), menu);
     ret             = ret && connect(action, SIGNAL(triggered()), this,
-                         SLOT(convertToPaintedTlv()));
+                                     SLOT(convertToPaintedTlv()));
     menu->addAction(action);
   }
   if (areFullcolor) {
     QAction *action = new QAction(tr("Convert to Unpainted TLV"), menu);
     ret             = ret && connect(action, SIGNAL(triggered()), this,
-                         SLOT(convertToUnpaintedTlv()));
+                                     SLOT(convertToUnpaintedTlv()));
     menu->addAction(action);
     menu->addSeparator();
   }
@@ -1276,42 +1264,42 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
       if (status == DvItemListModel::VC_ReadOnly) {
         action = vcMenu->addAction(tr("Edit"));
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(editVersionControl()));
+                                SLOT(editVersionControl()));
 
         TFilePath path       = files.at(0);
         std::string fileType = path.getType();
         if (fileType == "tlv" || fileType == "pli" || path.getDots() == "..") {
           action = vcMenu->addAction(tr("Edit Frame Range..."));
           ret    = ret && connect(action, SIGNAL(triggered()), this,
-                               SLOT(editFrameRangeVersionControl()));
+                                  SLOT(editFrameRangeVersionControl()));
         }
       } else {
         action = vcMenu->addAction(tr("Edit"));
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(updateAndEditVersionControl()));
+                                SLOT(updateAndEditVersionControl()));
       }
     }
 
     if (status == DvItemListModel::VC_Modified) {
       action = vcMenu->addAction(tr("Put..."));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(putVersionControl()));
+                              SLOT(putVersionControl()));
 
       action = vcMenu->addAction(tr("Revert"));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(revertVersionControl()));
+                              SLOT(revertVersionControl()));
     }
 
     if (status == DvItemListModel::VC_ReadOnly ||
         status == DvItemListModel::VC_ToUpdate) {
       action = vcMenu->addAction(tr("Get"));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(getVersionControl()));
+                              SLOT(getVersionControl()));
 
       if (status == DvItemListModel::VC_ReadOnly) {
         action = vcMenu->addAction(tr("Delete"));
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(deleteVersionControl()));
+                                SLOT(deleteVersionControl()));
       }
 
       vcMenu->addSeparator();
@@ -1328,36 +1316,36 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
       } else if (files.size() > 1) {
         action = vcMenu->addAction("Get Revision...");
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(getRevisionVersionControl()));
+                                SLOT(getRevisionVersionControl()));
       }
     }
 
     if (status == DvItemListModel::VC_Edited) {
       action = vcMenu->addAction(tr("Unlock"));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(unlockVersionControl()));
+                              SLOT(unlockVersionControl()));
     }
 
     if (status == DvItemListModel::VC_Unversioned) {
       action = vcMenu->addAction(tr("Put..."));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(putVersionControl()));
+                              SLOT(putVersionControl()));
     }
 
     if (status == DvItemListModel::VC_Locked && files.size() == 1) {
       action = vcMenu->addAction(tr("Unlock"));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(unlockVersionControl()));
+                              SLOT(unlockVersionControl()));
 
       action = vcMenu->addAction(tr("Edit Info"));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(showLockInformation()));
+                              SLOT(showLockInformation()));
     }
 
     if (status == DvItemListModel::VC_Missing) {
       action = vcMenu->addAction(tr("Get"));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(getVersionControl()));
+                              SLOT(getVersionControl()));
 
       if (files.size() == 1) {
         vcMenu->addSeparator();
@@ -1375,44 +1363,44 @@ QMenu *FileBrowser::getContextMenu(QWidget *parent, int index) {
     if (status == DvItemListModel::VC_PartialLocked) {
       action = vcMenu->addAction(tr("Get"));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(getVersionControl()));
+                              SLOT(getVersionControl()));
       if (files.size() == 1) {
         action = vcMenu->addAction(tr("Edit Frame Range..."));
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(editFrameRangeVersionControl()));
+                                SLOT(editFrameRangeVersionControl()));
 
         action = vcMenu->addAction(tr("Edit Info"));
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(showFrameRangeLockInfo()));
+                                SLOT(showFrameRangeLockInfo()));
       }
 
     } else if (status == DvItemListModel::VC_PartialEdited) {
       action = vcMenu->addAction(tr("Get"));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(getVersionControl()));
+                              SLOT(getVersionControl()));
 
       if (files.size() == 1) {
         action = vcMenu->addAction(tr("Unlock Frame Range"));
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(unlockFrameRangeVersionControl()));
+                                SLOT(unlockFrameRangeVersionControl()));
 
         action = vcMenu->addAction(tr("Edit Info"));
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(showFrameRangeLockInfo()));
+                                SLOT(showFrameRangeLockInfo()));
       }
     } else if (status == DvItemListModel::VC_PartialModified) {
       action = vcMenu->addAction(tr("Get"));
       ret    = ret && connect(action, SIGNAL(triggered()), this,
-                           SLOT(getVersionControl()));
+                              SLOT(getVersionControl()));
 
       if (files.size() == 1) {
         action = vcMenu->addAction(tr("Put..."));
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(putFrameRangeVersionControl()));
+                                SLOT(putFrameRangeVersionControl()));
 
         action = vcMenu->addAction(tr("Revert"));
         ret    = ret && connect(action, SIGNAL(triggered()), this,
-                             SLOT(revertFrameRangeVersionControl()));
+                                SLOT(revertFrameRangeVersionControl()));
       }
     }
 
@@ -1575,8 +1563,7 @@ bool FileBrowser::drop(const QMimeData *mimeData) {
       TFilePath path = folderPath;
       NameBuilder *nameBuilder =
           NameBuilder::getBuilder(::to_wstring(path.getName()));
-      do
-        levelName = nameBuilder->getNext();
+      do levelName = nameBuilder->getNext();
       while (TSystem::doesExistFileOrLevel(path.withName(levelName)));
       folderPath = path.withName(levelName);
     }
@@ -1770,11 +1757,7 @@ QString getFrame(const QString &filename) {
   QString number = filename.mid(from + 1, to - from);
   for (i = 0; i < 4 - number.size(); i++) padStr[i] = '0';
   for (i = 0; i < number.size(); i++)
-#if QT_VERSION >= 0x050500
     padStr[4 - number.size() + i] = number.at(i).toLatin1();
-#else
-    padStr[4 - number.size() + i] = number.at(i).toAscii();
-#endif
   return QString(padStr);
 }
 
@@ -2362,7 +2345,7 @@ calculateTask:
 
 //-----------------------------------------------------------------------------
 
-inline void FrameCountReader::stopReading() { m_executor.cancelAll(); }
+void FrameCountReader::stopReading() { m_executor.cancelAll(); }
 
 //=============================================================================
 // FrameCountTask methods

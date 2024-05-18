@@ -197,6 +197,7 @@ TXshColumn *TXshSoundColumn::clone() const {
   int i;
   for (i = 0; i < m_levels.size(); i++)
     column->insertColumnLevel(m_levels.at(i)->clone(), i);
+  column->setFolderIdStack(getFolderIdStack());
 
   return column;
 }
@@ -265,8 +266,12 @@ void TXshSoundColumn::loadData(TIStream &is) {
 
   std::string tagName;
   while (is.openChild(tagName)) {
-    if (!loadCellMarks(tagName, is))
-      throw TException("TXshLevelColumn, unknown tag: " + tagName);
+    if (loadCellMarks(tagName, is)) {
+      // do nothing
+    } else if (loadFolderInfo(tagName, is)) {
+      // do nothing
+    } else
+      throw TException("TXshSoundColumn, unknown tag: " + tagName);
     is.closeChild();
   }
 }
@@ -283,11 +288,13 @@ void TXshSoundColumn::saveData(TOStream &os) {
   os << getStatusWord();
   // cell marks
   saveCellMarks(os);
+  // folder info
+  saveFolderInfo(os);
 }
 
 //-----------------------------------------------------------------------------
 
-int TXshSoundColumn::getRange(int &r0, int &r1) const {
+int TXshSoundColumn::getRange(int &r0, int &r1, bool ignoreLastStop) const {
   r0 = getFirstRow();
   r1 = getMaxFrame();
   return r1 - r0 + 1;
@@ -301,7 +308,7 @@ int TXshSoundColumn::getRowCount() const {
 
 //-----------------------------------------------------------------------------
 
-int TXshSoundColumn::getMaxFrame() const {
+int TXshSoundColumn::getMaxFrame(bool ignoreLastStop) const {
   int levelsCount = m_levels.size();
   if (levelsCount == 0) return -1;
   return m_levels.at(levelsCount - 1)->getVisibleEndFrame();
@@ -316,7 +323,7 @@ int TXshSoundColumn::getFirstRow() const {
 
 //-----------------------------------------------------------------------------
 
-const TXshCell &TXshSoundColumn::getCell(int row) const {
+const TXshCell &TXshSoundColumn::getCell(int row, bool implicitLookup) const {
   static TXshCell emptyCell;
 
   ColumnLevel *l = getColumnLevelByFrame(row);
@@ -328,10 +335,10 @@ const TXshCell &TXshSoundColumn::getCell(int row) const {
   if (!l) return emptyCell;
   TXshSoundLevel *soundLevel = l->getSoundLevel();
   TXshCell *cell = new TXshCell(soundLevel, TFrameId(row - l->getStartFrame()));
-  // The new cell adds a reference to the TXshSoundLevel; 
-  // since the cells of the TXshSoundColumn are not persistent structures 
-  // but are dynamic structures (they are recreated every time) I have to take 
-  // care of making the release otherwise the TXshSoundLevel is never thrown 
+  // The new cell adds a reference to the TXshSoundLevel;
+  // since the cells of the TXshSoundColumn are not persistent structures
+  // but are dynamic structures (they are recreated every time) I have to take
+  // care of making the release otherwise the TXshSoundLevel is never thrown
   // away.
   soundLevel->release();
   return *cell;
@@ -340,18 +347,18 @@ const TXshCell &TXshSoundColumn::getCell(int row) const {
 //-----------------------------------------------------------------------------
 
 TXshCell TXshSoundColumn::getSoundCell(int row) {
-    static TXshCell emptyCell;
+  static TXshCell emptyCell;
 
-    ColumnLevel* l = getColumnLevelByFrame(row);
-    if (row < 0 || row < getFirstRow() || row > getMaxFrame()) {
-        if (l) emptyCell.m_level = l->getSoundLevel();
-        return emptyCell;
-    }
+  ColumnLevel* l = getColumnLevelByFrame(row);
+  if (row < 0 || row < getFirstRow() || row > getMaxFrame()) {
+    if (l) emptyCell.m_level = l->getSoundLevel();
+    return emptyCell;
+  }
 
-    if (!l) return emptyCell;
-    TXshSoundLevel* soundLevel = l->getSoundLevel();
-    TXshCell cell(soundLevel, TFrameId(row - l->getStartFrame()));
-    return cell;
+  if (!l) return emptyCell;
+  TXshSoundLevel* soundLevel = l->getSoundLevel();
+  TXshCell cell(soundLevel, TFrameId(row - l->getStartFrame()));
+  return cell;
 }
 
 //-----------------------------------------------------------------------------
@@ -391,7 +398,8 @@ void TXshSoundColumn::checkColumn() const {
 
 //-----------------------------------------------------------------------------
 
-void TXshSoundColumn::getCells(int row, int rowCount, TXshCell cells[]) {
+void TXshSoundColumn::getCells(int row, int rowCount, TXshCell cells[],
+                               bool implicitLookup) {
   // le celle da settare sono [ra, rb]
   int ra = row;
   int rb = row + rowCount - 1;
@@ -785,6 +793,7 @@ void TXshSoundColumn::play(TSoundTrackP soundtrack, int s0, int s1, bool loop) {
       m_timer.start();
 #endif
     } catch (TSoundDeviceException &) {
+    } catch (...) {
     }
   }
 }
@@ -826,6 +835,7 @@ void TXshSoundColumn::play(int currentFrame) {
     } else {
       throw TSoundDeviceException(e.getType(), e.getMessage());
     }
+  } catch (...) {
   }
 }
 
@@ -924,6 +934,7 @@ void TXshSoundColumn::scrub(int fromFrame, int toFrame) {
     } else {
       throw TSoundDeviceException(e.getType(), e.getMessage());
     }
+  } catch (...) {
   }
 }
 
@@ -955,10 +966,9 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
         sampleRate            = f.m_sampleRate;
         format.m_channelCount = f.m_channelCount;
         channels              = f.m_channelCount;
-        format.m_signedSample = f.m_signedSample;
+        format.m_sampleType   = f.m_sampleType;
         format.m_bitPerSample = f.m_bitPerSample;
         bitsPerSample         = f.m_bitPerSample;
-        format.m_formatType   = f.m_formatType;
       }
       if (f.m_channelCount > channels) {
         format.m_channelCount = f.m_channelCount;
@@ -968,8 +978,6 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
         format.m_bitPerSample = f.m_bitPerSample;
         bitsPerSample         = f.m_bitPerSample;
       }
-      if (format.m_formatType > f.m_formatType)
-        format.m_formatType = f.m_formatType;
     }
   }
 
@@ -978,8 +986,8 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
     format.m_sampleRate   = 44100;
     format.m_bitPerSample = 16;
     format.m_channelCount = 1;
-    format.m_signedSample = true;
-    format.m_formatType   = WAVE_FORMAT_PCM;
+    format.m_sampleType   = TSound::INT;
+
   }
 
 #ifdef _WIN32
@@ -987,13 +995,24 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
 #else
   QAudioDeviceInfo info(QAudioDeviceInfo::defaultOutputDevice());
   if (info.deviceName().length() == 0) throw TSoundDeviceException(TSoundDeviceException::NoDevice,
-								  "No device found, check QAudio backends");
+                  "No device found, check QAudio backends");
   QList<int> ssrs = info.supportedSampleRates();
   if (!ssrs.contains(format.m_sampleRate)) format.m_sampleRate = 44100;
   QAudioFormat qFormat;
   qFormat.setSampleRate(format.m_sampleRate);
-  qFormat.setSampleType(format.m_signedSample ? QAudioFormat::SignedInt
-                                              : QAudioFormat::UnSignedInt);
+  switch (format.m_sampleType) {
+  case TSound::INT:
+    qFormat.setSampleType(QAudioFormat::SignedInt);
+    break;
+  case TSound::UINT:
+    qFormat.setSampleType(QAudioFormat::UnSignedInt);
+    break;
+  case TSound::FLOAT:
+    qFormat.setSampleType(QAudioFormat::Float);
+    break;
+  default:
+    break;
+  }
   qFormat.setSampleSize(format.m_bitPerSample);
   qFormat.setCodec("audio/pcm");
   qFormat.setChannelCount(format.m_channelCount);
@@ -1003,10 +1022,19 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
     format.m_bitPerSample = qFormat.sampleSize();
     format.m_channelCount = qFormat.channelCount();
     format.m_sampleRate   = qFormat.sampleRate();
-    if (qFormat.sampleType() == QAudioFormat::SignedInt)
-      format.m_signedSample = true;
-    else
-      format.m_signedSample = false;
+    switch (qFormat.sampleType()) {
+    case QAudioFormat::SignedInt:
+      format.m_sampleType = TSound::INT;
+      break;
+    case QAudioFormat::UnSignedInt:
+      format.m_sampleType = TSound::UINT;
+      break;
+    case QAudioFormat::Float:
+      format.m_sampleType = TSound::FLOAT;
+      break;
+    default:
+      break;
+    }
   }
 #endif
   // Create the soundTrack
@@ -1025,6 +1053,7 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
   try {
     overallSoundTrack = TSoundTrack::create(format, lsamp);
   } catch (TSoundDeviceException &) {
+  } catch (...) {
   }
 
   // Blank the whole track
@@ -1064,12 +1093,8 @@ TSoundTrackP TXshSoundColumn::getOverallSoundTrack(int fromFrame, int toFrame,
 
     if (s1 > 0 && s1 >= s0) {
       soundTrack = soundTrack->extract(s0, s1);
-      if (format.m_formatType == WAVE_FORMAT_PCM)
         overallSoundTrack->copy(
             soundTrack, int((levelStartFrame - fromFrame) * samplePerFrame));
-      else
-        overallSoundTrack->copy(
-            soundTrack, double((levelStartFrame - fromFrame) * samplePerFrame));
     }
   }
   return overallSoundTrack;
@@ -1125,9 +1150,12 @@ TSoundTrackP TXshSoundColumn::mixingTogether(
 
   // Per ora perche mov vuole solo 16 bit
   TSoundTrackFormat fmt                            = mix->getFormat();
-  if (fmt.m_bitPerSample != 32) fmt.m_bitPerSample = 32;
-  if (fmt.m_formatType != WAVE_FORMAT_PCM) fmt.m_formatType = WAVE_FORMAT_PCM;
-  mix                                              = TSop::convert(mix, fmt);
+  if (fmt.m_bitPerSample == 8) {
+    fmt.m_bitPerSample = 16;
+    fmt.m_sampleType   = TSound::INT;
+    // 8-bits signed don't play on windows
+    mix = TSop::convert(mix, fmt);
+  }
   return mix;
 }
 

@@ -139,7 +139,12 @@ enum class PredefinedRect {
   // ADD_LEVEL_AREA,
   // ADD_LEVEL,
   FOOTER_NOTE_OBJ_AREA,
-  FOOTER_NOTE_AREA
+  FOOTER_NOTE_AREA,
+  NAVIGATION_TAG_AREA,
+  CLIPPING_MASK_AREA,
+  FOLDER_INDICATOR_AREA,
+  FOLDER_TOGGLE_ICON,
+  BUTTONS_AREA
 };
 enum class PredefinedLine {
   LOCKED,              //! dotted vertical line when cell is locked
@@ -158,23 +163,30 @@ enum class PredefinedDimension {
   QBOXLAYOUT_DIRECTION,  //! direction of QBoxLayout
   CENTER_ALIGN,          //! horizontal / vertical align
   CAMERA_LAYER,          //! width of a camera column / height of camera row
-  SCALE_THRESHOLD        //! scale threshold to simplify the view
+  SCALE_THRESHOLD,       //! scale threshold to simplify the view
+  FRAME_AREA_EXPANSION   //! expansion of the frame area if it can have extra
+                         //! space
 };
 enum class PredefinedPath {
-  DRAG_HANDLE_CORNER,   //! triangle corner at drag sidebar
-  BEGIN_EASE_TRIANGLE,  //! triangle marking beginning of ease range
-  END_EASE_TRIANGLE,    //! triangle marking end of ease range
-  BEGIN_PLAY_RANGE,     //! play range markers
+  DRAG_HANDLE_CORNER,         //! triangle corner at drag sidebar
+  BEGIN_EASE_TRIANGLE,        //! triangle marking beginning of ease range
+  BEGIN_EASE_TRIANGLE_LARGE,  //! triangle marking beginning of ease range
+  END_EASE_TRIANGLE,          //! triangle marking end of ease range
+  END_EASE_TRIANGLE_LARGE,    //! triangle marking end of ease range
+  BEGIN_PLAY_RANGE,           //! play range markers
   END_PLAY_RANGE,
   VOLUME_SLIDER_TRACK,  //! slider track
   VOLUME_SLIDER_HEAD,   //! slider head
   TIME_INDICATOR_HEAD,  //! current time indicator head
-  FRAME_MARKER_DIAMOND
+  FRAME_MARKER_DIAMOND_SMALL,
+  FRAME_MARKER_DIAMOND,
+  FRAME_MARKER_DIAMOND_LARGE,
+  NAVIGATION_TAG
 };
 enum class PredefinedPoint {
   KEY_HIDDEN,  //! move extender handle that much if key icons are disabled
-  EXTENDER_XY_RADIUS,        //! x and y radius for rounded rectangle
-  VOLUME_DIVISIONS_TOP_LEFT  //! where to draw volume slider
+  EXTENDER_XY_RADIUS,         //! x and y radius for rounded rectangle
+  VOLUME_DIVISIONS_TOP_LEFT,  //! where to draw volume slider
 };
 enum class PredefinedRange {
   HEADER_FRAME,  //! size of of column header height(v) / row header width(h)
@@ -218,6 +230,8 @@ protected:
   std::map<PredefinedPoint, QPoint> _points;
   std::map<PredefinedRange, NumberRange> _ranges;
   std::map<PredefinedFlag, bool> _flags;
+
+  QString _layoutName;
 
 public:
   virtual ~Orientation(){};
@@ -277,7 +291,10 @@ public:
   virtual int cellHeight() const     = 0;
   virtual int foldedCellSize() const = 0;
 
+  virtual QString layoutName() const { return _layoutName; }
+
 protected:
+  void setLayoutName(QString layoutName) { _layoutName = layoutName; }
   void addRect(PredefinedRect which, const QRect &rect);
   void addLine(PredefinedLine which, const QLine &line);
   void addDimension(PredefinedDimension which, int dimension);
@@ -289,7 +306,8 @@ protected:
 
 // Enumerates all orientations available in the system as global const objects.
 class DVAPI Orientations {
-  const Orientation *_topToBottom, *_leftToRight;
+  const Orientation *_topToBottom, *_leftToRight_roomy,
+      *_leftToRight_nodragcompact, *_leftToRight_nodragminimum;
   std::vector<const Orientation *> _all;
 
   Orientations();
@@ -299,7 +317,7 @@ public:
 
   static const Orientations &instance();
 
-  static const int COUNT = 2;
+  static const int COUNT = 4;
 
   static const Orientation *topToBottom();
   static const Orientation *leftToRight();

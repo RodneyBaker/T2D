@@ -23,12 +23,8 @@ namespace XsheetGUI {
 // Toolbar
 //-----------------------------------------------------------------------------
 
-#if QT_VERSION >= 0x050500
 QuickToolbar::QuickToolbar(XsheetViewer *parent, Qt::WindowFlags flags,
                              bool isCollapsible)
-#else
-QuickToolbar::QuickToolbar(XsheetViewer *parent, Qt::WFlags flags)
-#endif
     : CommandBar(parent, flags, isCollapsible, true), m_viewer(parent) {
   setObjectName("cornerWidget");
   setFixedHeight(29);
@@ -75,7 +71,7 @@ void QuickToolbar::contextMenuEvent(QContextMenuEvent *event) {
 //-----------------------------------------------------------------------------
 
 void QuickToolbar::doCustomizeCommandBar() {
-  CommandBarPopup *cbPopup = new CommandBarPopup(true);
+  CommandBarPopup *cbPopup = new CommandBarPopup("", true);
 
   if (cbPopup->exec()) {
     fillToolbar(this, true);

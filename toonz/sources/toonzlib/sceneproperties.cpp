@@ -23,21 +23,37 @@
 #include "tiio.h"
 
 namespace {
-const TSceneProperties::CellMark cellMarkDefault[12] = {
-    {QObject::tr("Red"), TPixel32(167, 55, 55)},
-    {QObject::tr("Orange"), TPixel32(195, 115, 40)},
-    {QObject::tr("Yellow"), TPixel32(214, 183, 22)},
-    {QObject::tr("Light Green"), TPixel32(165, 179, 57)},
-    {QObject::tr("Green"), TPixel32(82, 157, 79)},
-    {QObject::tr("Light Blue"), TPixel32(71, 142, 165)},
-    {QObject::tr("Blue"), TPixel32(64, 103, 172)},
-    {QObject::tr("Dark Blue"), TPixel32(60, 49, 187)},
-    {QObject::tr("Purple"), TPixel32(108, 66, 170)},
-    {QObject::tr("Pink"), TPixel32(161, 75, 140)},
-    {QObject::tr("Dark Pink"), TPixel32(111, 29, 108)},
-    {QObject::tr("White"), TPixel32(255, 255, 255)}};
-
+const QList<TSceneProperties::CellMark> getDefaultCellMarks() {
+  return QList<TSceneProperties::CellMark>{
+      {QObject::tr("Red"), TPixel32(167, 55, 55)},
+      {QObject::tr("Orange"), TPixel32(195, 115, 40)},
+      {QObject::tr("Yellow"), TPixel32(214, 183, 22)},
+      {QObject::tr("Light Green"), TPixel32(165, 179, 57)},
+      {QObject::tr("Green"), TPixel32(82, 157, 79)},
+      {QObject::tr("Light Blue"), TPixel32(71, 142, 165)},
+      {QObject::tr("Blue"), TPixel32(64, 103, 172)},
+      {QObject::tr("Dark Blue"), TPixel32(60, 49, 187)},
+      {QObject::tr("Purple"), TPixel32(108, 66, 170)},
+      {QObject::tr("Pink"), TPixel32(161, 75, 140)},
+      {QObject::tr("Dark Pink"), TPixel32(111, 29, 108)},
+      {QObject::tr("White"), TPixel32(255, 255, 255)}};
 }
+
+const QList<TSceneProperties::ColorFilter> getDefaultColorFilters() {
+  return QList<TSceneProperties::ColorFilter>{
+      {QObject::tr("None"), TPixel::Black},  // not editable
+      {QObject::tr("Red"), TPixel::Red},
+      {QObject::tr("Green"), TPixel::Green},
+      {QObject::tr("Blue"), TPixel::Blue},
+      {QObject::tr("DarkYellow"), TPixel(128, 128, 0)},
+      {QObject::tr("DarkCyan"), TPixel32(0, 128, 128)},
+      {QObject::tr("DarkMagenta"), TPixel32(128, 0, 128)},
+      {"", TPixel::Black},
+      {"", TPixel::Black},
+      {"", TPixel::Black},
+      {"", TPixel::Black}};
+}
+}  // namespace
 
 //=============================================================================
 
@@ -55,7 +71,9 @@ TSceneProperties::TSceneProperties()
     , m_fieldGuideSize(16)
     , m_fieldGuideAspectRatio(1.77778)
     , m_columnColorFilterOnRender(false)
-    , m_camCapSaveInPath() {
+    , m_camCapSaveInPath()
+    , m_overlayFile()
+    , m_overlayOpacity(255) {
   // Default color
   m_notesColor.push_back(TPixel32(255, 235, 140));
   m_notesColor.push_back(TPixel32(255, 160, 120));
@@ -66,7 +84,9 @@ TSceneProperties::TSceneProperties()
   m_notesColor.push_back(TPixel32(150, 245, 255));
 
   // Default Cell Marks
-  for (int i = 0; i < 12; i++) m_cellMarks.push_back(cellMarkDefault[i]);
+  m_cellMarks = getDefaultCellMarks();
+  // Default Color Filters
+  m_colorFilters = getDefaultColorFilters();
 }
 
 //-----------------------------------------------------------------------------
@@ -108,9 +128,15 @@ void TSceneProperties::assign(const TSceneProperties *sprop) {
   m_fieldGuideSize            = sprop->m_fieldGuideSize;
   m_fieldGuideAspectRatio     = sprop->m_fieldGuideAspectRatio;
   m_columnColorFilterOnRender = sprop->m_columnColorFilterOnRender;
+  m_overlayFile               = sprop->m_overlayFile;
+  m_overlayOpacity            = sprop->m_overlayOpacity;
   int i;
   for (i = 0; i < m_notesColor.size(); i++)
     m_notesColor.replace(i, sprop->getNoteColor(i));
+  for (i = 0; i < m_cellMarks.size(); i++)
+    m_cellMarks.replace(i, sprop->getCellMark(i));
+  for (i = 0; i < m_colorFilters.size(); i++)
+    m_colorFilters.replace(i, sprop->getColorFilter(i));
 }
 
 //-----------------------------------------------------------------------------
@@ -129,6 +155,19 @@ void TSceneProperties::onInitialize() {
 //-----------------------------------------------------------------------------
 
 void TSceneProperties::setBgColor(const TPixel32 &color) { m_bgColor = color; }
+
+//-----------------------------------------------------------------------------
+
+void TSceneProperties::getMarkers(int &distance, int &offset,
+                                  int &secDistance) const {
+  distance = m_markerDistance;
+  offset   = m_markerOffset;
+  // TODO: handle drop frame when the fps has decimal part
+  secDistance =
+      (Preferences::instance()->getBoolValue(highlightLineEverySecond))
+          ? (int)std::round(getOutputProperties()->getFrameRate())
+          : -1;
+}
 
 //-----------------------------------------------------------------------------
 
@@ -212,7 +251,26 @@ void TSceneProperties::saveData(TOStream &os) const {
     os.child("fps") << out.getFrameRate();
     os.child("path") << outPath;
     os.child("bpp") << rs.m_bpp;
+    if (rs.m_linearColorSpace) {
+      os.child("linearColorSpace") << (rs.m_linearColorSpace ? 1 : 0);
+      os.child("nonlinearBpp") << out.getNonlinearBpp();
+    }
+    if (rs.m_colorSpaceGamma >= 1. &&
+        !areAlmostEqual(rs.m_colorSpaceGamma, 2.2))
+      os.child("colorSpaceGamma") << rs.m_colorSpaceGamma;
+    // Only save syncColorSetting if not the default value
+    if (i == 1 && !out.isColorSettingsSynced())  // preview
+      os.child("syncColorSettings") << (out.isColorSettingsSynced() ? 1 : 0);
+
     os.child("multimedia") << out.getMultimediaRendering();
+    // Save render keys only if enabled and multimedia set to anything except
+    // None
+    if (out.getMultimediaRendering()) {
+      if (out.isRenderKeysOnly())
+        os.child("renderKeysOnly") << (out.isRenderKeysOnly() ? 1 : 0);
+      if (out.isRenderToFolders())
+        os.child("renderToFolders") << (out.isRenderToFolders() ? 1 : 0);
+    }
     os.child("threadsIndex") << out.getThreadIndex();
     os.child("maxTileSizeIndex") << out.getMaxTileSizeIndex();
     os.child("subcameraPrev") << (out.isSubcameraPreview() ? 1 : 0);
@@ -313,6 +371,16 @@ void TSceneProperties::saveData(TOStream &os) const {
       os.closeChild();
     }
 
+    if (out.formatTemplateFId().getZeroPadding() !=
+            TFrameId().getZeroPadding() ||
+        out.formatTemplateFId().getStartSeqInd() !=
+            TFrameId().getStartSeqInd()) {
+      os.openChild("frameFormat");
+      os.child("padding") << (int)out.formatTemplateFId().getZeroPadding();
+      os.child("sepchar") << QString(out.formatTemplateFId().getStartSeqInd());
+      os.closeChild();
+    }
+
     os.closeChild();  // </output>
   }
   os.closeChild();
@@ -339,6 +407,14 @@ void TSceneProperties::saveData(TOStream &os) const {
     for (auto mark : m_cellMarks) os << mark.name.toStdString() << mark.color;
     os.closeChild();
   }
+  if (!hasDefaultColorFilters()) {
+    os.openChild("colorFilters");
+    for (auto filter : m_colorFilters)
+      os << filter.name.toStdString() << filter.color;
+    os.closeChild();
+  }
+  if (!m_overlayFile.isEmpty())
+    os.child("overlayFile") << m_overlayFile << m_overlayOpacity;
 }
 
 //-----------------------------------------------------------------------------
@@ -353,7 +429,9 @@ void TSceneProperties::loadData(TIStream &is, bool isLoadingProject) {
   int globFrom = -1, globTo = 0, globStep = 1;
   double globFrameRate = -1;
   std::string tagName;
-  *m_outputProp = *m_previewProp = TOutputProperties();
+  *m_outputProp  = TOutputProperties();
+  *m_previewProp = TOutputProperties();
+
   while (is.matchTag(tagName)) {
     if (tagName == "projectPath") {
       TFilePath projectPath;
@@ -504,11 +582,36 @@ void TSceneProperties::loadData(TIStream &is, bool isLoadingProject) {
             } else if (tagName == "bpp") {
               int j;
               is >> j;
-              if (j == 32 || j == 64) renderSettings.m_bpp = j;
+              if (j == 32 || j == 64 || j == 128) renderSettings.m_bpp = j;
+            } else if (tagName == "linearColorSpace") {
+              int linearColorSpace;
+              is >> linearColorSpace;
+              renderSettings.m_linearColorSpace = (linearColorSpace != 0);
+            } else if (tagName == "nonlinearBpp") {
+              int j;
+              is >> j;
+              if (j == 32 || j == 64 || j == 128) out.setNonlinearBpp(j);
+            } else if (tagName == "colorSpaceGamma") {
+              double colorSpaceGamma;
+              is >> colorSpaceGamma;
+              renderSettings.m_colorSpaceGamma = colorSpaceGamma;
+            } else if (tagName == "syncColorSettings") {
+              assert(name == "preview");
+              int syncColorSettings;
+              is >> syncColorSettings;
+              out.syncColorSettings(syncColorSettings != 0);
             } else if (tagName == "multimedia") {
               int j;
               is >> j;
               out.setMultimediaRendering(j);
+            } else if (tagName == "renderKeysOnly") {
+              int renderKeysOnly;
+              is >> renderKeysOnly;
+              out.setRenderKeysOnly(renderKeysOnly == 1);
+            } else if (tagName == "renderToFolders") {
+              int renderToFolders;
+              is >> renderToFolders;
+              out.setRenderToFolders(renderToFolders == 1);
             } else if (tagName == "threadsIndex") {
               int j;
               is >> j;
@@ -660,6 +763,7 @@ void TSceneProperties::loadData(TIStream &is, bool isLoadingProject) {
                       try {
                         enumProp->setValue(enumAppProp->getValue());
                       } catch (TProperty::RangeError &) {
+                      } catch (...) {
                       }
                     } else
                       throw TException();
@@ -680,6 +784,20 @@ void TSceneProperties::loadData(TIStream &is, bool isLoadingProject) {
             } else if (tagName == "clapperboardSettings") {
               assert(out.getBoardSettings());
               out.getBoardSettings()->loadData(is);
+            } else if (tagName == "frameFormat") {
+              while (is.matchTag(tagName)) {
+                if (tagName == "padding") {
+                  int padding;
+                  is >> padding;
+                  out.formatTemplateFId().setZeroPadding(padding);
+                } else if (tagName == "sepchar") {
+                  QString sepChar;
+                  is >> sepChar;
+                  out.formatTemplateFId().setStartSeqInd(sepChar[0].toLatin1());
+                } else
+                  throw TException("unexpected tag: " + tagName);
+                is.closeChild();
+              }  // end while
             } else {
               throw TException("unexpected property tag: " + tagName);
             }
@@ -732,10 +850,28 @@ void TSceneProperties::loadData(TIStream &is, bool isLoadingProject) {
         m_cellMarks.replace(i, {QString::fromStdString(name), color});
         i++;
       }
+    } else if (tagName == "colorFilters") {
+      int i = 0;
+      while (!is.eos()) {
+        TPixel32 color;
+        std::string name;
+        is >> name >> color;
+        m_colorFilters.replace(i, {QString::fromStdString(name), color});
+        i++;
+      }
+    } else if (tagName == "overlayFile") {
+      is >> m_overlayFile >> m_overlayOpacity;
     } else {
       throw TException("unexpected property tag: " + tagName);
     }
     is.closeChild();
+  }
+
+  // in order to support scenes made in previous development version
+  if (m_previewProp->getRenderSettings().m_colorSpaceGamma < 0.) {
+    TRenderSettings rs(m_previewProp->getRenderSettings());
+    rs.m_colorSpaceGamma = m_outputProp->getRenderSettings().m_colorSpaceGamma;
+    m_previewProp->setRenderSettings(rs);
   }
 }
 
@@ -829,10 +965,47 @@ void TSceneProperties::setCellMark(const TSceneProperties::CellMark &mark,
 // check if the cell mark settings are modified
 bool TSceneProperties::hasDefaultCellMarks() const {
   if (m_cellMarks.size() != 12) return false;
-  for (int i = 0; i < 12; i++) {
-    if (m_cellMarks.at(i).name != cellMarkDefault[i].name ||
-        m_cellMarks.at(i).color != cellMarkDefault[i].color)
-      return false;
-  }
-  return true;
+  return m_cellMarks == getDefaultCellMarks();
+}
+
+//-----------------------------------------------------------------------------
+
+QList<TSceneProperties::ColorFilter> TSceneProperties::getColorFilters() const {
+  return m_colorFilters;
+}
+
+//-----------------------------------------------------------------------------
+
+TSceneProperties::ColorFilter TSceneProperties::getColorFilter(
+    int index) const {
+  return m_colorFilters[index];
+}
+
+//-----------------------------------------------------------------------------
+
+TPixel32 TSceneProperties::getColorFilterColor(int index) const {
+  return m_colorFilters[index].color;
+}
+
+//-----------------------------------------------------------------------------
+
+void TSceneProperties::setColorFilter(
+    const TSceneProperties::ColorFilter &filter, int index) {
+  assert(index != 0);  // the first item (None) is not editable
+  if (index == 0) return;
+  m_colorFilters[index] = filter;
+}
+
+//-----------------------------------------------------------------------------
+// check if the cell mark settings are modified
+bool TSceneProperties::hasDefaultColorFilters() const {
+  if (m_colorFilters.size() != 11) return false;
+  return m_colorFilters == getDefaultColorFilters();
+}
+
+//-----------------------------------------------------------------------------
+// templateFId in preview settings is used for "input" file format
+// such as new raster level, captured images by camera capture feature, etc.
+TFrameId &TSceneProperties::formatTemplateFIdForInput() {
+  return m_previewProp->formatTemplateFId();
 }

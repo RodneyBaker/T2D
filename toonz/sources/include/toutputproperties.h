@@ -86,6 +86,8 @@ private:
   int m_offset, m_step;
 
   int m_multimediaRendering;
+  bool m_renderKeysOnly;
+  bool m_renderToFolders;
 
   int m_maxTileSizeIndex;
   int m_threadIndex;
@@ -94,11 +96,22 @@ private:
 
   BoardSettings *m_boardSettings;
 
+  // templateFId in preview settings is used for "input" file format
+  // such as new raster level, captured images by camera capture feature, etc.
+  TFrameId m_formatTemplateFId;
+
+  // if true, channel width, linear color space and color space gamma will be
+  // shared between output and preview settings.
+  bool m_syncColorSettings;
+  // for restoring bpp when setting the color space back to nonlinear
+  int m_nonlinearBpp;
+
 public:
   /*!
 Constructs TOutputProperties with default value.
 */
   TOutputProperties();
+
   /*!
 Destroys the TOutputProperties object.
 */
@@ -200,6 +213,14 @@ Insert in \b v all extension in format properties of output settings.
   void setMultimediaRendering(int mode) { m_multimediaRendering = mode; }
   int getMultimediaRendering() const { return m_multimediaRendering; }
 
+  void setRenderKeysOnly(bool keysOnly) { m_renderKeysOnly = keysOnly; }
+  bool isRenderKeysOnly() const { return m_renderKeysOnly; }
+
+  void setRenderToFolders(bool renderToFolders) {
+    m_renderToFolders = renderToFolders;
+  }
+  bool isRenderToFolders() const { return m_renderToFolders; }
+
   /*! Sets the granularity of raster allocations for rendering processes.
 The specified value refers to an index associated with const values,
 spanning from 0 (no bound, ie giant rasters are allowed) to 3 (highly
@@ -221,6 +242,13 @@ machine's CPU).
   void setSubcameraPreview(bool enabled) { m_subcameraPreview = enabled; }
 
   BoardSettings *getBoardSettings() const { return m_boardSettings; }
+
+  TFrameId &formatTemplateFId() { return m_formatTemplateFId; }
+
+  bool isColorSettingsSynced() { return m_syncColorSettings; }
+  void syncColorSettings(bool sync) { m_syncColorSettings = sync; }
+  int getNonlinearBpp() { return m_nonlinearBpp; }
+  void setNonlinearBpp(int bpp) { m_nonlinearBpp = bpp; }
 };
 
 //--------------------------------------------

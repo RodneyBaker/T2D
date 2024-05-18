@@ -29,6 +29,9 @@
 #include "toonz/txshpalettecolumn.h"
 #include "toonz/txshpalettelevel.h"
 #include "toonz/toonzfolders.h"
+#include "toonz/tcolumnfx.h"
+
+#include "toonzqt/dvdialog.h"
 
 // TnzCore includes
 #include "timagecache.h"
@@ -277,7 +280,14 @@ static void deleteAllUntitledScenes() {
 // ToonzScene
 
 ToonzScene::ToonzScene()
-    : m_contentHistory(0), m_isUntitled(true), m_isLoading(false) {
+    : m_contentHistory(0)
+    , m_isUntitled(true)
+    , m_isLoading(false)
+    , m_overlayLevel(0)
+    , m_overlayLevelColumn(0)
+    , m_overlayFx(0)
+    , m_overlayOpacity(255)
+    , m_overlayLoaded(false) {
   m_childStack = new ChildStack(this);
   m_properties = new TSceneProperties();
   m_levelSet   = new TLevelSet();
@@ -432,6 +442,11 @@ void ToonzScene::loadResources(bool withProgressDialog) {
     TXshLevel *level = m_levelSet->getLevel(i);
     try {
       level->load();
+    } catch (TException &e) {
+      QString msg;
+      msg = QObject::tr("It is not possible to load file %1.")
+                .arg(level->getPath().getQString());
+      DVGui::error(msg);
     } catch (...) {
     }
   }
@@ -654,6 +669,35 @@ void ToonzScene::save(const TFilePath &fp, TXsheet *subxsh) {
       subxsh->getUsedLevels(saveSet);
       m_levelSet->setSaveSet(saveSet);
     }
+
+    // Scene path changed (Untitled -> final  or Save As changed scene name when
+    // scene subfolders are used)
+    if (oldScenePath != newScenePath && (wasUntitled ||
+                                         TProjectManager::instance()
+                                             ->getCurrentProject()
+                                             ->getUseSubScenePath())) {
+      std::string oldSceneName = oldScenePath.getName();
+      std::string newSceneName = fp.getName();
+      for (int i = 0; i < m_levelSet->getLevelCount(); i++) {
+        TXshLevel *level = m_levelSet->getLevel(i);
+        if (!level) continue;
+        TFilePath levelFp = level->getPath();
+        if (levelFp.isEmpty()) continue;
+        if (levelFp.getParentDir().getName() != oldSceneName) continue;
+
+        levelFp = levelFp.getParentDir().getParentDir() +
+                  TFilePath(newSceneName) + levelFp.withoutParentDir();
+
+        if (level->getPaletteLevel())
+          level->getPaletteLevel()->setPath(levelFp);
+        else if (level->getSoundLevel())
+          level->getSoundLevel()->setPath(levelFp);
+        else if (level->getSimpleLevel()) {
+          level->getSimpleLevel()->setPath(levelFp, true);
+        }
+      }
+    }	
+
     os.openChild("levelSet");
     m_levelSet->saveData(os);
     os.closeChild();
@@ -804,7 +848,7 @@ void ToonzScene::renderFrame(const TRaster32P &ras, int row, const TXsheet *xsh,
 #ifdef MACOSX
     std::unique_ptr<QOpenGLFramebufferObject> fb(
         new QOpenGLFramebufferObject(ras->getLx(), ras->getLy()));
-
+    fb->setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
     fb->bind();
     assert(glGetError() == GL_NO_ERROR);
 
@@ -1002,6 +1046,7 @@ static LevelType getLevelType(const TFilePath &fp) {
       ret.m_ltype = OVL_XSHLEVEL;
     break;
 
+  case TFileType::VECTOR_IMAGE:
   case TFileType::VECTOR_LEVEL:
     if (format == "svg") {
       ret.m_vectorNotPli = true;
@@ -1112,6 +1157,7 @@ bool ToonzScene::convertLevelIfNeeded(TFilePath &levelPath) {
           TSystem::removeFileOrLevel(levelPath);
         throw e;
       }
+    } catch (...) {
     }
     lw = TLevelWriterP();  // bisogna liberare prima lw di outLevel,
     // altrimenti la paletta che lw vuole scrivere e' gia' stata
@@ -1156,6 +1202,9 @@ TXshLevel *ToonzScene::loadLevel(const TFilePath &actualPath,
     {
       throw TException(msg);
     }  // from load, and rethrowing... curious!
+    catch (...) {
+      throw;
+    }
 
     m_levelSet->insertLevel(sl);
     return sl;
@@ -1176,6 +1225,8 @@ TXshLevel *ToonzScene::loadLevel(const TFilePath &actualPath,
         xl->load();
     } catch (const std::string &msg) {
       throw TException(msg);
+    } catch (...) {
+      throw;
     }
 
     if (ltype.m_oldLevelFlag)
@@ -1184,6 +1235,8 @@ TXshLevel *ToonzScene::loadLevel(const TFilePath &actualPath,
     LevelProperties *lp = xl->getProperties();
     assert(lp);
 
+    bool formatSpecified = false;
+
     if (levelOptions)
       lp->options() = *levelOptions;
     else {
@@ -1191,9 +1244,10 @@ TXshLevel *ToonzScene::loadLevel(const TFilePath &actualPath,
       int formatIdx            = prefs.matchLevelFormat(
           levelPath);  // Should I use actualPath here? It's mostly
                                   // irrelevant anyway, it's for old tzp/tzu...
-      if (formatIdx >= 0)
-        lp->options() = prefs.levelFormat(formatIdx).m_options;
-      else {
+      if (formatIdx >= 0) {
+        lp->options()   = prefs.levelFormat(formatIdx).m_options;
+        formatSpecified = true;
+      } else {
         // Default subsampling values are assigned from scene properties
         if (xl->getType() == OVL_XSHLEVEL)
           lp->setSubsampling(getProperties()->getFullcolorSubsampling());
@@ -1219,6 +1273,17 @@ TXshLevel *ToonzScene::loadLevel(const TFilePath &actualPath,
         // Has dpi alright - assign it to custom dpi, too
         lp->setDpi(imageDpi);
       }
+    }
+
+    // for EXR level, set the color space gamma to the same value as the output
+    // settings. skip if the loading gamma is specified in the preferences.
+    if (xl->getType() == OVL_XSHLEVEL && levelPath.getType() == "exr" &&
+        !formatSpecified) {
+      double gamma = getProperties()
+                         ->getOutputProperties()
+                         ->getRenderSettings()
+                         .m_colorSpaceGamma;
+      lp->setColorSpaceGamma(gamma);
     }
 
     m_levelSet->insertLevel(xl);
@@ -1376,20 +1441,19 @@ TFilePath ToonzScene::getDefaultLevelPath(int levelType,
   TProject *project = getProject();
   assert(project);
   TFilePath levelPath;
-  QString scanLevelType;
   switch (levelType) {
   case TZI_XSHLEVEL:
-    scanLevelType = Preferences::instance()->getScanLevelType();
-    levelPath     = TFilePath(levelName + L".." + scanLevelType.toStdWString());
-    break;
+  case OVL_XSHLEVEL: {
+    QString rasterLevelType = Preferences::instance()->getDefRasterFormat();
+    TFrameId tmplFId        = getProperties()->formatTemplateFIdForInput();
+    levelPath = TFilePath(levelName + L"." + rasterLevelType.toStdWString())
+                    .withFrame(tmplFId);
+  } break;
   case PLI_XSHLEVEL:
     levelPath = TFilePath(levelName).withType("pli");
     break;
   case TZP_XSHLEVEL:
     levelPath = TFilePath(levelName).withType("tlv");
-    break;
-  case OVL_XSHLEVEL:
-    levelPath = TFilePath(levelName + L"..tif");
     break;
   default:
     levelPath = TFilePath(levelName + L"..png");
@@ -1485,8 +1549,12 @@ TCamera *ToonzScene::getCurrentPreviewCamera() {
 //-----------------------------------------------------------------------------
 
 TContentHistory *ToonzScene::getContentHistory(bool createIfNeeded) {
-  if (!m_contentHistory && createIfNeeded)
-    m_contentHistory = new TContentHistory(false);
+  if (!m_contentHistory && createIfNeeded) {
+    QString altUsername =
+        Preferences::instance()->getStringValue(recordAsUsername);
+    bool recordEdit  = Preferences::instance()->getBoolValue(recordFileHistory);
+    m_contentHistory = new TContentHistory(false, altUsername, recordEdit);
+  }
   return m_contentHistory;
 }
 
@@ -1604,4 +1672,116 @@ std::wstring ToonzScene::getLevelNameWithoutSceneNumber(std::wstring orgName) {
 
   return orgNameQstr.right(orgNameQstr.size() - orgNameQstr.indexOf("_") - 1)
       .toStdWString();
+}
+
+//-----------------------------------------------------------------------------
+
+void ToonzScene::loadOverlayFile(TFilePath overlayFP) {
+  TFilePath decodedFp = decodeFilePath(overlayFP);
+
+  if (m_overlayLevel) {
+    TFilePath currentFP = decodeFilePath(m_overlayLevel->getPath());
+    if (decodedFp == currentFP) return;
+    m_overlayFx->release();
+    m_overlayFx = 0;
+
+    m_overlayLevelColumn->release();
+    m_overlayLevelColumn = 0;
+
+    m_overlayLevel->release();
+    m_overlayLevel = 0;
+  }
+
+  m_overlayLoaded = false;
+
+  if (decodedFp.isEmpty() || !TFileStatus(decodedFp).doesExist()) return;
+
+  m_overlayLevel = loadLevel(decodedFp, 0, L"__Scene Overlay__");
+  if (!m_overlayLevel) return;
+
+  // Remove it from the level set but keep in memory
+  m_levelSet->removeLevel(m_overlayLevel, false);
+
+  // Construct the OverlayFX for later use
+  m_overlayLevelColumn = new TXshLevelColumn;
+  m_overlayLevelColumn->addRef();
+  m_overlayLevelColumn->setCamstandVisible(true);
+  m_overlayLevelColumn->setOpacity(m_overlayOpacity);
+
+  TXshCell cell(m_overlayLevel,
+                m_overlayLevel->getSimpleLevel()->getFirstFid());
+  m_overlayLevelColumn->setCell(0, cell);
+
+  m_overlayFx = new TLevelColumnFx;
+  m_overlayFx->addRef();
+  m_overlayFx->setColumn(m_overlayLevelColumn);
+
+  m_overlayLoaded = true;
+}
+
+//-----------------------------------------------------------------------------
+
+TXshLevel *ToonzScene::getOverlayLevel() {
+  if (!m_overlayLoaded) loadOverlayFile(m_properties->getOverlayFile());
+  return m_overlayLevel;
+}
+
+//-----------------------------------------------------------------------------
+
+void ToonzScene::setOverlayOpacity(int opacity) {
+  m_overlayOpacity = opacity;
+
+  if (m_overlayLevelColumn) m_overlayLevelColumn->setOpacity(m_overlayOpacity);
+}
+
+//-----------------------------------------------------------------------------
+
+TLevelColumnFx *ToonzScene::getOverlayFx(int row) {
+  if (!m_overlayLoaded) loadOverlayFile(m_properties->getOverlayFile());
+
+  // When not in implicit mode, create Cells for the requested row
+  if (!Preferences::instance()->isImplicitHoldEnabled() && m_overlayFx &&
+      m_overlayLevelColumn->getCell(row).isEmpty()) {
+    TXshCell cell = m_overlayLevelColumn->getCell(0);
+    m_overlayLevelColumn->setCell(row, cell);
+  }
+  return m_overlayFx;
+}
+
+//-----------------------------------------------------------------------------
+
+int ToonzScene::getPreviewFrameCount() {
+
+  // If play range markers are set, use that
+  int r0, r1, step;
+  getProperties()->getPreviewProperties()->getRange(r0, r1, step);
+  if (r0 <= r1) return r1;
+
+  TXsheet *xsh = getXsheet();
+  if (!xsh) return 0;
+
+  // Use frame count of the xsheet
+  int frameCount = xsh->getFrameCount();
+
+  // For implicit holds, use last Stop Frame marker or last Key frame marker as
+  // frame count
+  if (Preferences::instance()->isImplicitHoldEnabled()) {
+    for (int c = 0; c < xsh->getColumnCount(); c++) {
+      r1            = xsh->getMaxFrame(c);
+      TXshCell cell = xsh->getCell(r1, c);
+      // If last frame is a stop frame, don't check for keyframe in the same
+      // column in case of overshoot
+      if (cell.getFrameId().isStopFrame()) {
+        frameCount = std::max(frameCount, (r1 + 1));
+        continue;
+      }
+
+      TStageObject *pegbar = xsh->getStageObject(TStageObjectId::ColumnId(c));
+      if (!pegbar) continue;
+      if (!pegbar->getKeyframeRange(r0, r1)) continue;
+      frameCount = std::max(frameCount, (r1 + 1));
+    }
+  }
+
+  return frameCount;
 }

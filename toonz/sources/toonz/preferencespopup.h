@@ -14,9 +14,15 @@
 // TnzLib includes
 #include "toonz/preferences.h"
 
+#include "viewereventlogpopup.h"
+
 // Qt includes
 #include <QComboBox>
 #include <QFontComboBox>
+#include <QTextEdit>
+#include <QOpenGLWidget>
+#include <QSurfaceFormat>
+#include <QOpenGLFunctions>
 
 //==============================================================
 
@@ -53,7 +59,7 @@ class PreferencesPopup;
 
 typedef void (PreferencesPopup::*OnEditedPopupFunc)();
 
-class PreferencesPopup final : public QDialog {
+class PreferencesPopup final : public DVGui::Dialog {
   Q_OBJECT
 
   QMap<QWidget*, PreferencesItemId> m_controlIdMap;
@@ -65,10 +71,13 @@ public:
 
 private:
   class FormatProperties;
+  class AdditionalStyleEdit;
+  class Display30bitChecker;
 
 private:
   Preferences* m_pref;
   FormatProperties* m_formatProperties;
+  AdditionalStyleEdit* m_additionalStyleEdit;
 
   // DVGui::CheckBox *m_projectRootDocuments, *m_projectRootDesktop,
   //    *m_projectRootCustom;
@@ -89,20 +98,25 @@ private:
   QCheckBox* m_importLibraryCB;
   QCheckBox* m_importToonzfarmCB;
 
+  ViewerEventLogPopup *m_viewerEventLogPopup;
+
 private:
   void rebuildFormatsList();
   QList<ComboBoxItem> buildFontStyleList() const;
 
   QWidget* createUI(
       PreferencesItemId id,
-      const QList<ComboBoxItem>& comboItems = QList<ComboBoxItem>());
+      const QList<ComboBoxItem>& comboItems = QList<ComboBoxItem>(),
+      bool isLineEdit = false, bool useMinMaxSlider = false);
   QGridLayout* insertGroupBoxUI(PreferencesItemId id, QGridLayout* layout);
   void insertUI(PreferencesItemId id, QGridLayout* layout,
-                const QList<ComboBoxItem>& comboItems = QList<ComboBoxItem>());
+                const QList<ComboBoxItem>& comboItems = QList<ComboBoxItem>(),
+                bool isLineEdit = false, bool useMinMaxSlider = false);
   void insertDualUIs(
       PreferencesItemId leftId, PreferencesItemId rightId, QGridLayout* layout,
       const QList<ComboBoxItem>& leftComboItems  = QList<ComboBoxItem>(),
-      const QList<ComboBoxItem>& rightComboItems = QList<ComboBoxItem>());
+      const QList<ComboBoxItem>& rightComboItems = QList<ComboBoxItem>(),
+      bool leftMinMaxSlider = false, bool rightMinMaxSlider = false);
   void insertFootNote(QGridLayout* layout);
   QString getUIString(PreferencesItemId id);
   QList<ComboBoxItem> getComboItemList(PreferencesItemId id) const;
@@ -128,17 +142,22 @@ private:
 
   //--- callbacks ---
   // General
+  void onDefaultProjectPathChanged();
   void onAutoSaveChanged();
   void onAutoSaveOptionsChanged();
   void onWatchFileSystemClicked();
   void onPathAliasPriorityChanged();
+  void onShowAdvancedOptionsChanged();
   // Interface
   void onStyleSheetTypeChanged();
   // void onIconThemeChanged();
   void onPixelsOnlyChanged();
+  void beforeUnitChanged();
   void onUnitChanged();
   void beforeRoomChoiceChanged();
   void onColorCalibrationChanged();
+  // Saving
+  void onRecordAsUserChanged();
   // Drawing
   void onDefLevelTypeChanged();
   void onUseNumpadForSwitchingStylesClicked();
@@ -147,6 +166,8 @@ private:
   // Xsheet
   void onShowKeyframesOnCellAreaChanged();
   void onShowQuickToolbarClicked();
+  void onShowXsheetBreadcrumbsClicked();
+  void onShowDragBarsChanged();
   // Animation
   void onModifyExpressionOnMovingReferencesChanged();
   // Preview
@@ -157,6 +178,7 @@ private:
   void onOnionColorChanged();
   // Colors
   void onTranspCheckDataChanged();
+  void onChessboardChanged();
   void onUseThemeViewerColorsChanged();
   // Version Control
   void onSVNEnabledChanged();
@@ -166,13 +188,20 @@ private:
 private slots:
   void onChange();
   void onColorFieldChanged(const TPixel32&, bool);
+  void onSliderChanged(bool);
 
   void onAutoSaveExternallyChanged();
   void onAutoSavePeriodExternallyChanged();
   // void onProjectRootChanged();
+
+  void onEditAdditionalStyleSheet();
+  void onAdditionalStyleSheetEdited();
   void onPixelUnitExternallySelected(bool on);
   void onInterfaceFontChanged(const QString& text);
   void onLutPathChanged();
+  void onCheck30bitDisplay();
+  void onFrameFormatButton();
+  void onOpenViewerEventLog();
 
   void onAddLevelFormat();
   void onRemoveLevelFormat();
@@ -201,7 +230,7 @@ private:
 
   DVGui::LineEdit *m_name, *m_regExp;
 
-  DVGui::DoubleLineEdit* m_dpi;
+  DVGui::DoubleLineEdit *m_dpi, *m_colorSpaceGamma;
 
   DVGui::IntLineEdit *m_priority, *m_subsampling, *m_antialias;
 
@@ -210,6 +239,61 @@ private:
 private slots:
 
   void updateEnabledStatus();
+};
+
+//**********************************************************************************
+//   PreferencesPopup::Display30bitCheckerView  definition
+//**********************************************************************************
+
+class PreferencesPopup::Display30bitChecker final : public DVGui::Dialog {
+  Q_OBJECT
+
+  QSurfaceFormat m_currentDefaultFormat;
+
+private:
+  class GLView;
+
+public:
+  Display30bitChecker(PreferencesPopup* parent);
+  ~Display30bitChecker();
+};
+
+class PreferencesPopup::Display30bitChecker::GLView final
+    : public QOpenGLWidget,
+      protected QOpenGLFunctions {
+  Q_OBJECT
+  bool m_is30bit;
+
+public:
+  GLView(QWidget* parent, bool is30bit);
+
+protected:
+  void initializeGL() override;
+  void resizeGL(int width, int height) override;
+  void paintGL() override;
+};
+
+//**********************************************************************************
+//   PreferencesPopup::AdditionalStyleEdit  definition
+//**********************************************************************************
+
+class PreferencesPopup::AdditionalStyleEdit final : public DVGui::Dialog {
+  Q_OBJECT
+
+public:
+  AdditionalStyleEdit(PreferencesPopup* parent);
+
+private:
+  QTextEdit* m_edit;
+
+protected:
+  void showEvent(QShowEvent* e) override;
+
+private slots:
+  void onOK();
+  void onApply();
+signals:
+  void additionalSheetEdited();
 };
 
 #endif  // PREFERENCESPOPUP_H

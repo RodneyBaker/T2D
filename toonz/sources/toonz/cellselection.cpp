@@ -53,9 +53,14 @@
 #include "toonz/levelset.h"
 #include "toonz/tstageobjecttree.h"
 #include "toonz/stage.h"
+#include "toonz/txshzeraryfxlevel.h"
+#include "toonz/txshpalettelevel.h"
 #include "vectorizerpopup.h"
 #include "tools/rasterselection.h"
 #include "tools/strokeselection.h"
+#include "toonz/sceneproperties.h"
+#include "toonz/tstageobjectcmd.h"
+#include "toutputproperties.h"
 
 // TnzCore includes
 #include "timagecache.h"
@@ -109,12 +114,14 @@ void copyCellsWithoutUndo(int r0, int c0, int r1, int c1) {
 
 bool pasteCellsWithoutUndo(const TCellData *cellData, int &r0, int &c0, int &r1,
                            int &c1, bool insert = true,
-                           bool doZeraryClone = true) {
+                           bool doZeraryClone  = true,
+                           bool skipEmptyCells = true) {
   TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
   if (!cellData) return false;
   if (r0 < 0 || c0 < 0) return false;
 
-  bool ret = cellData->getCells(xsh, r0, c0, r1, c1, insert, doZeraryClone);
+  bool ret = cellData->getCells(xsh, r0, c0, r1, c1, insert, doZeraryClone,
+                                skipEmptyCells);
   if (!ret) return false;
 
   return true;
@@ -122,13 +129,17 @@ bool pasteCellsWithoutUndo(const TCellData *cellData, int &r0, int &c0, int &r1,
 
 //-----------------------------------------------------------------------------
 
-void deleteCellsWithoutUndo(int &r0, int &c0, int &r1, int &c1) {
+void deleteCellsWithoutUndo(int &r0, int &c0, int &r1, int &c1, bool doShift) {
   try {
     TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
     int c;
     for (c = c0; c <= c1; c++) {
       if (xsh->isColumnEmpty(c)) continue;
-      xsh->clearCells(r0, c, r1 - r0 + 1);
+
+      if (doShift)
+        xsh->removeCells(r0, c, r1 - r0 + 1);
+      else
+        xsh->clearCells(r0, c, r1 - r0 + 1);
       // when the column becomes empty after deletion,
       // ColumnCmd::DeleteColumn() will take care of column related operations
       // like disconnecting from fx nodes etc.
@@ -288,8 +299,11 @@ class DeleteCellsUndo final : public TUndo {
   TCellSelection *m_selection;
   QMimeData *m_data;
 
+  bool m_doShift;  // whether clear cell or remove and shift cells up
+
 public:
-  DeleteCellsUndo(TCellSelection *selection, QMimeData *data) : m_data(data) {
+  DeleteCellsUndo(TCellSelection *selection, QMimeData *data, bool doShift)
+      : m_data(data), m_doShift(doShift) {
     int r0, c0, r1, c1;
     selection->getSelectedCells(r0, c0, r1, c1);
     if (c0 < 0) c0 = 0;  // Ignore camera column
@@ -306,20 +320,24 @@ public:
     m_selection->getSelectedCells(r0, c0, r1, c1);
 
     const TCellData *cellData = dynamic_cast<const TCellData *>(m_data);
-    pasteCellsWithoutUndo(cellData, r0, c0, r1, c1, false, false);
+    // insert cells if the delete operation had shifted cells up
+    pasteCellsWithoutUndo(cellData, r0, c0, r1, c1, m_doShift, false, !m_doShift);
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   }
 
   void redo() const override {
     int r0, c0, r1, c1;
     m_selection->getSelectedCells(r0, c0, r1, c1);
-    deleteCellsWithoutUndo(r0, c0, r1, c1);
+    deleteCellsWithoutUndo(r0, c0, r1, c1, m_doShift);
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   }
 
   int getSize() const override { return sizeof(*this); }
 
-  QString getHistoryString() override { return QObject::tr("Delete Cells"); }
+  QString getHistoryString() override {
+    return m_doShift ? QObject::tr("Remove Cells")
+                     : QObject::tr("Delete Cells");
+  }
   int getHistoryType() override { return HistoryType::Xsheet; }
 };
 
@@ -358,7 +376,7 @@ public:
     int r0, c0, r1, c1;
     m_selection->getSelectedCells(r0, c0, r1, c1);
 
-    pasteCellsWithoutUndo(m_data, r0, c0, r1, c1, true);
+    pasteCellsWithoutUndo(m_data, r0, c0, r1, c1, true, true, false);
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   }
 
@@ -429,6 +447,9 @@ class RenumberUndo::RedoNotifier final : public TUndo {
   }
 
   int getSize() const override { return sizeof(*this); }
+
+  QString getHistoryString() override { return QObject::tr("Autorenumber"); }
+  int getHistoryType() override { return HistoryType::Xsheet; }
 };
 
 class RenumberUndo::UndoNotifier final : public TUndo {
@@ -439,6 +460,9 @@ class RenumberUndo::UndoNotifier final : public TUndo {
   }
 
   int getSize() const override { return sizeof(*this); }
+
+  QString getHistoryString() override { return QObject::tr("Autorenumber"); }
+  int getHistoryType() override { return HistoryType::Xsheet; }
 };
 
 //=============================================================================
@@ -481,10 +505,7 @@ bool pasteStrokesInCellWithoutUndo(
   } else {
     vi = cell.getImage(true);
     sl = cell.getSimpleLevel();
-    if (sl->getType() == OVL_XSHLEVEL &&
-        (sl->getPath().getType() == "psd" || sl->getPath().getType() == "gif" ||
-         sl->getPath().getType() == "mp4" || sl->getPath().getType() == "webm" ||
-         sl->getPath().getType() == "mov"))
+    if (sl->getType() == OVL_XSHLEVEL && sl->getPath().isUneditable())
       return false;
     fid = cell.getFrameId();
     if (!vi) {
@@ -623,7 +644,9 @@ bool pasteRasterImageInCellWithoutUndo(int row, int col,
   TXshSimpleLevel *sl = 0;
   TFrameId fid(1);
   ToonzScene *scene = app->getCurrentScene()->getScene();
-  TCamera *camera   = scene->getCurrentCamera();
+  TFrameId tmplFId  = scene->getProperties()->formatTemplateFIdForInput();
+
+  TCamera *camera = scene->getCurrentCamera();
   if (cell.isEmpty()) {
     if (row > 0) cell = xsh->getCell(row - 1, col);
     sl                = cell.getSimpleLevel();
@@ -657,6 +680,10 @@ bool pasteRasterImageInCellWithoutUndo(int row, int col,
         img = sl->createEmptyFrame();
       } else
         return false;
+
+      // modify frameId to be with the same frame format as existing frames
+      sl->formatFId(fid, tmplFId);
+
       sl->setFrame(fid, img);
       app->getCurrentLevel()->setLevel(sl);
       app->getCurrentLevel()->notifyLevelChange();
@@ -669,6 +696,10 @@ bool pasteRasterImageInCellWithoutUndo(int row, int col,
       std::vector<TFrameId> fids;
       sl->getFids(fids);
       if (fids.size() > 0) fid = TFrameId(fids.back().getNumber() + 1);
+
+      // modify frameId to be with the same frame format as existing frames
+      sl->formatFId(fid, tmplFId);
+
       sl->setFrame(fid, img);
     }
     xsh->setCell(row, col, TXshCell(sl, fid));
@@ -1264,6 +1295,47 @@ public:
 
 //-----------------------------------------------------------------------------
 
+class StopFrameHoldUndo final : public TUndo {
+  TXshLevel *m_level;
+  TXshCell m_oldCell;
+  int m_row;
+  int m_col;
+
+public:
+  StopFrameHoldUndo(TXshLevel *level, int row, int col, TXshCell oldCell)
+      : m_level(level), m_row(row), m_col(col), m_oldCell(oldCell) {}
+
+  ~StopFrameHoldUndo() {}
+
+  void undo() const override {
+    TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+
+    xsh->clearCells(m_row, m_col, 1);
+    xsh->setCell(m_row, m_col, m_oldCell);
+
+    TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+  }
+
+  void redo() const override {
+    TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+
+    xsh->setCell(m_row, m_col, TXshCell(m_level, TFrameId::STOP_FRAME));
+
+    TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+  }
+
+  int getSize() const override { return sizeof(*this); }
+
+  QString getHistoryString() override {
+    return QObject::tr("Set Stop Frame Hold");
+  }
+
+  int getHistoryType() override { return HistoryType::Xsheet; }
+  //-----------------------------------------------------------------------------
+};
+
+//-----------------------------------------------------------------------------
+
 class DuplicateDrawingUndo final : public ToolUtils::TToolUndo {
   TFrameId origFrameId;
   TFrameId dupFrameId;
@@ -1417,7 +1489,124 @@ void getLevelSetFromData(const TCellData *cellData,
       levelSet.insert(tmpLevel.getPointer());
     }
   }
-}
+};
+
+//=============================================================================
+// inbetweenWithoutUndo
+//-----------------------------------------------------------------------------
+
+void inbetweenWithoutUndo(TXshSimpleLevel *sl, std::vector<TFrameId> fids,
+                          TInbetween::TweenAlgorithm algorithm) {
+  if (!sl || fids.empty()) return;
+
+  int m         = fids.size();
+  TFrameId fid0 = fids[0];
+  TFrameId fid1 = fids[m - 1];
+
+  TVectorImageP img0 = sl->getFrame(fid0, false);
+  TVectorImageP img1 = sl->getFrame(fid1, false);
+  if (!img0 || !img1) return;
+
+  HookSet *hooks = sl->getHookSet();
+
+  TInbetween inbetween(img0, img1);
+
+  for (int i = 1; i < m - 1; ++i) {
+    double t = m > 1 ? (double)i / (double)(m - 1) : 0.5;
+    t        = TInbetween::interpolation(t, algorithm);
+
+    TVectorImageP vi = inbetween.tween(t);
+    sl->setFrame(fids[i], vi);
+    IconGenerator::instance()->invalidate(sl, fids[i]);
+
+    if (hooks) {
+      for (int j = 0; j < hooks->getHookCount(); j++) {
+        Hook *hook = hooks->getHook(j);
+        if (!hook || hook->isEmpty()) continue;
+        TPointD firstPos = hook->getAPos(fid0);
+        TPointD lastPos  = hook->getAPos(fid1);
+        TPointD iPos     = firstPos * (1 - t) + lastPos * t;
+        hook->setAPos(fids[i], iPos);
+
+        firstPos = hook->getBPos(fid0);
+        lastPos  = hook->getBPos(fid1);
+        iPos     = firstPos * (1 - t) + lastPos * t;
+        hook->setBPos(fids[i], iPos);
+      }
+    }
+  }
+};
+
+//=============================================================================
+// UndoInbetween
+//-----------------------------------------------------------------------------
+
+class UndoInbetween final : public TUndo {
+  TXshSimpleLevelP m_level;
+  HookSet m_oldHooks;
+  std::vector<TFrameId> m_fids;
+  std::vector<TVectorImageP> m_images;
+  TInbetween::TweenAlgorithm m_interpolation;
+
+public:
+  UndoInbetween(TXshSimpleLevel *xl, std::vector<TFrameId> fids,
+                TInbetween::TweenAlgorithm interpolation)
+      : m_level(xl), m_fids(fids), m_interpolation(interpolation) {
+    std::vector<TFrameId>::iterator it = fids.begin();
+    for (; it != fids.end(); ++it)
+      m_images.push_back(m_level->getFrame(*it, false));
+
+    HookSet *hookSet = m_level->getHookSet();
+    m_oldHooks       = *hookSet;
+  }
+
+  void undo() const override {
+    UINT levelSize = m_fids.size() - 1;
+    for (UINT count = 1; count != levelSize; count++) {
+      TVectorImageP vImage = m_images[count];
+      m_level->setFrame(m_fids[count], vImage);
+      IconGenerator::instance()->invalidate(m_level.getPointer(),
+                                            m_fids[count]);
+    }
+
+    HookSet *hookSet = m_level->getHookSet();
+    if (hookSet) *hookSet = m_oldHooks;
+
+    TApp::instance()->getCurrentLevel()->notifyLevelChange();
+  }
+
+  void redo() const override {
+    TFrameId fid0 = *m_fids.begin();
+    TFrameId fid1 = *(--m_fids.end());
+    inbetweenWithoutUndo(m_level.getPointer(), m_fids, m_interpolation);
+  }
+
+  int getSize() const override {
+    assert(!m_images.empty());
+    return m_images.size() * m_images.front()->getStrokeCount() * 100;
+  }
+
+  QString getHistoryString() override {
+    QString str = QObject::tr("Inbetween  : Level %1,  ")
+                      .arg(QString::fromStdWString(m_level->getName()));
+    switch (m_interpolation) {
+    case FilmstripCmd::II_Linear:
+      str += QString("Linear Interpolation");
+      break;
+    case FilmstripCmd::II_EaseIn:
+      str += QString("Ease In Interpolation");
+      break;
+    case FilmstripCmd::II_EaseOut:
+      str += QString("Ease Out Interpolation");
+      break;
+    case FilmstripCmd::II_EaseInOut:
+      str += QString("Ease In-Out Interpolation");
+      break;
+    }
+    return str;
+  }
+  int getHistoryType() override { return HistoryType::FilmStrip; }
+};
 
 }  // namespace
 //-----------------------------------------------------------------------------
@@ -1444,7 +1633,9 @@ int TCellSelection::Range::getColCount() const { return m_c1 - m_c0 + 1; }
 // TCellSelection
 //-----------------------------------------------------------------------------
 
-TCellSelection::TCellSelection() : m_timeStretchPopup(0), m_reframePopup(0) {}
+TCellSelection::TCellSelection() : m_timeStretchPopup(0), m_reframePopup(0) {
+  setAlternativeCommandNames();
+}
 
 //-----------------------------------------------------------------------------
 
@@ -1482,15 +1673,20 @@ void TCellSelection::enableCommands() {
   enableCommand(this, MI_ShiftKeyframesUp, &TCellSelection::shiftKeyframesUp);
 
   enableCommand(this, MI_Copy, &TCellSelection::copyCells);
-  enableCommand(this, MI_Paste, &TCellSelection::pasteCells);
+  enableCommand(this, MI_Paste,
+                &TCellSelection::doPaste);  // choose pasting behavior by
+                                            // preference option
 
   if (dynamic_cast<const TKeyframeData *>(
           QApplication::clipboard()->mimeData()))
     enableCommand(this, MI_PasteInto, &TCellSelection::pasteKeyframesInto);
 
   enableCommand(this, MI_Cut, &TCellSelection::cutCells);
-  enableCommand(this, MI_Clear, &TCellSelection::deleteCells);
+  enableCommand(this, MI_Clear, &TCellSelection::clearCells);
   enableCommand(this, MI_Insert, &TCellSelection::insertCells);
+
+  enableCommand(this, MI_ClearFrames, &TCellSelection::clearFrames);
+  enableCommand(this, MI_RemoveCells, &TCellSelection::removeCells);
 
   enableCommand(this, MI_PasteInto, &TCellSelection::overWritePasteCells);
 
@@ -1507,11 +1703,31 @@ void TCellSelection::enableCommands() {
                 &TCellSelection::reframeWithEmptyInbetweens);
 
   enableCommand(this, MI_PasteNumbers, &TCellSelection::overwritePasteNumbers);
+  enableCommand(this, MI_PasteCellContent, &TCellSelection::pasteCells);
   enableCommand(this, MI_CreateBlankDrawing,
                 &TCellSelection::createBlankDrawings);
   enableCommand(this, MI_Duplicate, &TCellSelection::duplicateFrames);
   enableCommand(this, MI_PasteDuplicate, &TCellSelection::pasteDuplicateCells);
+  enableCommand(this, MI_StopFrameHold, &TCellSelection::stopFrameHold);
+
+  enableCommand(this, MI_InbetweenLinear, &TCellSelection::inbetweenLinear);
+  enableCommand(this, MI_InbetweenEaseIn, &TCellSelection::inbetweenEaseIn);
+  enableCommand(this, MI_InbetweenEaseOut, &TCellSelection::inbetweenEaseOut);
+  enableCommand(this, MI_InbetweenEaseInOut, &TCellSelection::inbetweenEaseInOut);
 }
+
+//-----------------------------------------------------------------------------
+
+void TCellSelection::setAlternativeCommandNames() {
+  m_alternativeCommandNames = {
+      {MI_Copy, QObject::tr("Copy Cells", "TCellSelection")},
+      {MI_Paste, QObject::tr("Paste Cells", "TCellSelection")},
+      {MI_PasteInto, QObject::tr("Overwrite Paste Cells", "TCellSelection")},
+      {MI_Cut, QObject::tr("Cut Cells", "TCellSelection")},
+      {MI_Clear, QObject::tr("Delete Cells", "TCellSelection")},
+      {MI_Insert, QObject::tr("Insert Cells", "TCellSelection")}};
+}
+
 //-----------------------------------------------------------------------------
 // Used in RenameCellField::eventFilter()
 
@@ -1552,10 +1768,16 @@ bool TCellSelection::isEnabledCommand(
                                         MI_Undo,
                                         MI_Redo,
                                         MI_PasteNumbers,
+                                        MI_PasteCellContent,
                                         MI_ConvertToToonzRaster,
                                         MI_ConvertVectorToVector,
                                         MI_CreateBlankDrawing,
-                                        MI_FillEmptyCell};
+                                        MI_FillEmptyCell,
+                                        MI_StopFrameHold,
+                                        MI_InbetweenLinear,
+                                        MI_InbetweenEaseIn,
+                                        MI_InbetweenEaseOut,
+                                        MI_InbetweenEaseInOut};
   return commands.contains(commandId);
 }
 
@@ -1682,6 +1904,11 @@ static void pasteRasterImageInCell(int row, int col,
     }
     createdFrame = true;
   }
+
+  TStageObjectId columnId = TStageObjectId::ColumnId(col);
+  TXshColumn *column      = xsh->getColumn(columnId.getIndex());
+  bool wasColumnEmpty     = !column ? true : column->isEmpty();
+
   // get the current cell
   TXshCell cell = xsh->getCell(row, col);
   // if the cell doesn't have a level. . .
@@ -1694,19 +1921,14 @@ static void pasteRasterImageInCell(int row, int col,
     } else {
       TXshSimpleLevel *sl = cell.getSimpleLevel();
       // don't do anything to ffmpeg level types
-      if (sl->getType() == OVL_XSHLEVEL && (sl->getPath().getType() == "psd" ||
-                                            sl->getPath().getType() == "gif" ||
-                                            sl->getPath().getType() == "mp4" ||
-                                            sl->getPath().getType() == "webm" ||
-                                            sl->getPath().getType() == "mov"))
-        return;
+      if (sl->getType() == OVL_XSHLEVEL && sl->getPath().isUneditable()) return;
       oldPalette = sl->getPalette();
     }
   }
   if (oldPalette) oldPalette = oldPalette->clone();
-  TTileSet *tiles            = 0;
-  bool isPaste = pasteRasterImageInCellWithoutUndo(row, col, rasterImageData,
-                                                   &tiles, isLevelCreated);
+  TTileSet *tiles = 0;
+  bool isPaste    = pasteRasterImageInCellWithoutUndo(row, col, rasterImageData,
+                                                      &tiles, isLevelCreated);
   if (isLevelCreated && oldPalette.getPointer()) oldPalette = 0;
   if (!isPaste) return;
   cell = xsh->getCell(row, col);
@@ -1728,6 +1950,24 @@ static void pasteRasterImageInCell(int row, int col,
         rasterImageData, fullColorTiles, cell.getSimpleLevel(),
         cell.getFrameId(), oldPalette, createdFrame, isLevelCreated, col));
   }
+
+  // Column name renamed to level name only if was originally empty
+  if (wasColumnEmpty) {
+    std::string columnName =
+        QString::fromStdWString(cell.getSimpleLevel()->getName()).toStdString();
+    TStageObjectCmd::rename(columnId, columnName,
+                            TApp::instance()->getCurrentXsheet());
+  }
+}
+
+//-----------------------------------------------------------------------------
+// choose pasting behavior by preference option
+void TCellSelection::doPaste() {
+  if (Preferences::instance()->getPasteCellsBehavior() ==
+      0)  // insert paste whole contents of copied cells
+    pasteCells();
+  else  // overwrite paste numbers, consistent with QuickChecker
+    overwritePasteNumbers();
 }
 
 //-----------------------------------------------------------------------------
@@ -1798,7 +2038,7 @@ void TCellSelection::pasteCells() {
       int newCr0, newCr1;
       column->getRange(newCr0, newCr1);
       areColumnsEmpty.push_back(!column || column->isEmpty() ||
-                                (newCr0 == r0 && newCr1 == r1));
+                                (newCr0 >= r0 && newCr1 <= r1));
     }
     if (!isPaste) return;
 
@@ -1814,6 +2054,25 @@ void TCellSelection::pasteCells() {
     TUndoManager::manager()->add(new PasteCellsUndo(
         r0, c0, r1, c1, oldR0, oldC0, oldR1, oldC1, areColumnsEmpty));
     TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+    // Column name renamed to level name only if was originally empty
+    int x = 0;
+    for (c = c0; c <= c1; c++, x++) {
+      if (!areColumnsEmpty[x]) continue;
+      TXshColumn *column = xsh->getColumn(c);
+      if (!column || column->isEmpty()) continue;
+      int lr0, lr1;
+      column->getRange(lr0, lr1);
+      TStageObjectId columnId = TStageObjectId::ColumnId(c);
+      std::string columnName =
+          QString::fromStdWString(column->getCellColumn()
+                                      ->getCell(lr0)
+                                      .m_level.getPointer()
+                                      ->getName())
+              .toStdString();
+      TStageObjectCmd::rename(columnId, columnName,
+                              TApp::instance()->getCurrentXsheet());
+    }
   }
 
   const TKeyframeData *keyframeData =
@@ -2254,7 +2513,7 @@ void TCellSelection::pasteDuplicateCells() {
         int levelType = level->getType();
         if (levelType == ZERARYFX_XSHLEVEL || levelType == PLT_XSHLEVEL ||
             levelType == SND_XSHLEVEL || levelType == SND_TXT_XSHLEVEL ||
-            levelType == MESH_XSHLEVEL) {
+            levelType == MESH_XSHLEVEL || levelType == FOLDER_XSHLEVEL) {
           DVGui::warning(
               QObject::tr("Cannot duplicate a drawing in the current column"));
           return;
@@ -2485,14 +2744,30 @@ void TCellSelection::pasteDuplicateCells() {
 
 //-----------------------------------------------------------------------------
 
-void TCellSelection::deleteCells() {
+void TCellSelection::clearCells() { deleteCells(false); }
+
+//-----------------------------------------------------------------------------
+
+void TCellSelection::removeCells() { deleteCells(true); }
+
+//-----------------------------------------------------------------------------
+
+void TCellSelection::deleteCells(bool withShift) {
   if (isEmpty()) return;
   int r0, c0, r1, c1;
   getSelectedCells(r0, c0, r1, c1);
   if (c0 < 0) c0 = 0;  // Ignore camera column
   TXsheet *xsh   = TApp::instance()->getCurrentXsheet()->getXsheet();
   // if all the selected cells are already empty, then do nothing
-  if (xsh->isRectEmpty(CellPosition(r0, c0), CellPosition(r1, c1))) return;
+  if (!withShift &&
+      xsh->isRectEmpty(CellPosition(r0, c0), CellPosition(r1, c1)))
+    return;
+
+  // if with "Clear Cell" behavior and all the selected cells are already empty,
+  // then do nothing
+  if (!withShift &&
+      xsh->isRectEmpty(CellPosition(r0, c0), CellPosition(r1, c1)))
+    return;
 
   std::set<int> removedColIds;
   // check if the operation may remove expression reference as column becomes
@@ -2513,9 +2788,9 @@ void TCellSelection::deleteCells() {
   }
 
   DeleteCellsUndo *undo =
-      new DeleteCellsUndo(new TCellSelection(m_range), data);
+      new DeleteCellsUndo(new TCellSelection(m_range), data, withShift);
 
-  deleteCellsWithoutUndo(r0, c0, r1, c1);
+  deleteCellsWithoutUndo(r0, c0, r1, c1, withShift);
 
   TUndoManager::manager()->add(undo);
 
@@ -2532,6 +2807,48 @@ void TCellSelection::deleteCells() {
 
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+}
+
+//-----------------------------------------------------------------------------
+
+void TCellSelection::clearFrames() { 
+  if (isEmpty()) return;
+
+  // set up basics
+  bool initUndo = false;
+  TXsheet *xsh  = TApp::instance()->getCurrentXsheet()->getXsheet();
+  int r, r0, c0, c, r1, c1;
+
+  getSelectedCells(r0, c0, r1, c1);
+
+  for (c = c0; c <= c1; c++) {
+    TXshColumn *column = xsh->getColumn(c);
+    if (!column || column->isEmpty() || column->isLocked() ||
+        !column->getLevelColumn())
+      continue;
+
+    for (r = r1; r >= r0; r--) {
+      TXshCell cell = xsh->getCell(r, c, false);
+
+      if (cell.isEmpty() || cell.getFrameId().isStopFrame() ||
+          cell.m_level->getChildLevel() || !cell.getImage(false))
+        continue;
+
+      TXshSimpleLevel *sl = cell.getSimpleLevel();
+      if (!sl) continue;
+
+      if (!initUndo) {
+        initUndo = true;
+        TUndoManager::manager()->beginBlock();
+      }
+
+      std::set<TFrameId> frames;
+      frames.insert(cell.getFrameId());
+      FilmstripCmd::clear(sl, frames);
+    }
+  }
+
+  if (initUndo) TUndoManager::manager()->endBlock();
 }
 
 //-----------------------------------------------------------------------------
@@ -2669,7 +2986,7 @@ void TCellSelection::createBlankDrawing(int row, int col, bool multiple) {
     int levelType = level->getType();
     if (levelType == ZERARYFX_XSHLEVEL || levelType == PLT_XSHLEVEL ||
         levelType == SND_XSHLEVEL || levelType == SND_TXT_XSHLEVEL ||
-        levelType == MESH_XSHLEVEL) {
+        levelType == MESH_XSHLEVEL || levelType == FOLDER_XSHLEVEL) {
       if (!multiple)
         DVGui::warning(
             QObject::tr("Cannot create a blank drawing on the current column"));
@@ -2714,8 +3031,9 @@ void TCellSelection::createBlankDrawing(int row, int col, bool multiple) {
 
   TXshCell cell       = xsh->getCell(row, col);
   TXshSimpleLevel *sl = cell.getSimpleLevel();
+  bool isStopFrame = cell.getFrameId().isStopFrame();
 
-  if (!img || !sl) {
+  if ((!img || !sl) && !isStopFrame) {
     //----- Restore previous states of autocreation
     if (!isAutoCreateEnabled)
       Preferences::instance()->setValue(EnableAutocreation, false, false);
@@ -2738,8 +3056,12 @@ void TCellSelection::createBlankDrawing(int row, int col, bool multiple) {
                                         false);
     //------------------
     if (!multiple)
-      DVGui::warning(QObject::tr(
-          "Unable to replace the current drawing with a blank drawing"));
+      if (isStopFrame)
+        DVGui::warning(QObject::tr(
+            "Unable to replace a Stop Frame Hold with a blank drawing"));
+      else
+        DVGui::warning(QObject::tr(
+            "Unable to replace the current drawing with a blank drawing"));
     return;
   }
 
@@ -2748,9 +3070,24 @@ void TCellSelection::createBlankDrawing(int row, int col, bool multiple) {
   TPalette *palette = sl->getPalette();
   TFrameId frame    = cell.getFrameId();
 
+  TUndoManager::manager()->beginBlock();
+
   CreateBlankDrawingUndo *undo = new CreateBlankDrawingUndo(
       sl, frame, toolHandle->getTool()->m_isLevelCreated, palette);
   TUndoManager::manager()->add(undo);
+
+  // Column name renamed to level name only if was originally empty
+  int r0, r1;
+  xsh->getCellRange(col, r0, r1);
+  if (r0 == r1) {
+    TStageObjectId columnId = TStageObjectId::ColumnId(col);
+    std::string columnName =
+        QString::fromStdWString(sl->getName()).toStdString();
+    TStageObjectCmd::rename(columnId, columnName,
+                            TApp::instance()->getCurrentXsheet());
+  }
+
+  TUndoManager::manager()->endBlock();
 
   IconGenerator::instance()->invalidate(sl, frame);
 
@@ -2787,6 +3124,98 @@ void TCellSelection::createBlankDrawings() {
 
 //-----------------------------------------------------------------------------
 
+void TCellSelection::stopFrameHold(int row, int col, bool multiple) {
+  TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+
+  if (col < 0) {
+    if (!multiple)
+      DVGui::warning(QObject::tr(
+          "Unable to create a stop frame hold on the camera column"));
+    return;
+  }
+
+  TXshColumn *column = xsh->getColumn(col);
+  if (column && column->isLocked()) {
+    if (!multiple) DVGui::warning(QObject::tr("The current column is locked"));
+    return;
+  }
+
+  TApp::instance()->getCurrentColumn()->setColumnIndex(col);
+  TApp::instance()->getCurrentFrame()->setCurrentFrame(row + 1);
+
+  TXshLevel *level = TApp::instance()->getCurrentLevel()->getLevel();
+  if (!level) {
+    int r0, r1;
+    xsh->getCellRange(col, r0, r1);
+    for (int r = std::min(r1, row); r >= r0; r--) {
+      TXshCell cell = xsh->getCell(r, col);
+      if (cell.isEmpty()) continue;
+      level = cell.m_level.getPointer();
+      if (!level) continue;
+      break;
+    }
+  }
+  if (level) {
+    int levelType = level->getType();
+    if (levelType == SND_XSHLEVEL || levelType == SND_TXT_XSHLEVEL ||
+        levelType == FOLDER_XSHLEVEL) {
+      if (!multiple)
+        DVGui::warning(QObject::tr(
+            "Cannot create a stop frame hold on the current column"));
+      return;
+    }
+  } else {
+    if (!multiple)
+      DVGui::warning(QObject::tr(
+          "Cannot create a stop from hold on a column without a level"));
+    return;
+  }
+
+  TXshLevel *lvl = level->getSimpleLevel();
+  if (!lvl) lvl  = level->getChildLevel();
+  if (!lvl) lvl  = dynamic_cast<TXshLevel *>(level->getPaletteLevel());
+  if (!lvl) lvl  = dynamic_cast<TXshLevel *>(level->getZeraryFxLevel());
+
+  if (!lvl) {
+    if (!multiple)
+      DVGui::warning(QObject::tr(
+          "Unable to create a stop frame hold on the current column"));
+    return;
+  }
+
+  TXshCell cell = xsh->getCell(row, col, false);
+
+  StopFrameHoldUndo *undo = new StopFrameHoldUndo(lvl, row, col, cell);
+  TUndoManager::manager()->add(undo);
+
+  undo->redo();
+}
+
+//-----------------------------------------------------------------------------
+
+void TCellSelection::stopFrameHold() {
+  int col = TApp::instance()->getCurrentColumn()->getColumnIndex();
+  int row = TApp::instance()->getCurrentFrame()->getFrameIndex();
+
+  int r0, c0, r1, c1;
+  getSelectedCells(r0, c0, r1, c1);
+
+  bool multiple = (r1 - r0 > 1) || (c1 - c0 > 1);
+
+  TUndoManager::manager()->beginBlock();
+  for (int c = c0; c <= c1; c++) {
+    for (int r = r0; r <= r1; r++) {
+      stopFrameHold(r, c, multiple);
+    }
+  }
+  TUndoManager::manager()->endBlock();
+
+  TApp::instance()->getCurrentColumn()->setColumnIndex(col);
+  TApp::instance()->getCurrentFrame()->setCurrentFrame(row + 1);
+}
+
+//-----------------------------------------------------------------------------
+
 void TCellSelection::duplicateFrame(int row, int col, bool multiple) {
   TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
 
@@ -2811,7 +3240,7 @@ void TCellSelection::duplicateFrame(int row, int col, bool multiple) {
       Preferences::instance()->isAnimationSheetEnabled()) {
     int r0, r1;
     xsh->getCellRange(col, r0, r1);
-    for (int r = std::min(r1, row); r > r0; r--) {
+    for (int r = std::min(r1, row); r >= r0; r--) {
       TXshCell cell = xsh->getCell(r, col);
       if (cell.isEmpty()) continue;
       level = cell.m_level.getPointer();
@@ -2823,7 +3252,7 @@ void TCellSelection::duplicateFrame(int row, int col, bool multiple) {
     int levelType = level->getType();
     if (levelType == ZERARYFX_XSHLEVEL || levelType == PLT_XSHLEVEL ||
         levelType == SND_XSHLEVEL || levelType == SND_TXT_XSHLEVEL ||
-        levelType == MESH_XSHLEVEL) {
+        levelType == MESH_XSHLEVEL || levelType == FOLDER_XSHLEVEL) {
       if (!multiple)
         DVGui::warning(
             QObject::tr("Cannot duplicate a drawing in the current column"));
@@ -2838,7 +3267,6 @@ void TCellSelection::duplicateFrame(int row, int col, bool multiple) {
 
   TXshCell targetCell = xsh->getCell(row, col);
   TXshCell prevCell   = xsh->getCell(row - 1, col);
-  ;
 
   // check if we use the current cell to duplicate or the previous cell
   if (!targetCell.isEmpty() && targetCell != prevCell) {
@@ -2847,6 +3275,12 @@ void TCellSelection::duplicateFrame(int row, int col, bool multiple) {
     prevCell = targetCell;
     TApp::instance()->getCurrentFrame()->setCurrentFrame(row + 2);
     row++;
+  }
+
+  if (prevCell.getFrameId().isStopFrame()) {
+    if (!xsh->isImplicitCell(row - 1, col) && !multiple)
+      DVGui::warning(QObject::tr("Cannot duplicate a Stop Frame Hold"));
+    return;
   }
 
   if (prevCell.isEmpty() || !(prevCell.m_level->getSimpleLevel())) return;
@@ -3227,6 +3661,10 @@ static void createNewDrawing(TXsheet *xsh, int row, int col,
     while (fid.getLetter().toUtf8().at(0) < 'z' && sl->isFid(fid))
       fid = TFrameId(fid.getNumber(), fid.getLetter().toUtf8().at(0) + 1);
   }
+  // modify frameId to be with the same frame format as existing frames
+  TFrameId tmplFId =
+      xsh->getScene()->getProperties()->formatTemplateFIdForInput();
+  sl->formatFId(fid, tmplFId);
   // add the new frame
   sl->setFrame(fid, sl->createEmptyFrame());
   TApp::instance()->getCurrentLevel()->notifyLevelChange();
@@ -3335,7 +3773,7 @@ void TCellSelection::overWritePasteCells() {
     TCellData *beforeData = new TCellData();
     beforeData->setCells(xsh, r0, c0, r1, c1);
 
-    /*-- InsertをFalseにすることで、Ovewriteペーストになる
+    /*-- InsertをFalseにすることで、Overwriteペーストになる
             r1,c1はペースト範囲にあわせリサイズされる
     --*/
     bool isPaste = pasteCellsWithoutUndo(r0, c0, r1, c1, false);
@@ -3739,7 +4177,7 @@ void TCellSelection::convertToToonzRaster() {
   TApp *app = TApp::instance();
   int row   = app->getCurrentFrame()->getFrame();
   int col   = app->getCurrentColumn()->getColumnIndex();
-  int i, j;
+  int i;
 
   ToonzScene *scene = app->getCurrentScene()->getScene();
   TXsheet *xsh      = scene->getXsheet();
@@ -3801,7 +4239,7 @@ void TCellSelection::convertToToonzRaster() {
     firstImage->setSavebox(TRect(0, 0, xres - 1, yres - 1));
   }
 
-  bool keepOriginalPalette;
+  bool keepOriginalPalette = false;
   bool success = data->getLevelFrames(
       sl, newFrameIds, DrawingData::OVER_SELECTION, true, keepOriginalPalette,
       true);  // setting is redo = true skips the
@@ -3854,7 +4292,7 @@ void TCellSelection::convertVectortoVector() {
   TApp *app = TApp::instance();
   int row   = app->getCurrentFrame()->getFrame();
   int col   = app->getCurrentColumn()->getColumnIndex();
-  int i, j;
+  int i;
 
   ToonzScene *scene = app->getCurrentScene()->getScene();
   TXsheet *xsh      = scene->getXsheet();
@@ -3986,7 +4424,7 @@ void TCellSelection::fillEmptyCell() {
   for (c = c0; c <= c1; c++) {
     TXshColumn *column = xsh->getColumn(c);
     if (!column || column->isEmpty() || column->isLocked() ||
-        column->getSoundColumn())
+        column->getSoundColumn() || column->getFolderColumn())
       continue;
 
     for (r = r1; r >= r0; r--) {
@@ -4032,4 +4470,56 @@ void TCellSelection::fillEmptyCell() {
   if (initUndo) TUndoManager::manager()->endBlock();
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+}
+
+//-----------------------------------------------------------------------------
+// Vector interpolation
+
+void TCellSelection::inbetween(TInbetween::TweenAlgorithm algorithm) {
+  if (isEmpty()) return;
+
+  // set up basics
+  bool initUndo = false;
+  TXsheet *xsh  = TApp::instance()->getCurrentXsheet()->getXsheet();
+  int r, r0, c0, c, r1, c1;
+
+  getSelectedCells(r0, c0, r1, c1);
+
+  TUndoManager::manager()->beginBlock();
+  for (c = c0; c <= c1; c++) {
+    TXshColumn *column = xsh->getColumn(c);
+    if (!column || column->isEmpty() || column->isLocked() ||
+        !column->getLevelColumn())
+      continue;
+
+    int cr0, cr1;
+    column->getRange(cr0, cr1);
+    TXshCell cell = xsh->getCell(cr0, c);
+    if (cell.isEmpty()) continue;
+
+    TXshSimpleLevel *sl = cell.getSimpleLevel();
+    if (!sl || sl->getType() != PLI_XSHLEVEL) continue;
+
+    TFrameId lastFrameId;
+    std::vector<TFrameId> fids;
+    for (r = r0; r <= r1; r++) {
+      TXshCell cell = xsh->getCell(r, c);
+      if (cell.isEmpty()) continue;
+      TFrameId fid = cell.getFrameId();
+      if (lastFrameId == fid) continue;  // Skip held cells
+      fids.push_back(fid);
+      lastFrameId = fid;
+    }
+
+    int m = fids.size();
+    if (m < 3) continue;
+
+    TUndoManager::manager()->add(new UndoInbetween(sl, fids, algorithm));
+
+    inbetweenWithoutUndo(sl, fids, algorithm);
+
+    sl->setDirtyFlag(true);
+    TApp::instance()->getCurrentLevel()->notifyLevelChange();
+  }
+  TUndoManager::manager()->endBlock();
 }

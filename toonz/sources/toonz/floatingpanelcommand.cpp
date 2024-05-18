@@ -110,11 +110,13 @@ TPanel *OpenFloatingPanel::getOrOpenFloatingPanel(
     TPanel *panel = list.at(i);
 
     // we want floating panel (possibly hidden) with the correct name
-    if (panel->getPanelType() == panelType && panel->isFloating()) {
+    // Locator panels can only exist 1x per room
+    if (panel->getPanelType() == panelType &&
+        (panel->isFloating() || panelType == "Locator")) {
       // if there is already a floating panel and MultipleInstances are
       // not allowed we must use it
       if (!panel->areMultipleInstancesAllowed() && !panel->isHidden()) {
-        activateWidget(panel);
+        if (panel->isFloating()) activateWidget(panel);
         return panel;
       }
 
@@ -126,6 +128,7 @@ TPanel *OpenFloatingPanel::getOrOpenFloatingPanel(
         currentRoom->addDockWidget(panel);
         panel->show();
         panel->raise();
+        panel->activateWindow();
         return panel;
       } else
         lastFloatingPos = panel->pos();
@@ -141,6 +144,7 @@ TPanel *OpenFloatingPanel::getOrOpenFloatingPanel(
   panel->setFloating(true);
   panel->show();
   panel->raise();
+  panel->activateWindow();
   if (!lastFloatingPos.isNull())
     panel->move(QPoint(lastFloatingPos.x() + 30, lastFloatingPos.y() + 30));
 

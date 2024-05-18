@@ -14,6 +14,9 @@
 #include "toonz/preferences.h"
 #include "toonz/toonzfolders.h"
 
+// TnzCore includes
+#include "tversion.h"
+
 // Qt includes
 #include <QFrame>
 #include <QLayout>
@@ -31,8 +34,6 @@
 #include <algorithm>
 
 using namespace DVGui;
-
-QString DialogTitle = "Tahoma2D 1.2";
 
 //=============================================================================
 namespace {
@@ -69,7 +70,10 @@ QPixmap getMsgBoxPixmap(MsgType type) {
 //-----------------------------------------------------------------------------
 
 QString getMsgBoxTitle(MsgType type) {
-  QString title = DialogTitle + " - ";
+  TVER::ToonzVersion tver;
+  QString title = QString::fromStdString(
+      tver.getAppName() + " " + tver.getAppVersionString() +
+      (tver.hasAppNote() ? " " + tver.getAppNote() : "") + " - ");
 
   switch (type) {
   case DVGui::INFORMATION:
@@ -317,7 +321,7 @@ Dialog::Dialog(QWidget *parent, bool hasButton, bool hasFixedSize,
     if (x > screen.right() - 50) x  = screen.right() - 50;
     if (x < screen.left()) x        = screen.left();
     if (y > screen.bottom() - 90) y = screen.bottom() - 90;
-    if (y < screen.top()) y         = screen.top();
+    if (y <= screen.top()) y = screen.top() + 50;  // pad for window title
     setGeometry(x, y, values.at(2).toInt(), values.at(3).toInt());
     settings.setValue(m_name, QString::number(x) + " " + QString::number(y) +
                                   " " + QString::number(values.at(2).toInt()) +
@@ -380,9 +384,9 @@ void Dialog::hideEvent(QHideEvent *event) {
     QRect r = geometry();
     QSettings settings(settingsPath, QSettings::IniFormat);
     settings.setValue(m_name, QString::number(r.left()) + " " +
-      QString::number(r.top()) + " " +
-      QString::number(r.width()) + " " +
-      QString::number(r.height()));
+                                  QString::number(r.top()) + " " +
+                                  QString::number(r.width()) + " " +
+                                  QString::number(r.height()));
   }
   emit dialogClosed();
 }
@@ -1451,12 +1455,6 @@ int DVGui::eraseStylesInDemand(TPalette *palette, std::vector<int> styleIds,
   QApplication::restoreOverrideCursor();
 
   return (assert(ret == 2), ret);  // return 2 ?     :D
-}
-
-//-----------------------------------------------------------------------------
-
-void DVGui::setDialogTitle(const QString &dialogTitle) {
-  DialogTitle = dialogTitle;
 }
 
 //-----------------------------------------------------------------------------

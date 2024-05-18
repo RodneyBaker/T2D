@@ -42,13 +42,19 @@
 #include "toonz/fill.h"
 #include "toonz/tstageobjectid.h"
 #include "toonz/tstageobject.h"
+#include "toonz/tstageobjecttree.h"
 #include "toonz/levelproperties.h"
 #include "toonz/imagemanager.h"
 #include "toonz/toonzimageutils.h"
 #include "toonz/tvectorimageutils.h"
 #include "toonz/preferences.h"
 #include "toonz/dpiscale.h"
+#include "toonz/tcamera.h"
 #include "imagebuilders.h"
+
+#include "tstencilcontrol.h"
+#include "tvectorgl.h"
+#include "toonz/glrasterpainter.h"
 
 // 4.6 compatibility - sandor fxs
 #include "toonz4.6/raster.h"
@@ -87,8 +93,8 @@ namespace {
 
 void setMaxMatte(TRasterP r) {
   TRaster32P r32 = (TRaster32P)r;
-
   TRaster64P r64 = (TRaster64P)r;
+  TRasterFP rF   = (TRasterFP)r;
 
   if (r32)
     for (int i = 0; i < r32->getLy(); i++) {
@@ -99,6 +105,12 @@ void setMaxMatte(TRasterP r) {
     for (int i = 0; i < r64->getLy(); i++) {
       TPixel64 *pix = r64->pixels(i);
       for (int j = 0; j < r64->getLx(); j++, pix++) pix->m = 65535;
+    }
+  else if (rF)
+    for (int i = 0; i < rF->getLy(); i++) {
+      TPixelF *pix = rF->pixels(i);
+      for (int j = 0; j < rF->getLx(); j++, pix++)
+        pix->m = TPixelF::maxChannelValue;
     }
 }
 
@@ -332,12 +344,12 @@ inline bool fxLess(TRasterFxRenderDataP a, TRasterFxRenderDataP b) {
       dynamic_cast<SandorFxRenderData *>(b.getPointer());
   if (!sandorDataB) return true;
 
-  int aIndex = sandorDataA->m_type == OutBorder
-                   ? 2
-                   : sandorDataA->m_type == BlendTz ? 1 : 0;
-  int bIndex = sandorDataB->m_type == OutBorder
-                   ? 2
-                   : sandorDataB->m_type == BlendTz ? 1 : 0;
+  int aIndex = sandorDataA->m_type == OutBorder ? 2
+               : sandorDataA->m_type == BlendTz ? 1
+                                                : 0;
+  int bIndex = sandorDataB->m_type == OutBorder ? 2
+               : sandorDataB->m_type == BlendTz ? 1
+                                                : 0;
 
   return aIndex < bIndex;
 }
@@ -723,7 +735,9 @@ class LevelFxBuilder final : public ResourceBuilder {
   TXshSimpleLevel *m_sl;
   TFrameId m_fid;
   TRectD m_tileGeom;
-  bool m_64bit;
+  int m_bpp;
+  // bool m_linear;
+  // bool m_64bit;
 
   TRect m_rasBounds;
 
@@ -735,23 +749,29 @@ public:
       , m_palette()
       , m_sl(sl)
       , m_fid(fid)
-      , m_64bit(rs.m_bpp == 64) {}
+      , m_bpp(rs.m_bpp) {}
+  //, m_linear(rs.m_linearColorSpace){}
 
   void setRasBounds(const TRect &rasBounds) { m_rasBounds = rasBounds; }
 
   void compute(const TRectD &tileRect) override {
+    UCHAR flag = ImageManager::dontPutInCache;
+    if (m_bpp == 64 || m_bpp == 128) flag = flag | ImageManager::is64bitEnabled;
+    if (m_bpp == 128) flag = flag | ImageManager::isFloatEnabled;
+    // if (m_linear)
+    //   flag = flag | ImageManager::isLinearEnabled;
+
     // Load the image
-    TImageP img(m_sl->getFullsampledFrame(
-        m_fid, (m_64bit ? ImageManager::is64bitEnabled : 0) |
-                   ImageManager::dontPutInCache));
+    TImageP img(m_sl->getFullsampledFrame(m_fid, flag));
 
     if (!img) return;
 
     TRasterImageP rimg(img);
     TToonzImageP timg(img);
 
-    m_loadedRas = rimg ? (TRasterP)rimg->getRaster()
-                       : timg ? (TRasterP)timg->getRaster() : TRasterP();
+    m_loadedRas = rimg   ? (TRasterP)rimg->getRaster()
+                  : timg ? (TRasterP)timg->getRaster()
+                         : TRasterP();
     assert(m_loadedRas);
 
     if (timg) m_palette = timg->getPalette();
@@ -802,6 +822,7 @@ public:
 TLevelColumnFx::TLevelColumnFx()
     : m_levelColumn(0), m_isCachable(true), m_mutex(), m_offlineContext(0) {
   setName(L"LevelColumn");
+  enableComputeInFloat(true);
 }
 
 //--------------------------------------------------
@@ -819,7 +840,8 @@ bool TLevelColumnFx::canHandle(const TRenderSettings &info, double frame) {
 
   if (!m_levelColumn) return true;
 
-  TXshCell cell = m_levelColumn->getCell(m_levelColumn->getFirstRow());
+  int row       = m_levelColumn->getFirstRow();
+  TXshCell cell = m_levelColumn->getCell(row);
   if (cell.isEmpty()) return true;
 
   TXshSimpleLevel *sl = cell.m_level->getSimpleLevel();
@@ -835,7 +857,8 @@ TAffine TLevelColumnFx::handledAffine(const TRenderSettings &info,
                                       double frame) {
   if (!m_levelColumn) return TAffine();
 
-  TXshCell cell = m_levelColumn->getCell(m_levelColumn->getFirstRow());
+  int row       = m_levelColumn->getFirstRow();
+  TXshCell cell = m_levelColumn->getCell(row);
   if (cell.isEmpty()) return TAffine();
 
   TXshSimpleLevel *sl = cell.m_level->getSimpleLevel();
@@ -968,10 +991,13 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
                                const TRenderSettings &info) {
   if (!m_levelColumn) return;
 
+  if (m_levelColumn->isMask() && !info.m_applyMask &&
+      !m_levelColumn->canRenderMask() && !info.m_plasticMask)
+    return;
+
   // Ensure that a corresponding cell and level exists
   int row       = (int)frame;
   TXshCell cell = m_levelColumn->getCell(row);
-
   if (cell.isEmpty()) return;
 
   TXshSimpleLevel *sl = cell.m_level->getSimpleLevel();
@@ -1040,6 +1066,10 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
       TVectorRenderData rd(TVectorRenderData::ProductionSettings(), aff,
                            TRect(size), vpalette);
 
+      // obtain jaggy image when the Closest Pixel is set
+      if (info.m_quality == TRenderSettings::ClosestPixel_FilterResampleQuality)
+        rd.m_antiAliasing = false;
+
       if (!m_offlineContext || m_offlineContext->getLx() < size.lx ||
           m_offlineContext->getLy() < size.ly) {
         if (m_offlineContext) delete m_offlineContext;
@@ -1055,7 +1085,36 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
       if (!m_isCachable) vpalette->mutex()->lock();
 
       vpalette->setFrame((int)frame);
-      m_offlineContext->draw(vectorImage, rd, true);
+
+      if (info.m_applyMask) {
+        bool initMatrix = true;
+
+        rd.m_alphaChannel = false;
+
+        TStencilControl *stencil = TStencilControl::instance();
+
+        glPushAttrib(GL_ALL_ATTRIB_BITS);
+        tglEnableBlending(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+        stencil->beginMask();
+        m_offlineContext->drawMask(vectorImage, rd, initMatrix);
+        stencil->endMask();
+        TStencilControl::MaskType maskType = m_levelColumn->isInvertedMask()
+                                                 ? TStencilControl::SHOW_OUTSIDE
+                                                 : TStencilControl::SHOW_INSIDE;
+        stencil->enableMask(maskType);
+        TRasterP ras = tile.getRaster();
+
+        TAffine tileAff = TTranslation((ras->getLx() / 2), (ras->getLy() / 2)) *
+                          TScale(1.0 / info.m_shrinkX, 1.0 / info.m_shrinkY);
+        GLRasterPainter::drawRaster(tileAff, tile.getRaster(), true);
+
+        glPopAttrib();
+
+        stencil->disableMask();
+      } else
+        m_offlineContext->draw(vectorImage, rd, true);
+
       vpalette->setFrame(oldFrame);
 
       if (!m_isCachable) vpalette->mutex()->unlock();
@@ -1081,13 +1140,15 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
       ri  = 0;
       TRaster32P ras32(ras);
       TRaster64P ras64(ras);
+      TRasterFP rasF(ras);
 
       // Ensure that ras is either a 32 or 64 fullcolor.
       // Otherwise, we have to convert it.
-      if (!ras32 && !ras64) {
+      if (!ras32 && !ras64 && !rasF) {
         TRasterP tileRas(tile.getRaster());
         TRaster32P tileRas32(tileRas);
         TRaster64P tileRas64(tileRas);
+        TRasterFP tileRasF(tileRas);
 
         if (tileRas32) {
           ras32 = TRaster32P(ras->getLx(), ras->getLy());
@@ -1097,6 +1158,10 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
           ras64 = TRaster64P(ras->getLx(), ras->getLy());
           TRop::convert(ras64, ras);
           ras = ras64;
+        } else if (tileRasF) {
+          rasF = TRasterFP(ras->getLx(), ras->getLy());
+          TRop::convert(rasF, ras);
+          ras = rasF;
         } else
           assert(0);
       }
@@ -1121,7 +1186,8 @@ void TLevelColumnFx::doCompute(TTile &tile, double frame,
         TRop::whiteTransp(appRas);
         ras = appRas;
       }
-      if (levelProp->antialiasSoftness() > 0) {
+      if (levelProp->antialiasSoftness() > 0 &&
+          !rasF) {  // temporarily disabled with float raster
         TRasterP appRas = ras->create(ras->getLx(), ras->getLy());
         TRop::antialias(ras, appRas, 10, levelProp->antialiasSoftness());
         ras = appRas;
@@ -1388,8 +1454,8 @@ bool TLevelColumnFx::doGetBBox(double frame, TRectD &bBox,
   // Usual preliminaries (make sure a level/cell exists, etc...)
   if (!m_levelColumn) return false;
 
-  int row              = (int)frame;
-  const TXshCell &cell = m_levelColumn->getCell(row);
+  int row       = (int)frame;
+  TXshCell cell = m_levelColumn->getCell(row);
   if (cell.isEmpty()) return false;
 
   TXshLevelP xshl = cell.m_level;
@@ -1406,19 +1472,23 @@ bool TLevelColumnFx::doGetBBox(double frame, TRectD &bBox,
     TImageInfo imageInfo;
     getImageInfo(imageInfo, sl, cell.m_frameId);
 
-    TRect imageSavebox(imageInfo.m_x0, imageInfo.m_y0, imageInfo.m_x1,
-                       imageInfo.m_y1);
     double cx = 0.5 * imageInfo.m_lx;
     double cy = 0.5 * imageInfo.m_ly;
-    double x0 = (imageSavebox.x0 - cx);
-    double y0 = (imageSavebox.y0 - cy);
-    double x1 = x0 + imageSavebox.getLx();
-    double y1 = y0 + imageSavebox.getLy();
-    bBox      = TRectD(x0, y0, x1, y1);
-
+    if (info.m_getFullSizeBBox) {
+      bBox = TRectD(-cx, -cy, cx, cy);
+    } else {
+      TRect imageSavebox(imageInfo.m_x0, imageInfo.m_y0, imageInfo.m_x1,
+                         imageInfo.m_y1);
+      double x0 = (imageSavebox.x0 - cx);
+      double y0 = (imageSavebox.y0 - cy);
+      double x1 = x0 + imageSavebox.getLx();
+      double y1 = y0 + imageSavebox.getLy();
+      bBox      = TRectD(x0, y0, x1, y1);
+    }
     dpi = imageInfo.m_dpix / Stage::inch;
   } else {
-    TImageP img = m_levelColumn->getCell(row).getImage(false);
+    TXshCell cell = m_levelColumn->getCell(row);
+    TImageP img = cell.getImage(false);
     if (!img) return false;
     bBox = img->getBBox();
   }
@@ -1431,6 +1501,17 @@ bool TLevelColumnFx::doGetBBox(double frame, TRectD &bBox,
       double enlargement       = enlargedImageBBox.x1 - imageBBox.x1;
       bBox += imageBBox.enlarge(enlargement * dpi);
     }
+  }
+
+  if (info.m_useMaskBox) {
+    TXsheet *xsh = m_levelColumn->getXsheet();
+    TStageObjectId cameraId = xsh->getStageObjectTree()->getCurrentCameraId();
+    TStageObject *cameraPegbar = xsh->getStageObject(cameraId);
+    TCamera *camera = cameraPegbar->getCamera();
+
+    TRectD imageBBox(bBox);
+    double enlargement       = camera->getRes().lx-imageBBox.x1;
+    bBox += imageBBox.enlarge(enlargement * dpi);
   }
 
   return true;
@@ -1453,6 +1534,12 @@ TFxTimeRegion TLevelColumnFx::getTimeRegion() const {
 
   int first = m_levelColumn->getFirstRow();
   int last  = m_levelColumn->getRowCount();
+
+  // For implicit hold, if the last frame is not a stop frame, it's held
+  // indefinitely
+  if (Preferences::instance()->isImplicitHoldEnabled() &&
+      !m_levelColumn->getCell(last - 1).getFrameId().isStopFrame())
+    return TFxTimeRegion(0, (std::numeric_limits<double>::max)());
 
   return TFxTimeRegion(first, last);
 }
@@ -1484,10 +1571,10 @@ std::wstring TLevelColumnFx::getColumnName() const {
 
 std::string TLevelColumnFx::getAlias(double frame,
                                      const TRenderSettings &info) const {
-  if (!m_levelColumn || m_levelColumn->getCell((int)frame).isEmpty())
-    return std::string();
+  if (!m_levelColumn) return std::string();
 
-  const TXshCell &cell = m_levelColumn->getCell((int)frame);
+  TXshCell cell = m_levelColumn->getCell((int)frame);
+  if (cell.isEmpty()) return std::string();
 
   TFilePath fp;
   TXshSimpleLevel *sl = cell.getSimpleLevel();
@@ -1528,7 +1615,21 @@ std::string TLevelColumnFx::getAlias(double frame,
       rdata += "column_0";
   }
 
-  return getFxType() + "[" + ::to_string(fp.getWideString()) + "," + rdata +
+  std::vector<TXshColumn *> masks = m_levelColumn->getColumnMasks();
+  if (masks.size()) {
+    std::string maskAlias = "masked";
+    for (int i = 0; i < masks.size(); i++) {
+      TXshLevelColumn *mask = masks[i]->getLevelColumn();
+      if (!mask) break;
+
+      if (mask->isInvertedMask()) maskAlias += "inv";
+      if (mask->canRenderMask()) maskAlias += "render";
+      break;
+    }
+    rdata += maskAlias;
+  }
+
+   return getFxType() + "[" + ::to_string(fp.getWideString()) + "," + rdata +
          "]";
 }
 

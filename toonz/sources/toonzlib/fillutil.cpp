@@ -12,6 +12,11 @@
 #include "tpixelutils.h"
 
 #include <stack>
+#include <tsystem.h>
+
+#define IGNORECOLORSTYLE 4093
+#define GAP_CLOSE_TEMP 4094
+#define GAP_CLOSE_USED 4095
 
 using namespace SkeletonLut;
 
@@ -79,8 +84,7 @@ void fillArea(const TRasterCM32P &ras, TRegion *r, int colorId,
       for (int k = from; k < to; k++, pix++) {
         if (fillPaints && (!onlyUnfilled || pix->getPaint() == 0))
           pix->setPaint(colorId);
-        if (fillInks && pix->getInk() != 4094) pix->setInk(colorId);
-        if (pix->getInk() == 4094) pix->setInk(4095);
+        if (fillInks && pix->getInk() != GAP_CLOSE_TEMP) pix->setInk(colorId);
       }
     }
   }
@@ -92,11 +96,12 @@ void fillArea(const TRasterCM32P &ras, TRegion *r, int colorId,
 void restoreColors(const TRasterCM32P &r,
                    const std::vector<std::pair<TPoint, int>> &seeds) {
   FillParameters params;
-  // in order to make the paint to protlude behind the line
+  // in order to make the paint to protrude behind the line
   params.m_prevailing = false;
   for (UINT i = 0; i < seeds.size(); i++) {
-    params.m_p       = seeds[i].first;
-    params.m_styleId = seeds[i].second;
+    params.m_p = seeds[i].first;
+    // params.m_styleId = seeds[i].second;
+    params.m_styleId = IGNORECOLORSTYLE;
     fill(r, params);
   }
 }
@@ -137,6 +142,230 @@ bool areRectPixelsTransparent(TPixel32 *pixels, TRect rect, int wrap) {
 }  // namespace
 //-----------------------------------------------------------------------------
 
+//-----------------------------------------------------------------------------
+// This function finishes candidate gap lines that were created
+// during a fill process.
+// combined is the levels combined as is done for the "use visible" tool option
+void finishGapLines(TRasterCM32P &rin, TRect &rect, const TRasterCM32P &rbefore,
+                    const TRasterCM32P &combined, TPalette *plt,
+                    int clickedColorStyle, int fillIndex, int closeColorStyle,
+                    bool closeGaps) {
+  assert(plt);
+  rin->lock();
+
+  TRasterCM32P r = rin->extract(rect);
+  assert(r->getSize() == rbefore->getSize());
+  assert(r->getSize() == combined->getSize());
+
+  TRasterCM32P myCombined;
+  if (!combined.getPointer() || combined->isEmpty()) {
+    myCombined = r;
+  } else {
+    myCombined = combined;
+  }
+
+  int i, j;
+
+  int filledNeighbor   = 0;
+  int unfilledNeighbor = 0;
+
+  std::stack<TPoint> gapLinePixels;
+  TPoint p;
+
+  // process all the pixels looking for gap close pixels
+  for (i = 0; i < r->getLy(); i++) {
+    TPixelCM32 *pix  = r->pixels(i);
+    TPixelCM32 *pixb = rbefore->pixels(i);
+    TPixelCM32 *pixc = myCombined->pixels(i);
+
+    for (j = 0; j < r->getLx(); j++, pix++, pixb++) {
+      int paint = pix->getPaint();
+      int tone  = pix->getTone();
+      int ink   = pix->getInk();
+
+      if (ink != GAP_CLOSE_TEMP) continue;
+      // current pixel is a gap close pixel, does it qualify to be kept?
+      filledNeighbor   = 0;
+      unfilledNeighbor = 0;
+
+      // check for new filled neighbor
+      // north
+      if (i < rin->getLy() - 1 && (pix + rin->getWrap())->getTone() == 255 &&
+          (pix + rin->getWrap())->getInk() < IGNORECOLORSTYLE &&
+          (pix + rin->getWrap())->getPaint() == fillIndex &&
+          (pix + rin->getWrap())->getPaint() !=
+              (pixb + rbefore->getWrap())->getPaint()) {
+        filledNeighbor++;
+      }
+      // south
+      if (i > 0 && (pix - rin->getWrap())->getTone() == 255 &&
+          (pix - rin->getWrap())->getInk() < IGNORECOLORSTYLE &&
+          (pix - rin->getWrap())->getPaint() == fillIndex &&
+          (pix - rin->getWrap())->getPaint() !=
+              (pixb - rbefore->getWrap())->getPaint()) {
+        filledNeighbor++;
+      }
+      // east
+      if (j < rin->getLx() - 1 && (pix + 1)->getTone() == 255 &&
+          (pix + 1)->getInk() < IGNORECOLORSTYLE &&
+          (pix + 1)->getPaint() == fillIndex &&
+          (pix + 1)->getPaint() != (pixb + 1)->getPaint()) {
+        filledNeighbor++;
+      }
+      // west
+      if (j > 0 && (pix - 1)->getTone() == 255 &&
+          (pix - 1)->getInk() < IGNORECOLORSTYLE &&
+          (pix - 1)->getPaint() == fillIndex &&
+          (pix - 1)->getPaint() != (pixb - 1)->getPaint()) {
+        filledNeighbor++;
+      }
+
+      // Check for fillable but unfilled pixel neighbor
+      // north
+      if ((i < rin->getLy() - 1 && (pix + rin->getWrap())->getTone() == 255 &&
+           (((pix + rin->getWrap())->getPaint() == clickedColorStyle) ||
+            ((pix + rin->getWrap())->getPaint() == 0) ||
+            ((pix + rin->getWrap())->getPaint() == IGNORECOLORSTYLE))) &&
+          ((pixc + myCombined->getWrap())->getTone() == 255 &&
+           (((pixc + myCombined->getWrap())->getPaint() == clickedColorStyle) ||
+            ((pixc + myCombined->getWrap())->getPaint() == 0)))) {
+        unfilledNeighbor++;
+      }
+      // south
+      if ((i > 0 && (pix - rin->getWrap())->getTone() == 255 &&
+           (((pix - rin->getWrap())->getPaint() == clickedColorStyle) ||
+            ((pix - rin->getWrap())->getPaint() == 0) ||
+            ((pix - rin->getWrap())->getPaint() == IGNORECOLORSTYLE))) &&
+          ((pixc - myCombined->getWrap())->getTone() == 255 &&
+           (((pixc - myCombined->getWrap())->getPaint() == clickedColorStyle) ||
+            ((pixc - myCombined->getWrap())->getPaint() == 0)))) {
+        unfilledNeighbor++;
+      }
+
+      // east
+      if ((j < rin->getLx() - 1 && (pix + 1)->getTone() == 255 &&
+           (((pix + 1)->getPaint() == clickedColorStyle) ||
+            ((pix + 1)->getPaint() == 0) ||
+            ((pix + 1)->getPaint() == IGNORECOLORSTYLE))) &&
+          ((pixc + 1)->getTone() == 255 &&
+           (((pixc + 1)->getPaint() == clickedColorStyle) ||
+            ((pixc + 1)->getPaint() == 0)))) {
+        unfilledNeighbor++;
+      }
+
+      // west
+      if ((j > 0 && (pix - 1)->getTone() == 255 &&
+           (((pix - 1)->getPaint() == clickedColorStyle) ||
+            ((pix - 1)->getPaint() == 0) ||
+            ((pix - 1)->getPaint() == IGNORECOLORSTYLE))) &&
+          ((pixc - 1)->getTone() == 255 &&
+           (((pixc - 1)->getPaint() == clickedColorStyle) ||
+            ((pixc - 1)->getPaint() == 0)))) {
+        unfilledNeighbor++;
+      }
+
+      // determine the final disposition of the gap line pixel
+      if (filledNeighbor > 0) {
+        if (unfilledNeighbor > 0) {
+          // keep
+          if (closeGaps) {
+            // ink
+            pix->setInk(closeColorStyle);
+            pix->setPaint(fillIndex);
+            pix->setTone(0);
+          } else {
+            // paint
+            pix->setInk(GAP_CLOSE_USED);
+            pix->setPaint(fillIndex);
+            pix->setTone(255);
+            gapLinePixels.push(TPoint(j, i));
+          }
+
+          // Print out the neighbors of kept gap close pixels, for testing
+          // purposes
+          // TSystem::outputDebug("i:"+ std::to_string(i)+", j:"+
+          // std::to_string(j)+", filledNeighbor:" +
+          // std::to_string(filledNeighbor) + ", unfilledNeighbor:" +
+          // std::to_string(unfilledNeighbor));
+          //// north
+          // if (i < rin->getLy() - 1){
+          //  TSystem::outputDebug("North, r:" + std::to_string((pix +
+          //  rin->getWrap())->getInk()) + "." + std::to_string((pix +
+          //  rin->getWrap())->getPaint()) + "." + std::to_string((pix +
+          //  rin->getWrap())->getTone())
+          //  + ", combined:" + std::to_string((pixc +
+          //  myCombined->getWrap())->getInk()) + "." + std::to_string((pixc +
+          //  myCombined->getWrap())->getPaint()) + "." + std::to_string((pixc +
+          //  myCombined->getWrap())->getTone())
+          //  );
+          //}
+          //// south
+          // if (i > 0) {
+          //  TSystem::outputDebug("South, r:" + std::to_string((pix -
+          //  rin->getWrap())->getInk()) + "." + std::to_string((pix -
+          //  rin->getWrap())->getPaint()) + "." + std::to_string((pix -
+          //  rin->getWrap())->getTone())
+          //    + ", combined:" + std::to_string((pixc -
+          //    myCombined->getWrap())->getInk()) + "." + std::to_string((pixc -
+          //    myCombined->getWrap())->getPaint()) + "." + std::to_string((pixc
+          //    - myCombined->getWrap())->getTone())
+          //  );
+          //}
+
+          //// east
+          // if (j < rin->getLx() - 1){
+          //  TSystem::outputDebug("East, r:" + std::to_string((pix +
+          //  1)->getInk()) + "." + std::to_string((pix + 1)->getPaint()) + "."
+          //  + std::to_string((pix + 1)->getTone())
+          //    + ", combined:" + std::to_string((pixc + 1)->getInk()) + "." +
+          //    std::to_string((pixc + 1)->getPaint()) + "." +
+          //    std::to_string((pixc + 1)->getTone())
+          //  );
+          //}
+
+          //// west
+          // if (j > 0) {
+          //  TSystem::outputDebug("West, r:" + std::to_string((pix -
+          //  1)->getInk()) + "." + std::to_string((pix - 1)->getPaint()) + "."
+          //  + std::to_string((pix - 1)->getTone())
+          //    + ", combined:" + std::to_string((pixc - 1)->getInk()) + "." +
+          //    std::to_string((pixc - 1)->getPaint()) + "." +
+          //    std::to_string((pixc - 1)->getTone())
+          //  );
+          //}
+        } else {
+          // paint
+          pix->setInk(GAP_CLOSE_USED);
+          pix->setPaint(fillIndex);
+          pix->setTone(255);
+          gapLinePixels.push(TPoint(j, i));
+        }
+      } else {
+        // ignore
+        pix->setInk(IGNORECOLORSTYLE);
+        pix->setPaint(0);
+        pix->setTone(0);
+      }
+    }
+  }
+
+  // process all the GAP_CLOSE_USED ink values.
+  TPixelCM32 *pixels = (TPixelCM32 *)r->getRawData();
+
+  while (!gapLinePixels.empty()) {
+    p = gapLinePixels.top();
+    gapLinePixels.pop();
+    TPixelCM32 *pix = pixels + (p.y * r->getWrap() + p.x);
+
+    // TSystem::outputDebug("gapLinePixels, p.y:" + std::to_string(p.y) + ",
+    // p.x:" + std::to_string(p.x) + ", getInk():" +
+    // std::to_string(pix->getInk()));
+    pix->setInk(0);
+  }
+
+  rin->unlock();
+}
+
 //=============================================================================
 // AreaFiller
 
@@ -154,12 +383,11 @@ AreaFiller::AreaFiller(const TRasterCM32P &ras)
 AreaFiller::~AreaFiller() { m_ras->unlock(); }
 
 //-----------------------------------------------------------------------------
-// questa funzione viene chiamata dopo il fill rect delle aree, e colora gli
-// inchiostri di tipo "autoink"
-// che confinano con le aree appena fillate con il rect. rbefore e' il rect del
-// raster prima del rectfill.
+// This function is called after rect fill of the areas, and colors the
+// "autoink" type inks bordering the areas just filled with the rect.
+// rbefore is the rect of the raster before rectfill.
 void fillautoInks(TRasterCM32P &rin, TRect &rect, const TRasterCM32P &rbefore,
-                  TPalette *plt) {
+                  TPalette *plt, int fillIndex) {
   assert(plt);
   TRasterCM32P r = rin->extract(rect);
   assert(r->getSize() == rbefore->getSize());
@@ -172,9 +400,36 @@ void fillautoInks(TRasterCM32P &rin, TRect &rect, const TRasterCM32P &rbefore,
       int paint = pix->getPaint();
       int tone  = pix->getTone();
       int ink   = pix->getInk();
-      if (paint != pixb->getPaint() && tone > 0 && tone < 255 && ink != paint &&
-          plt->getStyle(ink)->getFlags() != 0)
-        inkFill(rin, TPoint(j, i) + rect.getP00(), paint, 0, NULL, &rect);
+
+      /* new
+       * Pseudocode:
+       * Start the inkFill procedure at the current pixel if:
+       *     The ink colorstyle has autopaint enabled
+       *     The ink colorstyle is not already the same as the fill colorstyle
+       *     The paint colorstyle of a neighboring pixel:
+       *       is the same as the fill colorstyle
+       *       has changed from its prior version
+       */
+
+      if (plt->getStyle(ink)->getFlags() != 0 && ink != fillIndex &&
+          (
+              // north
+              (i < r->getLy() - 1 &&
+               (pix + r->getWrap())->getPaint() == fillIndex &&
+               (pix + r->getWrap())->getPaint() !=
+                   (pixb + rbefore->getWrap())->getPaint())
+              // south
+              || (i > 0 && (pix - r->getWrap())->getPaint() == fillIndex &&
+                  (pix - r->getWrap())->getPaint() !=
+                      (pixb - rbefore->getWrap())->getPaint())
+              // east
+              || (j < r->getLx() - 1 && (pix + 1)->getPaint() == fillIndex &&
+                  (pix + 1)->getPaint() != (pixb + 1)->getPaint())
+              // west
+              || (j > 0 && (pix - 1)->getPaint() == fillIndex &&
+                  (pix - 1)->getPaint() != (pixb - 1)->getPaint()))) {
+        inkFill(rin, TPoint(j, i) + rect.getP00(), fillIndex, 0, NULL, &rect);
+      }
     }
   }
 }
@@ -184,18 +439,21 @@ void fillautoInks(TRasterCM32P &rin, TRect &rect, const TRasterCM32P &rbefore,
 bool AreaFiller::rectFill(const TRect &rect, int color, bool onlyUnfilled,
                           bool fillPaints, bool fillInks) {
   // Synopsis:
-  // This gets the color of the pixes at the edge of the rect
+  // This gets the color of the pixels at the edge of the rect
   // Then fills in EVERYTHING with 'color'
   // Then uses the fill command to fill in the edges with their original color
   // This makes sure only the enclosed areas not on the edge get filled.
+  /*- In case of FillInk only -*/
+
   if (!fillPaints) {
     assert(fillInks);
     assert(m_ras->getBounds().contains(rect));
     for (int y = rect.y0; y <= rect.y1; y++) {
       TPixelCM32 *pix = m_ras->pixels(y) + rect.x0;
       for (int x = rect.x0; x <= rect.x1; x++, pix++) {
-        if (pix->getInk() == 4094)
-          pix->setInk(4095);
+        if (pix->getInk() == GAP_CLOSE_TEMP)
+          //pix->setInk(TEMP_GAP_CLOSE_WAS_USED);
+          continue;
         else
           pix->setInk(color);
       }
@@ -213,7 +471,7 @@ bool AreaFiller::rectFill(const TRect &rect, int color, bool onlyUnfilled,
   std::vector<int> frameSeed(2 * (r.getLx() + r.getLy() - 2));
 
   int x, y, count1, count2;
-  /*- Move ptr to the starting point of the Rect range -*/
+  /*- Move ptr to the start of the Rectangular range -*/
   Pixel *ptr = m_pixels + r.y0 * m_wrap + r.x0;
   count1     = 0;
   count2     = r.y1 - r.y0 + 1;
@@ -227,7 +485,7 @@ bool AreaFiller::rectFill(const TRect &rect, int color, bool onlyUnfilled,
   // FrameSeed is filled with all the paints of the various areas of the
   // boundary rectangle.
   // It is checked if the pixels of the rectangle are all pure paint.
-
+  /*- Store the Paint ID of the contour in the frameseed -*/
   for (y = r.y0; y <= r.y1; y++, ptr += m_wrap, count1++, count2++) {
     if (r.x0 > 0) frameSeed[count1]                  = ptr->getPaint();
     if (r.x1 < m_ras->getLx() - 1) frameSeed[count2] = (ptr + dx)->getPaint();
@@ -248,18 +506,16 @@ bool AreaFiller::rectFill(const TRect &rect, int color, bool onlyUnfilled,
       for (x = r.x0; x <= r.x1; x++, pix++) {
         if (pix->getPaint() == 0)  // BackgroundStyle
           pix->setPaint(color);
-        if (fillInks && (pix->getInk() != 4094 && pix->getInk() != 4095))
+        if (fillInks && (pix->getInk() != GAP_CLOSE_TEMP && pix->getInk() != GAP_CLOSE_USED))
           pix->setInk(color);
-        if (pix->getInk() == 4094) pix->setInk(4095);
       }
     }
   else
     for (y = r.y0; y <= r.y1; y++, pix += m_wrap - dx - 1) {
       for (x = r.x0; x <= r.x1; x++, pix++) {
         pix->setPaint(color);
-        if (fillInks && (pix->getInk() != 4094 && pix->getInk() != 4095))
+        if (fillInks && (pix->getInk() != GAP_CLOSE_TEMP && pix->getInk() != GAP_CLOSE_USED))
           pix->setInk(color);
-        if (pix->getInk() == 4094) pix->setInk(4095);
       }
     }
 
@@ -322,14 +578,26 @@ void AreaFiller::strokeFill(TStroke *stroke, int colorId, bool onlyUnfilled,
 
   TVectorImage app;
   app.addStroke(stroke);
+  
   app.findRegions();
+
+  //std::cout << "\nAreaFiller::strokeFill().fillArea()";
+
   for (UINT i = 0; i < app.getRegionCount(); i++)
     fillArea(m_ras, app.getRegion(i), colorId, onlyUnfilled, fillPaints,
              fillInks);
+  
+  //std::cout << "\nAreaFiller::strokeFill(), after fillArea()";
+  //outputPixels("tempRaster", m_ras); // issue 1151
+  
   app.removeStroke(0);
 
   stroke->transform(TTranslation(convert(-m_ras->getCenter())));
   restoreColors(m_ras, seeds);
+
+  //std::cout << "\nAreaFiller::strokeFill(), after restoreColors()";
+  //outputPixels("tempRaster", m_ras); // issue 1151
+
   m_ras->unlock();
 }
 
@@ -411,7 +679,7 @@ void FullColorAreaFiller::rectFill(const TRect &rect,
 //=============================================================================
 // InkSegmenter
 
-const int damInk = 4094;
+const int damInk = 4094; //same value as the tempoary gap close lines?
 
 //-----------------------------------------------------------------------------
 
@@ -473,7 +741,7 @@ public:
 
     pix = m_buf + p.y * m_wrap + p.x;
 
-    /*-- 同じインクの場合はreturn --*/
+    /*-- If the same ink is used, RETURN --*/
     if (pix->getInk() == ink && !m_clearInk) return false;
 
     if (!ConnectionTable[neighboursCode(pix, p)]) {
@@ -601,6 +869,7 @@ private:
     /*  oldInks.push_back(pair<TPixelCM32*, int>(buf, buf->getInk()));*/       \
     if (!clearInk) buf->setInk(ink);                                           \
     pixels.push_back(buf);                                                     \
+    points.push_back(TPoint(x1 + x, y1 + y));                                  \
   }
 
 #define CLEAR_INK                                                              \
@@ -644,11 +913,14 @@ void InkSegmenter::drawSegment(
   (m_r->pixels() + y2 * m_wrap + x2)->setInk(ink);
 
   std::vector<TPixelCM32*> pixels;
+  std::vector<TPoint> points;
   if (clearInk) {
     buf->setTone(255);
     (m_r->pixels() + y2 * m_wrap + x2)->setTone(255);
     pixels.push_back(buf);
     pixels.push_back(m_r->pixels() + y2 * m_wrap + x2);
+    points.push_back(TPoint(x1, y1));
+    points.push_back(TPoint(x2, y2));
   }
 
   dx = x2 - x1;
@@ -671,16 +943,28 @@ void InkSegmenter::drawSegment(
   }
   
   if (clearInk) {
-      bool lonelyPixels = true;
+    bool lonelyPixels = true;
       // make sure we don't put back the original color of isolated pixels.
+      int i = 0;
       for (auto pix : pixels) {
-          if ((ePix(pix)->getInk() != damInk && !ePix(pix)->isPurePaint()) || (wPix(pix)->getInk() != damInk && !wPix(pix)->isPurePaint()) ||
-              (sPix(pix)->getInk() != damInk && !sPix(pix)->isPurePaint()) || (nPix(pix)->getInk() != damInk && !nPix(pix)->isPurePaint()) ||
-              (nePix(pix)->getInk() != damInk && !nePix(pix)->isPurePaint()) || (sePix(pix)->getInk() != damInk && !sePix(pix)->isPurePaint()) ||
-              (swPix(pix)->getInk() != damInk && !swPix(pix)->isPurePaint()) || (nwPix(pix)->getInk() != damInk && !nwPix(pix)->isPurePaint())) {
-              lonelyPixels = false;
-              break;
-          }
+        bool e = ((points[i].x + 1) < m_lx), w = ((points[i].x - 1) >= 0),
+             n = ((points[i].y + 1) < m_ly), s = ((points[i].y - 1) >= 0);
+        i++;
+        if ((e && ePix(pix)->getInk() != damInk && !ePix(pix)->isPurePaint()) ||
+            (w && wPix(pix)->getInk() != damInk && !wPix(pix)->isPurePaint()) ||
+            (s && sPix(pix)->getInk() != damInk && !sPix(pix)->isPurePaint()) ||
+            (n && nPix(pix)->getInk() != damInk && !nPix(pix)->isPurePaint()) ||
+            (n && e && nePix(pix)->getInk() != damInk &&
+             !nePix(pix)->isPurePaint()) ||
+            (s && e && sePix(pix)->getInk() != damInk &&
+             !sePix(pix)->isPurePaint()) ||
+            (s && w && swPix(pix)->getInk() != damInk &&
+             !swPix(pix)->isPurePaint()) ||
+            (n && w && nwPix(pix)->getInk() != damInk &&
+             !nwPix(pix)->isPurePaint())) {
+          lonelyPixels = false;
+          break;
+        }
       }
       if (lonelyPixels) {
           for (auto pix : pixels) {

@@ -219,7 +219,7 @@ void RoomTabWidget::updateTabName() {
 //-----------------------------------------------------------------------------
 
 void RoomTabWidget::addNewTab() {
-  insertTab(0, tr("Room"));
+  insertTab(0, tr("New Room"));
   emit insertNewTabRoom();
 }
 
@@ -314,6 +314,7 @@ void TopBar::loadMenubar() {
   {
     addMenuItem(saveOtherMenu, MI_SaveScene);
     addMenuItem(saveOtherMenu, MI_SaveSceneAs);
+    addMenuItem(saveOtherMenu, MI_SaveSceneVersion);
   }
   addMenuItem(fileMenu, MI_OpenRecentScene);
   addMenuItem(fileMenu, MI_RevertScene);
@@ -338,15 +339,20 @@ void TopBar::loadMenubar() {
   }
   fileMenu->addSeparator();
   QMenu *importMenu = fileMenu->addMenu(tr("Import"));
-  { addMenuItem(importMenu, MI_ImportMagpieFile); }
+  { 
+    addMenuItem(importMenu, MI_ImportMagpieFile); 
+    addMenuItem(importMenu, MI_ImportOCA);
+  }
   QMenu *exportMenu = fileMenu->addMenu(tr("Export"));
   {
     addMenuItem(exportMenu, MI_ExportCurrentScene);
     addMenuItem(exportMenu, MI_SoundTrack);
     addMenuItem(exportMenu, MI_ExportXDTS);
+    addMenuItem(exportMenu, MI_ExportOCA);
     addMenuItem(exportMenu, MI_ExportXsheetPDF);
     addMenuItem(exportMenu, MI_StopMotionExportImageSequence);
     addMenuItem(exportMenu, MI_ExportTvpJson);
+    addMenuItem(exportMenu, MI_ExportCameraTrack);
   }
   fileMenu->addSeparator();
   addMenuItem(fileMenu, MI_PrintXsheet);
@@ -381,6 +387,9 @@ void TopBar::loadMenubar() {
   addMenuItem(editMenu, MI_Insert);
   addMenuItem(editMenu, MI_InsertBelow);
   addMenuItem(editMenu, MI_Clear);
+  addMenuItem(editMenu, MI_RemoveCells);
+  editMenu->addSeparator();
+  addMenuItem(editMenu, MI_ClearFrames);
   editMenu->addSeparator();
   addMenuItem(editMenu, MI_SelectAll);
   addMenuItem(editMenu, MI_InvertSelection);
@@ -429,10 +438,15 @@ void TopBar::loadMenubar() {
   addMenuItem(sceneMenu, MI_RemoveSceneFrame);
   addMenuItem(sceneMenu, MI_InsertGlobalKeyframe);
   addMenuItem(sceneMenu, MI_RemoveGlobalKeyframe);
+  addMenuItem(sceneMenu, MI_SetGlobalStopframe);
+  addMenuItem(sceneMenu, MI_RemoveGlobalStopframe);
   sceneMenu->addSeparator();
   addMenuItem(sceneMenu, MI_LipSyncPopup);
   sceneMenu->addSeparator();
   addMenuItem(sceneMenu, MI_RemoveEmptyColumns);
+  sceneMenu->addSeparator();
+  addMenuItem(sceneMenu, MI_ConvertToImplicitHolds);
+  addMenuItem(sceneMenu, MI_ConvertToExplicitHolds);
 
   // Menu' LEVEL
   QMenu *levelMenu = addMenu(ShortcutTree::tr("Level"), m_menuBar);
@@ -440,10 +454,12 @@ void TopBar::loadMenubar() {
   {
     addMenuItem(newMenu, MI_NewLevel);
     newMenu->addSeparator();
+    addMenuItem(newMenu, MI_NewRasterLevel);
     addMenuItem(newMenu, MI_NewToonzRasterLevel);
     addMenuItem(newMenu, MI_NewVectorLevel);
-    addMenuItem(newMenu, MI_NewRasterLevel);
     addMenuItem(newMenu, MI_NewNoteLevel);
+    newMenu->addSeparator();
+    addMenuItem(newMenu, MI_NewFolder);
   }
   addMenuItem(levelMenu, MI_LoadLevel);
   addMenuItem(levelMenu, MI_SaveLevel);
@@ -453,7 +469,6 @@ void TopBar::loadMenubar() {
   addMenuItem(levelMenu, MI_ExportLevel);
   levelMenu->addSeparator();
   addMenuItem(levelMenu, MI_AddFrames);
-  addMenuItem(levelMenu, MI_ClearFrames);
   addMenuItem(levelMenu, MI_Renumber);
   addMenuItem(levelMenu, MI_ReplaceLevel);
   addMenuItem(levelMenu, MI_RevertToCleanedUp);
@@ -534,9 +549,17 @@ void TopBar::loadMenubar() {
     addMenuItem(drawingSubMenu, MI_DrawingSubGroupBackward);
   }
   cellsMenu->addSeparator();
+  QMenu *inbetweenMenu = cellsMenu->addMenu(tr("Inbetween"));
+  {
+    addMenuItem(inbetweenMenu, MI_InbetweenLinear);
+    addMenuItem(inbetweenMenu, MI_InbetweenEaseIn);
+    addMenuItem(inbetweenMenu, MI_InbetweenEaseOut);
+    addMenuItem(inbetweenMenu, MI_InbetweenEaseInOut);
+  }
   addMenuItem(cellsMenu, MI_Autorenumber);
   addMenuItem(cellsMenu, MI_CreateBlankDrawing);
   addMenuItem(cellsMenu, MI_Duplicate);
+  addMenuItem(cellsMenu, MI_StopFrameHold);
   addMenuItem(cellsMenu, MI_MergeFrames);
   addMenuItem(cellsMenu, MI_CloneLevel);
   cellsMenu->addSeparator();
@@ -547,6 +570,8 @@ void TopBar::loadMenubar() {
   addMenuItem(playMenu, MI_Play);
   addMenuItem(playMenu, MI_Pause);
   addMenuItem(playMenu, MI_Loop);
+  addMenuItem(playMenu, MI_PingPong);
+  addMenuItem(playMenu, MI_InbetweenFlip);
   playMenu->addSeparator();
   addMenuItem(playMenu, MI_FirstFrame);
   addMenuItem(playMenu, MI_LastFrame);
@@ -589,6 +614,8 @@ void TopBar::loadMenubar() {
   addMenuItem(viewMenu, MI_ViewColorcard);
   addMenuItem(viewMenu, MI_ViewBBox);
   viewMenu->addSeparator();
+  addMenuItem(viewMenu, MI_ShowSymmetryGuide);
+  addMenuItem(viewMenu, MI_ShowPerspectiveGrids);
   addMenuItem(viewMenu, MI_SafeArea);
   addMenuItem(viewMenu, MI_FieldGuide);
   addMenuItem(viewMenu, MI_ViewRuler);
@@ -603,10 +630,14 @@ void TopBar::loadMenubar() {
   addMenuItem(viewMenu, MI_GCheck);
   addMenuItem(viewMenu, MI_ACheck);
   viewMenu->addSeparator();
+  addMenuItem(viewMenu, MI_ToggleLightTable);
   addMenuItem(viewMenu, MI_ShiftTrace);
+  addMenuItem(viewMenu, MI_ShowShiftOrigin);
   addMenuItem(viewMenu, MI_EditShift);
   addMenuItem(viewMenu, MI_NoShift);
   addMenuItem(viewMenu, MI_ResetShift);
+  viewMenu->addSeparator();
+  addMenuItem(viewMenu, MI_CurrentDrawingOnTop);
   viewMenu->addSeparator();
   addMenuItem(viewMenu, MI_VectorGuidedDrawing);
   viewMenu->addSeparator();
@@ -645,8 +676,10 @@ void TopBar::loadMenubar() {
   addMenuItem(windowsMenu, MI_OpenSchematic);
   addMenuItem(windowsMenu, MI_FxParamEditor);
   addMenuItem(windowsMenu, MI_OpenFilmStrip);
+  addMenuItem(windowsMenu, MI_OpenLocator);
   windowsMenu->addSeparator();
   addMenuItem(windowsMenu, MI_OpenFileBrowser);
+  addMenuItem(windowsMenu, MI_OpenPreproductionBoard);
   addMenuItem(windowsMenu, MI_OpenFileBrowser2);
   windowsMenu->addSeparator();
   addMenuItem(windowsMenu, MI_OpenCleanupSettings);
@@ -659,6 +692,8 @@ void TopBar::loadMenubar() {
   addMenuItem(windowsMenu, MI_OpenMotionPathPanel);
   addMenuItem(windowsMenu, MI_StartupPopup);
   addMenuItem(windowsMenu, MI_OpenGuidedDrawingControls);
+  addMenuItem(windowsMenu, MI_OpenAlignmentPanel);
+  addMenuItem(windowsMenu, MI_OpenCustomPanels);
   // windowsMenu->addSeparator();
   // addMenuItem(windowsMenu, MI_OpenExport);
   windowsMenu->addSeparator();

@@ -21,6 +21,7 @@
 #include "tvectorimage.h"
 #include "tenv.h"
 #include "bluredbrush.h"
+#include "symmetrystroke.h"
 #include "toonz/ttileset.h"
 #include "toonz/ttilesaver.h"
 #include "toonz/toonzimageutils.h"
@@ -33,8 +34,12 @@
 #include "tpixelutils.h"
 #include "historytypes.h"
 #include "toonzvectorbrushtool.h"
+#include "toonz/tcolumnhandle.h"
+#include "toonz/tstageobjectcmd.h"
 
 #include "toonz/mypaintbrushstyle.h"
+
+#include "tinbetween.h"
 
 // For Qt translation support
 #include <QCoreApplication>
@@ -69,6 +74,7 @@ TEnv::IntVar GeometricModifierJoinStyle("InknpaintGeometricModifierJoinStyle",
                                         0);
 TEnv::DoubleVar GeometricModifierPressure("InknpaintGeometricModifierPressure",
                                           0.5);
+TEnv::IntVar GeometricRange("InknpaintGeometricRange", 0);
 
 //-------------------------------------------------------------------
 
@@ -81,6 +87,11 @@ TEnv::DoubleVar GeometricModifierPressure("InknpaintGeometricModifierPressure",
 #define LOW_WSTR L"Low"
 #define MEDIUM_WSTR L"Medium"
 #define HIGH_WSTR L"High"
+
+#define LINEAR_INTERPOLATION L"Linear"
+#define EASE_IN_INTERPOLATION L"Ease In"
+#define EASE_OUT_INTERPOLATION L"Ease Out"
+#define EASE_IN_OUT_INTERPOLATION L"Ease In/Out"
 
 const double SNAPPING_LOW    = 5.0;
 const double SNAPPING_MEDIUM = 25.0;
@@ -301,20 +312,19 @@ public:
 //-----------------------------------------------------------------------------
 
 class MultilinePrimitiveUndo final : public TUndo {
-  std::vector<TPointD> m_oldVertex;
-  std::vector<TPointD> m_newVertex;
+  SymmetryStroke m_oldVertex;
+  SymmetryStroke m_newVertex;
   MultiLinePrimitive *m_tool;
 
 public:
-  MultilinePrimitiveUndo(const std::vector<TPointD> &vertex,
-                         MultiLinePrimitive *tool)
+  MultilinePrimitiveUndo(const SymmetryStroke &vertex, MultiLinePrimitive *tool)
       : TUndo(), m_oldVertex(vertex), m_tool(tool), m_newVertex() {}
 
   ~MultilinePrimitiveUndo() {}
 
   void undo() const override;
   void redo() const override;
-  void setNewVertex(const std::vector<TPointD> &vertex) {
+  void setNewVertex(const SymmetryStroke &vertex) {
     m_newVertex = vertex;
   }
 
@@ -504,6 +514,7 @@ public:
   TBoolProperty m_modifierEraser;
   TEnumProperty m_modifierJoinStyle;
   TDoubleProperty m_modifierPressure;
+  TEnumProperty m_frameRange;
 
   int m_targetType;
 
@@ -537,7 +548,8 @@ public:
       , m_modifierSize("ModifierSize", -3, 3, 0, true)
       , m_modifierEraser("ModifierEraser", false)
       , m_modifierJoinStyle("ModifierJoin")
-      , m_modifierPressure("ModifierPressure", -0.49, 0.5, 0) {
+      , m_modifierPressure("ModifierPressure", -0.49, 0.5, 0)
+      , m_frameRange("Range:") {
     if (targetType & TTool::Vectors) m_prop[0].bind(m_toolSize);
     if (targetType & TTool::ToonzImage || targetType & TTool::RasterImage) {
       m_prop[0].bind(m_modifierSize);
@@ -572,6 +584,14 @@ public:
       m_pencil.setId("PencilMode");
     }
     m_prop[0].bind(m_smooth);
+    m_prop[0].bind(m_frameRange);
+
+    m_frameRange.addValue(L"Off");
+    m_frameRange.addValue(LINEAR_INTERPOLATION);
+    m_frameRange.addValue(EASE_IN_INTERPOLATION);
+    m_frameRange.addValue(EASE_OUT_INTERPOLATION);
+    m_frameRange.addValue(EASE_IN_OUT_INTERPOLATION);
+    m_frameRange.setId("FrameRange");
 
     m_capStyle.addValue(BUTT_WSTR, QString::fromStdWString(BUTT_WSTR));
     m_capStyle.addValue(ROUNDC_WSTR, QString::fromStdWString(ROUNDC_WSTR));
@@ -655,6 +675,13 @@ public:
       m_snapSensitivity.setItemUIName(HIGH_WSTR, tr("High"));
       m_sendToBack.setQStringName(tr("Draw Under"));
     }
+
+    m_frameRange.setQStringName(tr("Range:"));
+    m_frameRange.setItemUIName(L"Off", tr("Off"));
+    m_frameRange.setItemUIName(LINEAR_INTERPOLATION, tr("Linear"));
+    m_frameRange.setItemUIName(EASE_IN_INTERPOLATION, tr("Ease In"));
+    m_frameRange.setItemUIName(EASE_OUT_INTERPOLATION, tr("Ease Out"));
+    m_frameRange.setItemUIName(EASE_IN_OUT_INTERPOLATION, tr("Ease In/Out"));
   }
 };
 
@@ -713,7 +740,10 @@ public:
   TPointD checkGuideSnapping(TPointD pos, const TMouseEvent &e);
   bool getSmooth() { return m_param->m_smooth.getValue(); }
 
-  virtual TStroke *makeStroke() const = 0;
+  virtual TStroke *makeStroke(int index = 0) = 0;
+  virtual std::vector<TStroke *> getStrokes() {
+    return std::vector<TStroke *>();
+  }
   virtual bool canTouchImageOnPreLeftClick() { return true; }
 };
 
@@ -790,6 +820,8 @@ class RectanglePrimitive final : public Primitive {
   TPointD m_startPoint;
   TPixel32 m_color;
 
+  SymmetryStroke m_rectangle;
+
 public:
   RectanglePrimitive(PrimitiveParam *param, GeometricTool *tool,
                      bool reasterTool)
@@ -799,7 +831,8 @@ public:
     return "Rectangle";
   }  // W_ToolOptions_ShapeRect"; }
 
-  TStroke *makeStroke() const override;
+  TStroke *makeStroke(int index = 0) override;
+  std::vector<TStroke *> getStrokes() override;
   void draw() override;
   void leftButtonDown(const TPointD &pos, const TMouseEvent &) override;
   void leftButtonDrag(const TPointD &realPos, const TMouseEvent &e) override;
@@ -818,6 +851,8 @@ class CirclePrimitive final : public Primitive {
   double m_radius;
   TPixel32 m_color;
 
+  SymmetryStroke m_circle;
+
 public:
   CirclePrimitive(PrimitiveParam *param, GeometricTool *tool, bool reasterTool)
       : Primitive(param, tool, reasterTool) {}
@@ -829,7 +864,8 @@ public:
   void draw() override;
   void leftButtonDown(const TPointD &pos, const TMouseEvent &) override;
   void leftButtonDrag(const TPointD &pos, const TMouseEvent &e) override;
-  TStroke *makeStroke() const override;
+  TStroke *makeStroke(int index = 0) override;
+  std::vector<TStroke *> getStrokes() override;
   void leftButtonUp(const TPointD &pos, const TMouseEvent &) override;
   void mouseMove(const TPointD &pos, const TMouseEvent &e) override;
   void onEnter() override;
@@ -843,13 +879,15 @@ const double joinDistance = 5.0;
 
 class MultiLinePrimitive : public Primitive {
 protected:
-  std::vector<TPointD> m_vertex;
+  SymmetryStroke m_vertex;
   TPointD m_mousePosition;
   TPixel32 m_color;
   bool m_closed, m_isSingleLine;
   bool m_speedMoved;        //!< True after moveSpeed(), false after addVertex()
   bool m_beforeSpeedMoved;  //!< Old value of m_speedMoved
   bool m_ctrlDown;          //!< Whether ctrl is hold down
+  bool m_shiftDown;
+  bool m_altDown;
   MultilinePrimitiveUndo *m_undo;
 
 public:
@@ -860,7 +898,9 @@ public:
       , m_isSingleLine(false)
       , m_speedMoved(false)
       , m_beforeSpeedMoved(false)
-      , m_ctrlDown(false) {}
+      , m_ctrlDown(false)
+      , m_shiftDown(false)
+      , m_altDown(false) {}
 
   std::string getName() const override {
     return "Polyline";
@@ -875,17 +915,18 @@ public:
   void leftButtonUp(const TPointD &pos, const TMouseEvent &) override;
   void mouseMove(const TPointD &pos, const TMouseEvent &e) override;
   bool keyDown(QKeyEvent *event) override;
-  TStroke *makeStroke() const override;
+  TStroke *makeStroke(int index = 0) override;
+  std::vector<TStroke *> getStrokes() override;
   void endLine();
   void onActivate() override;
   void onDeactivate() override {
-    m_vertex.clear();
+    m_vertex.reset();
     m_speedMoved       = false;
     m_beforeSpeedMoved = false;
   }
   void onEnter() override;
   void onImageChanged() override;
-  void setVertexes(const std::vector<TPointD> &vertex) { m_vertex = vertex; };
+  void setVertexes(const SymmetryStroke &vertex) { m_vertex = vertex; };
   void setSpeedMoved(bool speedMoved) { m_speedMoved = speedMoved; };
 
   // Only execute touchImage when clicking the first point of the polyline
@@ -952,6 +993,8 @@ class EllipsePrimitive final : public Primitive {
   TPointD m_startPoint;
   TPixel32 m_color;
 
+  SymmetryStroke m_ellipse;
+
 public:
   EllipsePrimitive(PrimitiveParam *param, GeometricTool *tool, bool reasterTool)
       : Primitive(param, tool, reasterTool) {}
@@ -963,7 +1006,8 @@ public:
   void draw() override;
   void leftButtonDown(const TPointD &pos, const TMouseEvent &) override;
   void leftButtonDrag(const TPointD &realPos, const TMouseEvent &e) override;
-  TStroke *makeStroke() const override;
+  TStroke *makeStroke(int index = 0) override;
+  std::vector<TStroke *> getStrokes() override;
   void leftButtonUp(const TPointD &pos, const TMouseEvent &) override;
   void mouseMove(const TPointD &pos, const TMouseEvent &e) override;
   void onEnter() override;
@@ -980,6 +1024,8 @@ class MultiArcPrimitive : public Primitive {
   int m_clickNumber;
   TPixel32 m_color;
   int m_undoCount;
+
+  SymmetryStroke m_arc;
 
 protected:
   bool m_isSingleArc;
@@ -998,7 +1044,8 @@ public:
 
   std::string getName() const override { return "MultiArc"; }
 
-  TStroke *makeStroke() const override;
+  TStroke *makeStroke(int index = 0) override;
+  std::vector<TStroke *> getStrokes() override;
   void draw() override;
   void leftButtonDown(const TPointD &pos, const TMouseEvent &e) override;
   void leftButtonUp(const TPointD &pos, const TMouseEvent &) override;
@@ -1026,6 +1073,13 @@ public:
     m_endPoint     = endPoint;
     m_centralPoint = centralPoint;
     m_clickNumber  = clickNumber;
+
+    if (m_arc.hasSymmetryBrushes()) {
+      m_arc.clear();
+      m_arc.push_back(m_startPoint);
+      if (m_clickNumber == 2) m_arc.push_back(m_endPoint);
+      if (m_clickNumber == 3) m_arc.push_back(m_centralPoint);
+    }
   }
 
   void decreaseUndo() { --m_undoCount; }
@@ -1099,6 +1153,8 @@ class PolygonPrimitive final : public Primitive {
   double m_radius;
   TPixel32 m_color;
 
+  SymmetryStroke m_polygon;
+
 public:
   PolygonPrimitive(PrimitiveParam *param, GeometricTool *tool, bool reasterTool)
       : Primitive(param, tool, reasterTool) {}
@@ -1107,7 +1163,8 @@ public:
     return "Polygon";
   }  // W_ToolOptions_ShapePolygon";}
 
-  TStroke *makeStroke() const override;
+  TStroke *makeStroke(int index = 0) override;
+  std::vector<TStroke *> getStrokes() override;
   void draw() override;
   void leftButtonDown(const TPointD &pos, const TMouseEvent &) override;
   void leftButtonDrag(const TPointD &pos, const TMouseEvent &e) override;
@@ -1131,7 +1188,7 @@ protected:
   // for both rotation and move
   bool m_isRotatingOrMoving;
   bool m_wasCtrlPressed;
-  TStroke *m_rotatedStroke;
+  std::vector<TStroke *> m_rotatedStroke;
   TPointD m_originalCursorPos;
   TPointD m_currentCursorPos;
   TPixel32 m_color;
@@ -1151,6 +1208,12 @@ protected:
   TRaster32P m_workRaster;
   TRect m_strokeRect, m_lastRect, m_strokeSegmentRect;
 
+  std::vector<TStroke *> m_firstStrokes;
+  std::pair<int, int> m_currCell;
+  TFrameId m_firstFrameId, m_veryFirstFrameId;
+  int m_firstFrameIdx, m_lastFrameIdx;
+  bool m_shiftPressed;
+
 public:
   GeometricTool(int targetType)
       : TTool("T_Geometric")
@@ -1158,12 +1221,13 @@ public:
       , m_param(targetType)
       , m_active(false)
       , m_isRotatingOrMoving(false)
-      , m_rotatedStroke(0)
       , m_firstTime(true)
       , m_isMyPaintStyleSelected(false)
       , m_notifier(0)
       , m_tileSaverCM32(0)
-      , m_tileSaverFullColor(0) {
+      , m_tileSaverFullColor(0)
+      , m_currCell(-1, -1)
+      , m_shiftPressed(false) {
     bind(targetType);
     if ((targetType & TTool::RasterImage) || (targetType & TTool::ToonzImage)) {
       addPrimitive(new RectanglePrimitive(&m_param, this, true));
@@ -1189,7 +1253,7 @@ public:
   }
 
   ~GeometricTool() {
-    delete m_rotatedStroke;
+    m_rotatedStroke.clear();
     std::map<std::wstring, Primitive *>::iterator it;
     for (it = m_primitiveTable.begin(); it != m_primitiveTable.end(); ++it)
       delete it->second;
@@ -1252,7 +1316,34 @@ public:
   }
   void leftButtonUp(const TPointD &p, const TMouseEvent &e) override {
     if (!m_active) return;
+
+    bool isEditingLevel = m_application->getCurrentFrame()->isEditingLevel();
+    bool renameColumn   = m_isFrameCreated;
+    if (!isEditingLevel && renameColumn) TUndoManager::manager()->beginBlock();
+    m_shiftPressed = e.isShiftPressed();
+
     if (m_primitive) m_primitive->leftButtonUp(p, e);
+
+    // Column name renamed to level name only if was originally empty
+    if (!isEditingLevel && renameColumn) {
+      int col = m_application->getCurrentColumn()->getColumnIndex();
+      TXshColumn *column =
+          m_application->getCurrentXsheet()->getXsheet()->getColumn(col);
+      int r0, r1;
+      column->getRange(r0, r1);
+      if (r0 == r1) {
+        TXshLevel *level = m_application->getCurrentLevel()->getLevel();
+        TXshSimpleLevelP simLevel = level->getSimpleLevel();
+        TStageObjectId columnId = TStageObjectId::ColumnId(col);
+        std::string columnName =
+            QString::fromStdWString(simLevel->getName()).toStdString();
+        TStageObjectCmd::rename(columnId, columnName,
+                                m_application->getCurrentXsheet());
+      }
+
+      TUndoManager::manager()->endBlock();
+    }
+
     invalidate();
   }
   void leftButtonDoubleClick(const TPointD &p, const TMouseEvent &e) override {
@@ -1268,8 +1359,7 @@ public:
   void onImageChanged() override {
     if (m_primitive) m_primitive->onImageChanged();
     m_isRotatingOrMoving = false;
-    delete m_rotatedStroke;
-    m_rotatedStroke = 0;
+    m_rotatedStroke.clear();
     invalidate();
   }
 
@@ -1295,13 +1385,30 @@ public:
         // move the stroke to the original location
         double x = -m_lastMoveStrokePos.x;
         double y = -m_lastMoveStrokePos.y;
-        m_rotatedStroke->transform(TTranslation(x, y));
+        m_rotatedStroke[0]->transform(TTranslation(x, y));
 
         // move the stroke according to current mouse position
         double dx           = m_currentCursorPos.x - m_originalCursorPos.x;
         double dy           = m_currentCursorPos.y - m_originalCursorPos.y;
         m_lastMoveStrokePos = TPointD(dx, dy);
-        m_rotatedStroke->transform(TTranslation(dx, dy));
+        m_rotatedStroke[0]->transform(TTranslation(dx, dy));
+
+        if (m_rotatedStroke.size() > 1) {
+          SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+              TTool::getTool("T_Symmetry", TTool::RasterImage));
+          TPointD dpiScale       = getViewer()->getDpiScale();
+
+          std::vector<TPointD> origlocs = symmetryTool->getSymmetryPoints(
+              TPointD(x, y), TPointD(), dpiScale);
+          std::vector<TPointD> deltas = symmetryTool->getSymmetryPoints(
+              TPointD(dx, dy), TPointD(), dpiScale);
+          for (int i = 1; i < origlocs.size(); i++) {
+            m_rotatedStroke[i]->transform(
+                TTranslation(origlocs[i].x, origlocs[i].y));
+            m_rotatedStroke[i]->transform(
+                TTranslation(deltas[i].x, deltas[i].y));
+          }
+        }
         invalidate();
         return;
       }
@@ -1313,13 +1420,14 @@ public:
 
         m_lastRotateAngle   = 0;
         m_originalCursorPos = m_currentCursorPos;
-        TRectD bbox         = m_rotatedStroke->getBBox();
+        TRectD bbox         = m_rotatedStroke[0]->getBBox();
         m_rotateCenter      = 0.5 * (bbox.getP11() + bbox.getP00());
       }
 
       // rotate
       // first, rotate the stroke back to original
-      m_rotatedStroke->transform(TRotation(m_rotateCenter, -m_lastRotateAngle));
+      m_rotatedStroke[0]->transform(
+          TRotation(m_rotateCenter, -m_lastRotateAngle));
 
       // then, rotate it according to mouse position
       // this formula is from: https://stackoverflow.com/a/31334882
@@ -1332,7 +1440,30 @@ public:
       if (e.isShiftPressed()) {
         angle = ((int)angle / 45) * 45;
       }
-      m_rotatedStroke->transform(TRotation(m_rotateCenter, angle));
+      m_rotatedStroke[0]->transform(TRotation(m_rotateCenter, angle));
+
+      if (m_rotatedStroke.size() > 1) {
+        SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+            TTool::getTool("T_Symmetry", TTool::RasterImage));
+        TPointD dpiScale       = getViewer()->getDpiScale();
+        SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+        std::vector<TPointD> origCenters = symmetryTool->getSymmetryPoints(
+            m_rotateCenter, TPointD(), dpiScale);
+        for (int i = 1; i < origCenters.size(); i++) {
+          double lastRotateAngle = m_lastRotateAngle;
+          double newRotateAngle  = angle;
+          if (symmObj.isUsingLineSymmetry() && (i % 2) != 0) {
+            lastRotateAngle *= -1;
+            newRotateAngle *= -1;
+          }
+          m_rotatedStroke[i]->transform(
+              TRotation(origCenters[i], -lastRotateAngle));
+          m_rotatedStroke[i]->transform(
+              TRotation(origCenters[i], newRotateAngle));
+        }
+      }
+
       m_lastRotateAngle = angle;
       invalidate();
       return;
@@ -1384,6 +1515,9 @@ public:
           break;
         }
       }
+      m_param.m_frameRange.setIndex(GeometricRange);
+
+      resetMulti();
     }
     m_primitive->resetSnap();
     /*--
@@ -1398,7 +1532,8 @@ public:
   void onDeactivate() override {
     if (m_isRotatingOrMoving) {
       tglColor(m_color);
-      drawStrokeCenterline(*m_rotatedStroke, sqrt(tglGetPixelSize2()));
+      for (int i = 0; i < m_rotatedStroke.size(); i++)
+        drawStrokeCenterline(*m_rotatedStroke[i], sqrt(tglGetPixelSize2()));
       return;
     }
     if (m_primitive) m_primitive->onDeactivate();
@@ -1410,9 +1545,15 @@ public:
   }
 
   void draw() override {
+    if (m_param.m_frameRange.getIndex() && m_firstStrokes.size()) {
+      tglColor(m_color);
+      for (int i = 0; i < m_firstStrokes.size(); i++)
+        drawStrokeCenterline(*m_firstStrokes[i], sqrt(tglGetPixelSize2()));
+    }
     if (m_isRotatingOrMoving) {
       tglColor(m_color);
-      drawStrokeCenterline(*m_rotatedStroke, sqrt(tglGetPixelSize2()));
+      for (int i = 0; i < m_rotatedStroke.size(); i++)
+        drawStrokeCenterline(*m_rotatedStroke[i], sqrt(tglGetPixelSize2()));
       return;
     }
     if (m_primitive) m_primitive->draw();
@@ -1517,8 +1658,17 @@ public:
         break;
       }
     }
-
+    // Frame Range
+    else if (propertyName == m_param.m_frameRange.getName()) {
+      GeometricRange = m_param.m_frameRange.getIndex();
+      resetMulti();
+    }
     return false;
+  }
+
+  void resetMulti() {
+    m_firstFrameId = -1;
+    m_firstStrokes.clear();
   }
 
   void addStroke() {
@@ -1526,44 +1676,218 @@ public:
     // TStroke *stroke = m_primitive->makeStroke();
     // if (!stroke) return;
 
-    TStroke *stroke = 0;
+    std::vector<TStroke *> strokes;
     if (!m_isRotatingOrMoving) {
-      stroke = m_primitive->makeStroke();
-      if (!stroke) return;
+      strokes = m_primitive->getStrokes();
+      if (!strokes.size() || !strokes[0]) return;
 
       if (m_param.m_rotate.getValue()) {
         m_isRotatingOrMoving = true;
-        m_rotatedStroke      = stroke;
-        TRectD bbox          = stroke->getBBox();
+        m_rotatedStroke      = strokes;
+        TRectD bbox          = strokes[0]->getBBox();
         m_rotateCenter       = 0.5 * (bbox.getP11() + bbox.getP00());
         m_originalCursorPos  = m_currentCursorPos;
         m_lastRotateAngle    = 0;
         m_lastMoveStrokePos  = TPointD(0, 0);
         m_wasCtrlPressed     = false;
 
-        const TTool::Application *app = TTool::getApplication();
-        if (!app) {
-          m_color = TPixel32::Red;
-          return;
-        }
-
-        const TColorStyle *style = app->getCurrentLevelStyle();
-        if (!style) {
-          m_color = TPixel32::Red;
-          return;
-        }
-
-        m_color = style->getAverageColor();
-
+        m_color = TPixel32::Red;
         return;
       }
     } else {
-      stroke               = m_rotatedStroke;
+      strokes              = m_rotatedStroke;
       m_isRotatingOrMoving = false;
-      m_rotatedStroke      = 0;
+      m_rotatedStroke.clear();
     }
 
-    TImage *image = getImage(true);
+    TApplication *app = TTool::getApplication();
+
+    if (m_param.m_frameRange.getIndex()) {
+      if (!m_firstStrokes.size()) {
+        m_currCell     = std::pair<int, int>(getColumnIndex(), getFrame());
+        m_firstStrokes = strokes;
+        m_firstFrameId = m_veryFirstFrameId = getCurrentFid();
+        m_firstFrameIdx = app->getCurrentFrame()->getFrameIndex();
+        m_color         = TPixel32::Red;
+        invalidate();
+      } else {
+        bool isEditingLevel = app->getCurrentFrame()->isEditingLevel();
+        qApp->processEvents();
+
+        TFrameId fid   = getCurrentFid();
+        m_lastFrameIdx = app->getCurrentFrame()->getFrameIndex();
+
+        TXshCell cell = app->getCurrentXsheet()->getXsheet()->getCell(
+            m_currCell.second, m_currCell.first);
+        TXshSimpleLevel *sl = cell.getSimpleLevel();
+
+        if (isEditingLevel)
+          processSequence(sl, m_firstStrokes, strokes, m_firstFrameId, fid,
+                          m_param.m_frameRange.getIndex());
+        else
+          processSequence(m_firstStrokes, strokes, m_firstFrameIdx,
+                          m_lastFrameIdx, m_param.m_frameRange.getIndex());
+
+        if (m_shiftPressed) {
+          m_firstStrokes = strokes;
+          if (isEditingLevel)
+            m_firstFrameId = getCurrentFid();
+          else {
+            m_firstFrameIdx = m_lastFrameIdx;
+            app->getCurrentFrame()->setFrame(m_firstFrameIdx);
+          }
+        } else {
+          m_firstStrokes.clear();
+          if (app->getCurrentFrame()->isEditingScene()) {
+            app->getCurrentColumn()->setColumnIndex(m_currCell.first);
+            app->getCurrentFrame()->setFrame(m_currCell.second);
+          } else
+            app->getCurrentFrame()->setFid(m_veryFirstFrameId);
+        }
+      }
+      return;
+    }
+
+    if (strokes.size() > 1) TUndoManager::manager()->beginBlock();
+    for (int i = 0; i < strokes.size(); i++) {
+      TStroke *stroke = strokes[i];
+      addStrokeToImage(getImage(true), stroke);
+    }
+    if (strokes.size() > 1) TUndoManager::manager()->endBlock();
+  }
+
+  void processSequence(TXshSimpleLevel *sl, std::vector<TStroke *> firstStrokes,
+                       std::vector<TStroke *> lastStrokes, TFrameId firstFid,
+                       TFrameId lastFid, int multi) {
+    TTool::Application *app = TTool::getApplication();
+
+    bool backward = false;
+    if (firstFid > lastFid) {
+      std::swap(firstFid, lastFid);
+      backward = true;
+    }
+    assert(firstFid <= lastFid);
+    std::vector<TFrameId> allFids;
+    sl->getFids(allFids);
+
+    std::vector<TFrameId>::iterator i0 = allFids.begin();
+    while (i0 != allFids.end() && *i0 < firstFid) i0++;
+    if (i0 == allFids.end()) return;
+    std::vector<TFrameId>::iterator i1 = i0;
+    while (i1 != allFids.end() && *i1 <= lastFid) i1++;
+    assert(i0 < i1);
+    std::vector<TFrameId> fids(i0, i1);
+    int m = fids.size();
+    assert(m > 0);
+
+    enum TInbetween::TweenAlgorithm algorithm = TInbetween::LinearInterpolation;
+    if (multi == 2) {  // EASE_IN_INTERPOLATION)
+      algorithm = TInbetween::EaseInInterpolation;
+    } else if (multi == 3) {  // EASE_OUT_INTERPOLATION)
+      algorithm = TInbetween::EaseOutInterpolation;
+    } else if (multi == 4) {  // EASE_IN_OUT_INTERPOLATION)
+      algorithm = TInbetween::EaseInOutInterpolation;
+    }
+
+    TVectorImageP firstImage = new TVectorImage();
+    TVectorImageP lastImage  = new TVectorImage();
+
+    for (int i = 0; i < firstStrokes.size(); i++)
+      firstImage->addStroke(new TStroke(*firstStrokes[i]), false);
+
+    for (int i = 0; i < lastStrokes.size(); i++)
+      lastImage->addStroke(new TStroke(*lastStrokes[i]), false);
+
+    TUndoManager::manager()->beginBlock();
+    for (int i = 0; i < m; ++i) {
+      TFrameId fid = fids[i];
+      assert(firstFid <= fid && fid <= lastFid);
+      TImageP img     = sl->getFrame(fid, true);
+      double t        = m > 1 ? (double)i / (double)(m - 1) : 0.5;
+      t               = TInbetween::interpolation(t, algorithm);
+      if (backward) t = 1 - t;
+
+      if (app) app->getCurrentFrame()->setFid(fid);
+
+      TVectorImageP vi = TInbetween(firstImage, lastImage).tween(t);
+      for (int j = 0; j < vi->getStrokeCount(); j++) {
+        TStroke *stroke = new TStroke(*vi->getStroke(j));
+        addStrokeToImage(img.getPointer(), stroke);
+      }
+    }
+    TUndoManager::manager()->endBlock();
+  }
+
+  void processSequence(std::vector<TStroke *> firstStrokes,
+                       std::vector<TStroke *> lastStrokes, int firstFidx,
+                       int lastFidx, int multi) {
+    bool backwardidx = false;
+    if (firstFidx > lastFidx) {
+      std::swap(firstFidx, lastFidx);
+      backwardidx = true;
+    }
+
+    TTool::Application *app = TTool::getApplication();
+    TFrameId lastFrameId;
+    int col = app->getCurrentColumn()->getColumnIndex();
+    int row;
+
+    std::vector<std::pair<int, TXshCell>> cellList;
+
+    for (row = firstFidx; row <= lastFidx; row++) {
+      TXshCell cell = app->getCurrentXsheet()->getXsheet()->getCell(row, col);
+      if (cell.isEmpty()) continue;
+      TFrameId fid = cell.getFrameId();
+      if (lastFrameId == fid) continue;  // Skip held cells
+      cellList.push_back(std::pair<int, TXshCell>(row, cell));
+      lastFrameId = fid;
+    }
+
+    int m = cellList.size();
+
+    enum TInbetween::TweenAlgorithm algorithm = TInbetween::LinearInterpolation;
+    if (multi == 2) {  // EASE_IN_INTERPOLATION)
+      algorithm = TInbetween::EaseInInterpolation;
+    } else if (multi == 3) {  // EASE_OUT_INTERPOLATION)
+      algorithm = TInbetween::EaseOutInterpolation;
+    } else if (multi == 4) {  // EASE_IN_OUT_INTERPOLATION)
+      algorithm = TInbetween::EaseInOutInterpolation;
+    }
+
+    TVectorImageP firstImage = new TVectorImage();
+    TVectorImageP lastImage  = new TVectorImage();
+
+    for (int i = 0; i < firstStrokes.size(); i++)
+      firstImage->addStroke(new TStroke(*firstStrokes[i]), false);
+
+    for (int i = 0; i < lastStrokes.size(); i++)
+      lastImage->addStroke(new TStroke(*lastStrokes[i]), false);
+
+    TUndoManager::manager()->beginBlock();
+    for (int i = 0; i < m; i++) {
+      row           = cellList[i].first;
+      TXshCell cell = cellList[i].second;
+      TFrameId fid  = cell.getFrameId();
+      TImageP img   = cell.getImage(true);
+      if (!img) continue;
+      double t           = m > 1 ? (double)i / (double)(m - 1) : 1.0;
+      t                  = TInbetween::interpolation(t, algorithm);
+      if (backwardidx) t = 1 - t;
+
+      if (app) app->getCurrentFrame()->setFrame(row);
+
+      TVectorImageP vi = TInbetween(firstImage, lastImage).tween(t);
+      for (int j = 0; j < vi->getStrokeCount(); j++) {
+        TStroke *stroke = new TStroke(*vi->getStroke(j));
+        addStrokeToImage(img.getPointer(), stroke);
+      }
+    }
+    TUndoManager::manager()->endBlock();
+  }
+
+  void addStrokeToImage(TImage *image, TStroke *stroke) {
+    if (!stroke) return;
+
     TToonzImageP ti(image);
     TVectorImageP vi(image);
     TRasterImageP ri(image);
@@ -2187,10 +2511,18 @@ TPointD Primitive::checkGuideSnapping(TPointD pos, const TMouseEvent &e) {
 
 void RectanglePrimitive::draw() {
   drawSnap();
+
   if (m_isEditing || m_isPrompting ||
       areAlmostEqual(m_selectingRect.x0, m_selectingRect.x1) ||
       areAlmostEqual(m_selectingRect.y0, m_selectingRect.y1)) {
-    tglColor(m_isEditing ? m_color : TPixel32::Green);
+//    tglColor(m_isEditing ? m_color : TPixel32::Green);
+
+    if (m_rectangle.hasSymmetryBrushes()) {
+      double pixelSize = m_tool->getPixelSize();
+      m_rectangle.drawRectangle(TPixel32::Red, pixelSize);
+      return;
+    }
+
     glBegin(GL_LINE_LOOP);
     tglVertex(m_selectingRect.getP00());
     tglVertex(m_selectingRect.getP01());
@@ -2205,6 +2537,8 @@ void RectanglePrimitive::draw() {
 void RectanglePrimitive::leftButtonDown(const TPointD &pos,
                                         const TMouseEvent &) {
   TTool::Application *app = TTool::getApplication();
+  if (!app) return;
+
   if (app->getCurrentObject()->isSpline()) {
     m_color     = TPixel32::Red;
     m_isEditing = true;
@@ -2230,6 +2564,21 @@ void RectanglePrimitive::leftButtonDown(const TPointD &pos,
   m_selectingRect.y0 = m_startPoint.y;
   m_selectingRect.x1 = m_startPoint.x;
   m_selectingRect.y1 = m_startPoint.y;
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  TPointD dpiScale       = m_tool->getViewer()->getDpiScale();
+  SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+  if (!app->getCurrentObject()->isSpline() && symmetryTool &&
+      symmetryTool->isGuideEnabled()) {
+    m_rectangle.reset();
+    m_rectangle.addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                                   symmObj.getCenterPoint(),
+                                   symmObj.isUsingLineSymmetry(), dpiScale);
+    m_rectangle.setRectangle(TPointD(m_selectingRect.x0, m_selectingRect.y0),
+                             TPointD(m_selectingRect.x1, m_selectingRect.y1));
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -2268,11 +2617,34 @@ void RectanglePrimitive::leftButtonDrag(const TPointD &realPos,
     m_selectingRect.x0 = m_startPoint.x + m_startPoint.x - pos.x;
     m_selectingRect.y0 = m_startPoint.y + m_startPoint.y - pos.y;
   }
+
+  if (m_rectangle.hasSymmetryBrushes()) {
+    m_rectangle.clear();
+    m_rectangle.setRectangle(TPointD(m_selectingRect.x0, m_selectingRect.y0),
+                             TPointD(m_selectingRect.x1, m_selectingRect.y1));
+  }
 }
 
 //-----------------------------------------------------------------------------
 
-TStroke *RectanglePrimitive::makeStroke() const {
+std::vector<TStroke *> RectanglePrimitive::getStrokes() {
+  std::vector<TStroke *> strokes;
+
+  TStroke *stroke = makeStroke(0);
+  strokes.push_back(stroke);
+
+  for (int i = 1; i < m_rectangle.getBrushCount(); i++) {
+    stroke = makeStroke(i);
+    if (!stroke) continue;
+    strokes.push_back(stroke);
+  }
+
+  return strokes;
+}
+
+//-----------------------------------------------------------------------------
+
+TStroke *RectanglePrimitive::makeStroke(int index) {
   if (areAlmostEqual(m_selectingRect.x0, m_selectingRect.x1) ||
       areAlmostEqual(m_selectingRect.y0, m_selectingRect.y1))
     return 0;
@@ -2331,6 +2703,26 @@ TStroke *RectanglePrimitive::makeStroke() const {
     stroke    = new TStroke(points);
   }
   stroke->setSelfLoop();
+
+  if (index > 0 && m_rectangle.hasSymmetryBrushes()) {
+    std::vector<TPointD> *brush = m_rectangle.getBrush(index);
+
+    TPointD center = TPointD((selArea.x0 + selArea.x1) * 0.5,
+                             (selArea.y0 + selArea.y1) * 0.5);
+
+    double dx    = brush->at(1).x - brush->at(0).x;
+    double dy    = brush->at(1).y - brush->at(0).y;
+    double angle = std::atan2(dy, dx) / (3.14159 / 180) - 90;
+    if (angle < 0) angle += 360;
+
+    stroke->transform(TRotation(center, angle));
+    stroke->transform(TTranslation(-center));
+
+    center = TPointD((brush->at(0).x + brush->at(2).x) * 0.5,
+                     (brush->at(0).y + brush->at(2).y) * 0.5);
+    stroke->transform(TTranslation(center));
+  }
+
   return stroke;
 }
 
@@ -2340,6 +2732,7 @@ void RectanglePrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &) {
   if (!m_isEditing) return;
   m_isEditing = false;
   m_tool->addStroke();
+  m_rectangle.reset();
   resetSnap();
 }
 
@@ -2373,7 +2766,15 @@ void RectanglePrimitive::onEnter() {
 void CirclePrimitive::draw() {
   drawSnap();
   if (m_isEditing || m_isPrompting) {
-    tglColor(m_isEditing ? m_color : TPixel32::Green);
+//    tglColor(m_isEditing ? m_color : TPixel32::Green);
+
+    if (m_circle.hasSymmetryBrushes()) {
+      double pixelSize = m_tool->getPixelSize();
+      m_circle.drawCircle(TPixel32::Red, pixelSize);
+      return;
+    }
+
+    tglColor(TPixel32::Red);
     tglDrawCircle(m_centre, m_radius);
   }
 }
@@ -2381,9 +2782,6 @@ void CirclePrimitive::draw() {
 //-----------------------------------------------------------------------------
 
 void CirclePrimitive::leftButtonDown(const TPointD &pos, const TMouseEvent &) {
-  m_pos    = getSnap(pos);
-  m_centre = m_pos;
-
   TTool::Application *app = TTool::getApplication();
   if (!app) return;
 
@@ -2402,6 +2800,23 @@ void CirclePrimitive::leftButtonDown(const TPointD &pos, const TMouseEvent &) {
   }
 
   if (!m_isEditing) return;
+
+  m_pos    = getSnap(pos);
+  m_centre = m_pos;
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  TPointD dpiScale       = m_tool->getViewer()->getDpiScale();
+  SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+  if (!app->getCurrentObject()->isSpline() && symmetryTool &&
+      symmetryTool->isGuideEnabled()) {
+    m_circle.reset();
+    m_circle.addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                                symmObj.getCenterPoint(),
+                                symmObj.isUsingLineSymmetry(), dpiScale);
+    m_circle.setCircle(m_centre, 0);
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -2413,12 +2828,39 @@ void CirclePrimitive::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
   m_pos    = calculateSnap(pos, e);
   m_pos    = checkGuideSnapping(pos, e);
   m_radius = tdistance(m_centre, m_pos);
+
+  if (m_circle.hasSymmetryBrushes()) {
+    m_circle.clear();
+    m_circle.setCircle(m_centre, m_radius);
+  }
 }
 
 //-----------------------------------------------------------------------------
 
-TStroke *CirclePrimitive::makeStroke() const {
-  return makeEllipticStroke(getThickness(), m_centre, m_radius, m_radius);
+std::vector<TStroke *> CirclePrimitive::getStrokes() {
+  std::vector<TStroke *> strokes;
+
+  TStroke *stroke = makeStroke(0);
+  strokes.push_back(stroke);
+
+  for (int i = 1; i < m_circle.getBrushCount(); i++) {
+    stroke = makeStroke(i);
+    if (!stroke) continue;
+    strokes.push_back(stroke);
+  }
+
+  return strokes;
+}
+
+//-----------------------------------------------------------------------------
+
+TStroke *CirclePrimitive::makeStroke(int index) {
+  TPointD center = m_centre;
+
+  if (index > 0 && m_circle.hasSymmetryBrushes())
+    center = m_circle.getPoint(0, index);
+
+  return makeEllipticStroke(getThickness(), center, m_radius, m_radius);
 }
 
 //-----------------------------------------------------------------------------
@@ -2429,6 +2871,7 @@ void CirclePrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &) {
   if (isAlmostZero(m_radius)) return;
 
   m_tool->addStroke();
+  m_circle.reset();
   m_radius = 0;
 }
 
@@ -2466,7 +2909,7 @@ void MultiLinePrimitive::addVertex(const TPointD &pos) {
     return;
   }
 
-  TPointD &vertex = m_vertex[count - 1];
+  TPointD vertex = m_vertex.getPoint(count - 1);
 
   // Caso particolare in cui inizio una curva e la chiudo subito cliccando sul
   // punto di pertenza
@@ -2485,10 +2928,12 @@ void MultiLinePrimitive::addVertex(const TPointD &pos) {
     speedOutPoint = vertex + computeSpeed(vertex, pos, 0.01);
     m_vertex.push_back(speedOutPoint);
   } else {
-    if (m_ctrlDown)
-      vertex =
-          m_vertex[count - 2] + computeSpeed(m_vertex[count - 2], pos, 0.01);
-    speedOutPoint = vertex;
+    if (m_ctrlDown) {
+      m_vertex.setPoint(
+          count - 1, (m_vertex.getPoint(count - 2) +
+                      computeSpeed(m_vertex.getPoint(count - 2), pos, 0.01)));
+    }
+    speedOutPoint = m_vertex.getPoint(count - 1);
   }
 
   // Calcolo lo speedIn
@@ -2509,11 +2954,12 @@ void MultiLinePrimitive::addVertex(const TPointD &pos) {
 void MultiLinePrimitive::moveSpeed(const TPointD &delta) {
   int count = m_vertex.size();
   assert(count > 0);
-  TPointD lastPoint        = m_vertex[count - 1];
+  TPointD lastPoint        = m_vertex.getPoint(count - 1);
   TPointD newSpeedOutPoint = lastPoint - delta;
-  if (m_speedMoved)
-    m_vertex[count - 1] = newSpeedOutPoint;
-  else {
+  if (m_speedMoved) {
+    m_vertex.setPoint(count - 1, newSpeedOutPoint);
+    if (m_altDown) return;
+  } else {
     m_vertex.push_back(newSpeedOutPoint);
     ++count;
   }
@@ -2522,7 +2968,7 @@ void MultiLinePrimitive::moveSpeed(const TPointD &delta) {
     return;
   }
 
-  TPointD vertex = m_vertex[count - 2];
+  TPointD vertex = m_vertex.getPoint(count - 2);
 
   TPointD v(0, 0);
   if (newSpeedOutPoint != vertex) v = normalize(newSpeedOutPoint - vertex);
@@ -2530,14 +2976,17 @@ void MultiLinePrimitive::moveSpeed(const TPointD &delta) {
   double speedOut         = tdistance(newSpeedOutPoint, vertex);
   TPointD newSpeedInPoint = vertex - TPointD(speedOut * v.x, speedOut * v.y);
 
-  m_vertex[count - 3] = newSpeedInPoint;
-  if (tdistance(m_vertex[count - 5], m_vertex[count - 6]) <= 0.02)
+  m_vertex.setPoint(count - 3, newSpeedInPoint);
+  if (tdistance(m_vertex.getPoint(count - 5), m_vertex.getPoint(count - 6)) <=
+      0.02)
     // see ControlPointEditorStroke::isSpeedOutLinear() from
     // controlpointselection.cpp
-    m_vertex[count - 5] =
-        m_vertex[count - 6] +
-        computeSpeed(m_vertex[count - 6], m_vertex[count - 3], 0.01);
-  m_vertex[count - 4] = 0.5 * (m_vertex[count - 3] + m_vertex[count - 5]);
+    m_vertex.setPoint(count - 5,
+                      (m_vertex.getPoint(count - 6) +
+                       computeSpeed(m_vertex.getPoint(count - 6),
+                                    m_vertex.getPoint(count - 3), 0.01)));
+  m_vertex.setPoint(count - 4, (0.5 * (m_vertex.getPoint(count - 3) +
+                                       m_vertex.getPoint(count - 5))));
 }
 
 //-----------------------------------------------------------------------------
@@ -2548,57 +2997,10 @@ void MultiLinePrimitive::draw() {
   drawSnap();
 
   if ((m_isEditing || m_isPrompting) && size > 0) {
-    tglColor(m_isEditing ? m_color : TPixel32::Green);
-    std::vector<TPointD> points;
-    points.assign(m_vertex.begin(), m_vertex.end());
-    int count = points.size();
-    if (count % 4 == 1) {
-      // No speedOut
-      points.push_back(points[count - 1]);
-      count++;
-    } else if (m_ctrlDown)
-      points[count - 1] = points[count - 2];
-
-    points.push_back(0.5 * (m_mousePosition + points[count - 1]));
-    points.push_back(m_mousePosition);
-    points.push_back(m_mousePosition);
-
+    TPixel color     = TPixel32::Red;
     double pixelSize = m_tool->getPixelSize();
-
-    TStroke *stroke = new TStroke(points);
-    drawStrokeCenterline(*stroke, pixelSize);
-    delete stroke;
-
-    if (m_vertex.size() > 1) {
-      tglColor(TPixel(79, 128, 255));
-      int index = (count < 5) ? count - 1 : count - 5;
-      // Disegno lo speedOut precedente (che e' quello corrente solo nel caso in
-      // cui count < 5)
-      TPointD p0 = m_vertex[index];
-      TPointD p1 = m_vertex[index - 1];
-      if (tdistance(p0, p1) > 0.1) {
-        tglDrawSegment(p0, p1);
-        tglDrawDisk(p0, 2 * pixelSize);
-        tglDrawDisk(p1, 4 * pixelSize);
-      }
-      // Disegno lo speedIn/Out corrente nel caso in cui count > 5
-      if (m_speedMoved && count > 5) {
-        TPointD p0 = m_vertex[count - 1];
-        TPointD p1 = m_vertex[count - 2];
-        TPointD p2 = m_vertex[count - 3];
-        tglDrawSegment(p0, p2);
-        tglDrawDisk(p0, 2 * pixelSize);
-        tglDrawDisk(p1, 4 * pixelSize);
-        tglDrawDisk(p2, 2 * pixelSize);
-      }
-    }
-
-    if (m_closed)
-      tglColor(TPixel32((m_color.r + 127) % 255, m_color.g,
-                        (m_color.b + 127) % 255, m_color.m));
-    else
-      tglColor(m_color);
-    tglDrawCircle(m_vertex[0], joinDistance * pixelSize);
+    m_vertex.drawPolyline(m_mousePosition, color, pixelSize, m_speedMoved,
+                          m_ctrlDown);
   }
 }
 
@@ -2625,6 +3027,22 @@ void MultiLinePrimitive::leftButtonDown(const TPointD &pos,
 
   if (!m_isEditing) return;
 
+  if (!app->getCurrentObject()->isSpline() && m_vertex.size() == 0) {
+    SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+        TTool::getTool("T_Symmetry", TTool::RasterImage));
+    TPointD dpiScale       = m_tool->getViewer()->getDpiScale();
+    SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+    if (symmetryTool && symmetryTool->isGuideEnabled()) {
+      m_vertex.addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                                  symmObj.getCenterPoint(),
+                                  symmObj.isUsingLineSymmetry(), dpiScale);
+    }
+  }
+
+  m_vertex.setJoinDistance(joinDistance);
+  m_vertex.setAllowSpeed(true);
+
   m_undo = new MultilinePrimitiveUndo(m_vertex, this);
   TUndoManager::manager()->add(m_undo);
   m_mousePosition = pos;
@@ -2634,10 +3052,10 @@ void MultiLinePrimitive::leftButtonDown(const TPointD &pos,
 
   // Se clicco nell'ultimo vertice chiudo la linea.
   TPointD _pos       = pos;
-  if (m_closed) _pos = m_vertex.front();
+  if (m_closed) _pos = m_vertex.getBrush()->front();
 
   if ((e.isShiftPressed() && !e.isCtrlPressed()) && !m_vertex.empty())
-    addVertex(rectify(m_vertex.back(), _pos));
+    addVertex(rectify(m_vertex.getBrush()->back(), _pos));
   else
     addVertex(newPos);
   m_undo->setNewVertex(m_vertex);
@@ -2651,13 +3069,16 @@ void MultiLinePrimitive::leftButtonDown(const TPointD &pos,
 void MultiLinePrimitive::leftButtonDrag(const TPointD &pos,
                                         const TMouseEvent &e) {
   if (m_vertex.size() == 0 || m_isSingleLine) return;
+  TPointD newPos = pos;
+  if (m_vertex.size() >= 2 && m_shiftDown)
+    newPos = rectify(m_vertex.getPoint(m_vertex.size() - 2), pos);
   if (m_speedMoved ||
-      tdistance2(m_vertex[m_vertex.size() - 1], pos) >
+      tdistance2(m_vertex.getPoint(m_vertex.size() - 1), newPos) >
           sq(7.0 * m_tool->getPixelSize())) {
-    moveSpeed(m_mousePosition - pos);
+    moveSpeed(m_mousePosition - newPos);
     m_speedMoved = true;
     m_undo->setNewVertex(m_vertex);
-    m_mousePosition = pos;
+    m_mousePosition = newPos;
   }
 }
 
@@ -2679,23 +3100,25 @@ void MultiLinePrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &) {
 //-----------------------------------------------------------------------------
 
 void MultiLinePrimitive::mouseMove(const TPointD &pos, const TMouseEvent &e) {
-  m_ctrlDown = e.isCtrlPressed() && !e.isShiftPressed();
+  m_ctrlDown  = e.isCtrlPressed() && !e.isShiftPressed();
+  m_shiftDown = e.isShiftPressed();
+  m_altDown   = e.isAltPressed();
   TPointD newPos;
   newPos = calculateSnap(pos, e);
   newPos = checkGuideSnapping(pos, e);
 
   if (m_isEditing) {
-    if ((e.isShiftPressed() && !e.isCtrlPressed()) && !m_vertex.empty())
-      m_mousePosition = rectify(m_vertex.back(), newPos);
+    if ((m_shiftDown && !e.isCtrlPressed()) && !m_vertex.empty())
+      m_mousePosition = rectify(m_vertex.getBrush()->back(), newPos);
     else
       m_mousePosition = newPos;
 
     double dist = joinDistance * joinDistance;
 
-    if (!m_vertex.empty() &&
-        (tdistance2(pos, m_vertex.front()) < dist * m_tool->getPixelSize())) {
+    if (!m_vertex.empty() && (tdistance2(pos, m_vertex.getBrush()->front()) <
+                              dist * m_tool->getPixelSize())) {
       m_closed        = true;
-      m_mousePosition = m_vertex.front();
+      m_mousePosition = m_vertex.getBrush()->front();
     } else
       m_closed = false;
 
@@ -2724,13 +3147,30 @@ bool MultiLinePrimitive::keyDown(QKeyEvent *event) {
   m_beforeSpeedMoved = false;
   m_closed           = false;
 
-  m_vertex.clear();
+  m_vertex.reset();
   return true;
 }
 
 //-----------------------------------------------------------------------------
 
-TStroke *MultiLinePrimitive::makeStroke() const {
+std::vector<TStroke *> MultiLinePrimitive::getStrokes() {
+  std::vector<TStroke *> strokes;
+
+  TStroke *stroke = makeStroke(0);
+  strokes.push_back(stroke);
+
+  for (int i = 1; i < m_vertex.getBrushCount(); i++) {
+    stroke = makeStroke(i);
+    if (!stroke) continue;
+    strokes.push_back(stroke);
+  }
+
+  return strokes;
+}
+
+//-----------------------------------------------------------------------------
+
+TStroke *MultiLinePrimitive::makeStroke(int index) {
   double thick = getThickness();
 
   /*---
@@ -2741,13 +3181,14 @@ TStroke *MultiLinePrimitive::makeStroke() const {
   UINT size = m_vertex.size();
   if (size <= 1) return 0;
 
-  if (!m_isSingleLine) TUndoManager::manager()->popUndo((size - 1) / 4 + 1);
+  if (!m_isSingleLine && index == 0)
+    TUndoManager::manager()->popUndo((size - 1) / 4 + 1);
 
   TStroke *stroke = 0;
   std::vector<TThickPoint> points;
   int i;
   for (i = 0; i < (int)size; i++) {
-    TPointD vertex = m_vertex[i];
+    TPointD vertex = m_vertex.getPoint(i, index);
     points.push_back(TThickPoint(vertex, thick));
   }
   stroke = new TStroke(points);
@@ -2767,7 +3208,7 @@ void MultiLinePrimitive::endLine() {
 
   if (!m_isSingleLine && !m_vertex.empty() &&
       m_vertex.size() % 4 != 1 /* && !m_rasterTool*/) {
-    m_vertex.erase(--m_vertex.end());
+    m_vertex.erase(--m_vertex.getBrush()->end());
     assert(m_vertex.size() == 3 || m_vertex.size() % 4 == 1);
   }
 
@@ -2775,7 +3216,7 @@ void MultiLinePrimitive::endLine() {
 
   if (m_closed) m_closed = false;
 
-  m_vertex.clear();
+  m_vertex.reset();
 }
 
 //-----------------------------------------------------------------------------
@@ -2783,7 +3224,7 @@ void MultiLinePrimitive::endLine() {
 void MultiLinePrimitive::onActivate() {
   m_isEditing = false;
   m_closed    = false;
-  m_vertex.clear();
+  m_vertex.reset();
   m_speedMoved       = false;
   m_beforeSpeedMoved = false;
 }
@@ -2815,14 +3256,9 @@ void LinePrimitive::draw() {
 
   drawSnap();
 
-  tglColor(TPixel32::Red);
-
   if (m_isEditing || m_isPrompting) {
-    glBegin(GL_LINE_STRIP);
-    tglVertex(m_vertex[0]);
-
-    tglVertex(m_mousePosition);
-    glEnd();
+    double pixelSize = m_tool->getPixelSize();
+    m_vertex.drawPolyline(m_mousePosition, TPixel32::Red, pixelSize);
   }
 }
 
@@ -2856,6 +3292,20 @@ void LinePrimitive::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
 
   if (!m_isEditing) return;
 
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  TPointD dpiScale       = m_tool->getViewer()->getDpiScale();
+  SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+  if (!app->getCurrentObject()->isSpline() && symmetryTool &&
+      symmetryTool->isGuideEnabled()) {
+    m_vertex.addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                                symmObj.getCenterPoint(),
+                                symmObj.isUsingLineSymmetry(), dpiScale);
+  }
+
+  m_vertex.setDrawStartCircle(false);
+
   TPointD newPos = getSnap(pos);
 
   m_mousePosition = newPos;
@@ -2875,7 +3325,7 @@ void LinePrimitive::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
     addVertex(_pos);
   else {
     if ((e.isShiftPressed() && !e.isCtrlPressed()) && !m_vertex.empty())
-      addVertex(rectify(m_vertex.back(), pos));
+      addVertex(rectify(m_vertex.getBrush()->back(), pos));
     else
       addVertex(_pos);
     endLine();
@@ -2899,7 +3349,7 @@ void LinePrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
 
   m_mousePosition = newPos;
   if ((e.isShiftPressed() && !e.isCtrlPressed()) && !m_vertex.empty())
-    m_vertex.push_back(rectify(m_vertex.back(), pos));
+    m_vertex.push_back(rectify(m_vertex.getBrush()->back(), pos));
   else
     m_vertex.push_back(newPos);
 
@@ -2918,7 +3368,15 @@ void EllipsePrimitive::draw() {
   if (m_isEditing || m_isPrompting ||
       areAlmostEqual(m_selectingRect.x0, m_selectingRect.x1) ||
       areAlmostEqual(m_selectingRect.y0, m_selectingRect.y1)) {
-    tglColor(m_isEditing ? m_color : TPixel32::Green);
+    if (m_ellipse.hasSymmetryBrushes()) {
+      double pixelSize = m_tool->getPixelSize();
+      m_ellipse.drawEllipse(TPixel32::Red, pixelSize);
+      m_ellipse.drawRectangle(TPixel32::Red, pixelSize);
+      return;
+    }
+
+//    tglColor(m_isEditing ? m_color : TPixel32::Green);
+    tglColor(TPixel32::Red);
     TPointD centre = TPointD((m_selectingRect.x0 + m_selectingRect.x1) * 0.5,
                              (m_selectingRect.y0 + m_selectingRect.y1) * 0.5);
 
@@ -2937,12 +3395,6 @@ void EllipsePrimitive::draw() {
 void EllipsePrimitive::leftButtonDown(const TPointD &pos, const TMouseEvent &) {
   TTool::Application *app = TTool::getApplication();
   if (!app) return;
-  TPointD newPos     = getSnap(pos);
-  m_startPoint       = newPos;
-  m_selectingRect.x0 = newPos.x;
-  m_selectingRect.y0 = newPos.y;
-  m_selectingRect.x1 = newPos.x;
-  m_selectingRect.y1 = newPos.y;
 
   if (app->getCurrentObject()->isSpline()) {
     m_isEditing = true;
@@ -2959,6 +3411,28 @@ void EllipsePrimitive::leftButtonDown(const TPointD &pos, const TMouseEvent &) {
   }
 
   if (!m_isEditing) return;
+
+  TPointD newPos     = getSnap(pos);
+  m_startPoint       = newPos;
+  m_selectingRect.x0 = newPos.x;
+  m_selectingRect.y0 = newPos.y;
+  m_selectingRect.x1 = newPos.x;
+  m_selectingRect.y1 = newPos.y;
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  TPointD dpiScale       = m_tool->getViewer()->getDpiScale();
+  SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+  if (!app->getCurrentObject()->isSpline() && symmetryTool &&
+      symmetryTool->isGuideEnabled()) {
+    m_ellipse.reset();
+    m_ellipse.addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                                 symmObj.getCenterPoint(),
+                                 symmObj.isUsingLineSymmetry(), dpiScale);
+    m_ellipse.setEllipse(TPointD(m_selectingRect.x0, m_selectingRect.y0),
+                         TPointD(m_selectingRect.x1, m_selectingRect.y1));
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -2989,20 +3463,65 @@ void EllipsePrimitive::leftButtonDrag(const TPointD &realPos,
     m_selectingRect.x0 = m_startPoint.x + m_startPoint.x - pos.x;
     m_selectingRect.y0 = m_startPoint.y + m_startPoint.y - pos.y;
   }
+
+  if (m_ellipse.hasSymmetryBrushes()) {
+    m_ellipse.clear();
+    m_ellipse.setEllipse(TPointD(m_selectingRect.x0, m_selectingRect.y0),
+                         TPointD(m_selectingRect.x1, m_selectingRect.y1));
+  }
 }
 
 //-----------------------------------------------------------------------------
 
-TStroke *EllipsePrimitive::makeStroke() const {
+std::vector<TStroke *> EllipsePrimitive::getStrokes() {
+  std::vector<TStroke *> strokes;
+
+  TStroke *stroke = makeStroke(0);
+  strokes.push_back(stroke);
+
+  for (int i = 1; i < m_ellipse.getBrushCount(); i++) {
+    stroke = makeStroke(i);
+    if (!stroke) continue;
+    strokes.push_back(stroke);
+  }
+
+  return strokes;
+}
+
+//-----------------------------------------------------------------------------
+
+TStroke *EllipsePrimitive::makeStroke(int index) {
   if (areAlmostEqual(m_selectingRect.x0, m_selectingRect.x1) ||
       areAlmostEqual(m_selectingRect.y0, m_selectingRect.y1))
     return 0;
 
-  return makeEllipticStroke(
+  TStroke *stroke;
+  stroke = makeEllipticStroke(
       getThickness(), TPointD(0.5 * (m_selectingRect.x0 + m_selectingRect.x1),
                               0.5 * (m_selectingRect.y0 + m_selectingRect.y1)),
       fabs(0.5 * (m_selectingRect.x1 - m_selectingRect.x0)),
       fabs(0.5 * (m_selectingRect.y1 - m_selectingRect.y0)));
+
+  if (index > 0 && m_ellipse.hasSymmetryBrushes()) {
+    std::vector<TPointD> *brush = m_ellipse.getBrush(index);
+
+    TPointD center = TPointD((m_selectingRect.x0 + m_selectingRect.x1) * 0.5,
+                             (m_selectingRect.y0 + m_selectingRect.y1) * 0.5);
+
+    double dx    = brush->at(1).x - brush->at(0).x;
+    double dy    = brush->at(1).y - brush->at(0).y;
+    double angle = std::atan2(dy, dx) / (3.14159 / 180) - 90;
+    if (angle < 0) angle += 360;
+
+    stroke->transform(TRotation(center, angle));
+    stroke->transform(TTranslation(-center));
+
+    center = TPointD((brush->at(0).x + brush->at(2).x) * 0.5,
+                     (brush->at(0).y + brush->at(2).y) * 0.5);
+    stroke->transform(TTranslation(center));
+  }
+
+  return stroke;
 }
 
 //-----------------------------------------------------------------------------
@@ -3012,6 +3531,7 @@ void EllipsePrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &) {
   m_isEditing = false;
 
   m_tool->addStroke();
+  m_ellipse.reset();
 }
 
 //-----------------------------------------------------------------------------
@@ -3047,8 +3567,13 @@ void MultiArcPrimitive::draw() {
 
   switch (m_clickNumber) {
   case 1:
-    tglColor(m_color);
-    tglDrawSegment(m_startPoint, m_endPoint);
+    if (m_arc.hasSymmetryBrushes()) {
+      double pixelSize = m_tool->getPixelSize();
+      m_arc.drawArc(m_endPoint, TPixel32::Red, pixelSize);
+    } else {
+      tglColor(m_color);
+      tglDrawSegment(m_startPoint, m_endPoint);
+    }
 
     if (m_stroke) {
       drawStrokeCenterline(*m_stroke, sqrt(tglGetPixelSize2()));
@@ -3063,16 +3588,22 @@ void MultiArcPrimitive::draw() {
     break;
 
   case 2:
-    tglColor(m_isPrompting ? TPixel32::Green : m_color);
+//    tglColor(m_isPrompting ? TPixel32::Green : m_color);
+    tglColor(TPixel32::Red);
     if (!m_isPrompting) {
-      glLineStipple(1, 0x5555);
-      glEnable(GL_LINE_STIPPLE);
-      glBegin(GL_LINE_STRIP);
-      tglVertex(m_startPoint);
-      tglVertex(m_centralPoint);
-      tglVertex(m_endPoint);
-      glEnd();
-      glDisable(GL_LINE_STIPPLE);
+      if (m_arc.hasSymmetryBrushes()) {
+        double pixelSize = m_tool->getPixelSize();
+        m_arc.drawArc(m_centralPoint, TPixel32::Red, pixelSize);
+      } else {
+        glLineStipple(1, 0x5555);
+        glEnable(GL_LINE_STIPPLE);
+        glBegin(GL_LINE_STRIP);
+        tglVertex(m_startPoint);
+        tglVertex(m_centralPoint);
+        tglVertex(m_endPoint);
+        glEnd();
+        glDisable(GL_LINE_STIPPLE);
+      }
     }
 
     if (m_stroke) drawStrokeCenterline(*m_stroke, sqrt(tglGetPixelSize2()));
@@ -3094,18 +3625,84 @@ void MultiArcPrimitive::draw() {
 
 //-----------------------------------------------------------------------------
 
-TStroke *MultiArcPrimitive::makeStroke() const {
-  return new TStroke(*m_stroke);
+std::vector<TStroke *> MultiArcPrimitive::getStrokes() {
+  std::vector<TStroke *> strokes;
+
+  TStroke *stroke = makeStroke(0);
+  strokes.push_back(stroke);
+
+  for (int i = 1; i < m_arc.getBrushCount(); i++) {
+    stroke = makeStroke(i);
+    if (!stroke) continue;
+    strokes.push_back(stroke);
+  }
+
+  return strokes;
+}
+
+//-----------------------------------------------------------------------------
+
+TStroke *MultiArcPrimitive::makeStroke(int index) {
+  if (index == 0) return new TStroke(*m_stroke);
+
+  std::vector<TThickPoint> points;
+  double thick = getThickness();
+
+  for (int i = 0; i < m_arc.size();) {
+    if ((i + 3) > m_arc.size()) break;
+    TThickQuadratic q(m_arc.getPoint(i, index),
+                      TThickPoint(m_arc.getPoint(i + 2, index), thick),
+                      m_arc.getPoint(i + 1, index));
+    TThickQuadratic q0, q1, q00, q01, q10, q11;
+
+    q.split(0.5, q0, q1);
+    q0.split(0.5, q00, q01);
+    q1.split(0.5, q10, q11);
+
+    if (i == 0) points.push_back(TThickPoint(m_arc.getPoint(i, index), thick));
+    points.push_back(TThickPoint(q00.getP1(), thick));
+    points.push_back(TThickPoint(q00.getP2(), thick));
+    points.push_back(TThickPoint(q01.getP1(), thick));
+    points.push_back(TThickPoint(q01.getP2(), thick));
+    points.push_back(TThickPoint(q10.getP1(), thick));
+    points.push_back(TThickPoint(q10.getP2(), thick));
+    points.push_back(TThickPoint(q11.getP1(), thick));
+    points.push_back(TThickPoint(m_arc.getPoint(i + 1, index), thick));
+
+    i += 3;
+  }
+
+  TStroke *stroke = new TStroke(points);
+
+  return stroke;
 }
 
 //-----------------------------------------------------------------------------
 
 void MultiArcPrimitive::leftButtonDown(const TPointD &pos,
                                        const TMouseEvent &e) {
+  TTool::Application *app = TTool::getApplication();
+
   if (m_clickNumber == 0) {
     TPointD newPos = calculateSnap(pos, e);
     newPos         = checkGuideSnapping(pos, e);
     m_startPoint   = newPos;
+
+    SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+        TTool::getTool("T_Symmetry", TTool::RasterImage));
+    TPointD dpiScale       = m_tool->getViewer()->getDpiScale();
+    SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+    if (!app->getCurrentObject()->isSpline() && symmetryTool &&
+        symmetryTool->isGuideEnabled()) {
+      m_arc.reset();
+      m_arc.addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                               symmObj.getCenterPoint(),
+                               symmObj.isUsingLineSymmetry(), dpiScale);
+      m_arc.push_back(m_startPoint);
+    }
+ 
+    m_arc.setJoinDistance(joinDistance);
   }
 }
 
@@ -3150,6 +3747,10 @@ void MultiArcPrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &) {
     break;
 
   case 1:
+    if (m_arc.hasSymmetryBrushes()) {
+      m_arc.push_back(m_endPoint);
+    }
+
     m_centralPoint = newPos;
     points[0]      = TThickPoint(m_startPoint, thick);
     points[8]      = TThickPoint(m_endPoint, thick);
@@ -3166,6 +3767,10 @@ void MultiArcPrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &) {
     break;
 
   case 2:
+    if (m_arc.hasSymmetryBrushes()) {
+      m_arc.push_back(m_centralPoint);
+    }
+
     m_startPoint = newPos;
     if (!m_isSingleArc) {
       m_clickNumber = 1;
@@ -3190,6 +3795,7 @@ void MultiArcPrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &) {
           TUndoManager::manager()->popUndo(m_undoCount);
           m_undoCount = 0;
           m_tool->addStroke();
+          m_arc.reset();
           onDeactivate();
           strokeAdded = true;
         }
@@ -3198,12 +3804,16 @@ void MultiArcPrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &) {
         m_strokeTemp = 0;
         m_startPoint = m_endPoint;
       }
+      if (m_arc.hasSymmetryBrushes()) {
+        m_arc.push_back(m_startPoint);
+      }
     } else {
       m_stroke     = m_strokeTemp;
       m_strokeTemp = 0;
       TUndoManager::manager()->popUndo(m_undoCount);
       m_undoCount = 0;
       m_tool->addStroke();
+      m_arc.reset();
       onDeactivate();
       strokeAdded = true;
     }
@@ -3230,6 +3840,7 @@ void MultiArcPrimitive::leftButtonDoubleClick(const TPointD &,
     TUndoManager::manager()->popUndo(m_undoCount);
     m_undoCount = 0;
     m_tool->addStroke();
+    m_arc.reset();
   }
   onDeactivate();
 }
@@ -3242,6 +3853,7 @@ bool MultiArcPrimitive::keyDown(QKeyEvent *event) {
       TUndoManager::manager()->popUndo(m_undoCount);
       m_undoCount = 0;
       m_tool->addStroke();
+      m_arc.reset();
     }
     onDeactivate();
     return true;
@@ -3320,6 +3932,13 @@ void MultiArcPrimitive::onEnter() {
 void PolygonPrimitive::draw() {
   drawSnap();
   if (!m_isEditing && !m_isPrompting) return;
+
+  if (m_polygon.hasSymmetryBrushes()) {
+    double pixelSize = m_tool->getPixelSize();
+    m_polygon.drawPolygon(TPixel32::Red, pixelSize);
+    return;
+  }
+
   tglColor(m_isEditing ? m_color : TPixel32::Green);
 
   int edgeCount = m_param->m_edgeCount.getValue();
@@ -3360,6 +3979,20 @@ void PolygonPrimitive::leftButtonDown(const TPointD &pos, const TMouseEvent &) {
 
   m_centre = getSnap(pos);
   m_radius = 0;
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  TPointD dpiScale       = m_tool->getViewer()->getDpiScale();
+  SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+  if (!app->getCurrentObject()->isSpline() && symmetryTool &&
+      symmetryTool->isGuideEnabled()) {
+    m_polygon.reset();
+    m_polygon.addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                                 symmObj.getCenterPoint(),
+                                 symmObj.isUsingLineSymmetry(), dpiScale);
+    m_polygon.setPolygon(m_centre, m_radius, m_param->m_edgeCount.getValue());
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -3370,11 +4003,33 @@ void PolygonPrimitive::leftButtonDrag(const TPointD &pos,
   TPointD newPos = calculateSnap(pos, e);
   newPos         = checkGuideSnapping(pos, e);
   m_radius       = tdistance(m_centre, newPos);
+
+  if (m_polygon.hasSymmetryBrushes()) {
+    m_polygon.clear();
+    m_polygon.setPolygon(m_centre, m_radius, m_param->m_edgeCount.getValue());
+  }
 }
 
 //-----------------------------------------------------------------------------
 
-TStroke *PolygonPrimitive::makeStroke() const {
+std::vector<TStroke *> PolygonPrimitive::getStrokes() {
+  std::vector<TStroke *> strokes;
+
+  TStroke *stroke = makeStroke(0);
+  strokes.push_back(stroke);
+
+  for (int i = 1; i < m_polygon.getBrushCount(); i++) {
+    stroke = makeStroke(i);
+    if (!stroke) continue;
+    strokes.push_back(stroke);
+  }
+
+  return strokes;
+}
+
+//-----------------------------------------------------------------------------
+
+TStroke *PolygonPrimitive::makeStroke(int index) {
   double thick = getThickness();
 
   int edgeCount = m_param->m_edgeCount.getValue();
@@ -3423,6 +4078,24 @@ TStroke *PolygonPrimitive::makeStroke() const {
     stroke = new TStroke(points);
   }
   stroke->setSelfLoop();
+
+  if (index > 0 && m_polygon.hasSymmetryBrushes()) {
+    std::vector<TPointD> *brush = m_polygon.getBrush(index);
+
+    TPointD center = m_polygon.getPoint(0, 0);
+
+    double dx    = brush->at(2).x - brush->at(1).x;
+    double dy    = brush->at(2).y - brush->at(1).y;
+    double angle = std::atan2(dy, dx) / (3.14159 / 180) - 90;
+    if (angle < 0) angle += 360;
+
+    stroke->transform(TRotation(center, angle));
+    stroke->transform(TTranslation(-center));
+
+    center = brush->at(0);
+    stroke->transform(TTranslation(center));
+  }
+
   return stroke;
 }
 
@@ -3433,6 +4106,8 @@ void PolygonPrimitive::leftButtonUp(const TPointD &pos, const TMouseEvent &) {
   m_isEditing = false;
 
   m_tool->addStroke();
+  m_radius = 0;
+  m_polygon.reset();
 }
 
 //-----------------------------------------------------------------------------

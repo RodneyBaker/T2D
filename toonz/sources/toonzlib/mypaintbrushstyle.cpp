@@ -16,6 +16,8 @@
 
 #include "toonz/mypaintbrushstyle.h"
 
+#include "tw/stringtable.h"
+
 #include <QDebug>
 
 #include <sstream>
@@ -50,6 +52,14 @@ TMyPaintBrushStyle::~TMyPaintBrushStyle() {}
 
 //-----------------------------------------------------------------------------
 
+TColorStyle *TMyPaintBrushStyle::clone(std::string brushIdName) const {
+  TMyPaintBrushStyle *style = new TMyPaintBrushStyle(*this);
+  style->loadBrush(TFilePath(getBrushIdNameParam(brushIdName)));
+  return style;
+}
+
+//-----------------------------------------------------------------------------
+
 TColorStyle &TMyPaintBrushStyle::copy(const TColorStyle &other) {
   const TMyPaintBrushStyle *otherBrushStyle =
       dynamic_cast<const TMyPaintBrushStyle *>(&other);
@@ -69,6 +79,14 @@ TColorStyle &TMyPaintBrushStyle::copy(const TColorStyle &other) {
 
 QString TMyPaintBrushStyle::getDescription() const {
   return "MyPaintBrushStyle";
+}
+
+//-----------------------------------------------------------------------------
+
+std::string TMyPaintBrushStyle::getBrushIdName() const {
+  std::wstring ws = m_path.getWideString();
+  const std::string s(ws.begin(), ws.end());
+  return "MyPaintBrushStyle:" + s;
 }
 
 //-----------------------------------------------------------------------------
@@ -253,28 +271,47 @@ void TMyPaintBrushStyle::resetBaseValues() {
 void TMyPaintBrushStyle::makeIcon(const TDimension &d) {
   TFilePath path =
       m_fullpath.getParentDir() + (m_fullpath.getWideName() + L"_prev.png");
+  TPointD offset(0, 0);
   if (!m_preview) {
     m_icon = TRaster32P(d);
     m_icon->fill(TPixel32::Red);
   } else if (m_preview->getSize() == d) {
     m_icon = m_preview;
   } else {
-    m_icon    = TRaster32P(d);
-    double sx = (double)d.lx / (double)m_preview->getLx();
-    double sy = (double)d.ly / (double)m_preview->getLy();
-    TRop::resample(m_icon, m_preview, TScale(sx, sy));
+    m_icon = TRaster32P(d);
+    if (d.lx != d.ly) {
+      TPixel32 col = getMainColor();
+      if (col.m == 255)
+        m_icon->fill(col);
+      else {
+        TRaster32P fg(d);
+        fg->fill(premultiply(col));
+        TRop::checkBoard(m_icon, TPixel32::Black, TPixel32::White,
+                         TDimensionD(6, 6), TPointD());
+        TRop::over(m_icon, fg);
+      }
+    }
+    double sx    = (double)d.lx / (double)m_preview->getLx();
+    double sy    = (double)d.ly / (double)m_preview->getLy();
+    double scale = std::min(sx, sy);
+    TRaster32P resamplePreview(m_preview->getLx(), m_preview->getLy());
+    TRop::resample(resamplePreview, m_preview, TScale(scale),
+                   TRop::ResampleFilterType::Hamming3);
+    TRop::over(m_icon, resamplePreview);
   }
 
   // paint color marker
-  if (d.lx > 0 && d.ly > 0) {
-    int size = std::min(1 + std::min(d.lx, d.ly) * 2 / 3,
+  // Only show color marker when the icon size is 22x22
+  if (d.lx == d.ly && d.lx <= 22) {
+    int size       = std::min(1 + std::min(d.lx, d.ly) * 2 / 3,
                         1 + std::max(d.lx, d.ly) / 2);
     TPixel32 color = getMainColor();
+    color.m        = 255;  // show full opac color
     for (int y = 0; y < size; ++y) {
-      TPixel32 *p               = m_icon->pixels(d.ly - y - 1);
-      TPixel32 *endp            = p + size - y - 1;
+      TPixel32 *p    = m_icon->pixels(d.ly - y - 1);
+      TPixel32 *endp = p + size - y - 1;
       for (; p != endp; ++p) *p = color;
-      *p                        = blend(*p, color, 0.5);
+      *p = blend(*p, color, 0.5);
     }
   }
 }
@@ -346,8 +383,8 @@ int TMyPaintBrushStyle::getParamCount() const {
 //-----------------------------------------------------------------------------
 
 QString TMyPaintBrushStyle::getParamNames(int index) const {
-  return QString::fromUtf8(
-      mypaint::Setting::byId((MyPaintBrushSetting)index).name.c_str());
+  return QString::fromStdWString(TStringTable::translate(
+      mypaint::Setting::byId((MyPaintBrushSetting)index).name.c_str()));
 }
 
 //-----------------------------------------------------------------------------

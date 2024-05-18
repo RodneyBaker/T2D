@@ -9,6 +9,7 @@
 
 // TnzQt includes
 #include "toonzqt/menubarcommand.h"
+#include "toonzqt/gutil.h"
 
 // TnzLib includes
 #include "toonz/txsheet.h"
@@ -24,6 +25,9 @@
 
 // TnzCore includes
 #include "trop.h"
+#include "tsystem.h"
+
+#include "tlevel_io.h"
 
 // Qt includes
 #include <QLayout>
@@ -33,6 +37,7 @@
 #include <QMainWindow>
 #include <QPainter>
 #include <QPushButton>
+#include <QImageReader>
 
 using namespace DVGui;
 
@@ -85,6 +90,46 @@ public:
 };
 
 //-----------------------------------------------------------------------------
+
+class EditColorFilterUndo final : public TUndo {
+  int m_id;
+  TSceneProperties::ColorFilter m_filterBefore, m_filterAfter;
+  ColorFiltersPopup *m_popup;
+
+public:
+  EditColorFilterUndo(int id, TPixel32 color, QString name,
+                      ColorFiltersPopup *popup)
+      : m_id(id), m_popup(popup) {
+    m_filterBefore = TApp::instance()
+                         ->getCurrentScene()
+                         ->getScene()
+                         ->getProperties()
+                         ->getColorFilter(id);
+    m_filterAfter = {name, color};
+  }
+
+  void set(const TSceneProperties::ColorFilter &filter) const {
+    TApp::instance()
+        ->getCurrentScene()
+        ->getScene()
+        ->getProperties()
+        ->setColorFilter(filter, m_id);
+    m_popup->updateContents();
+    TApp::instance()->getCurrentScene()->notifySceneChanged();
+  }
+
+  void undo() const override { set(m_filterBefore); }
+
+  void redo() const override { set(m_filterAfter); }
+
+  int getSize() const override { return sizeof *this; }
+
+  QString getHistoryString() override {
+    return QObject::tr("Edit Color Filter #%1").arg(QString::number(m_id));
+  }
+};
+
+//-----------------------------------------------------------------------------
 //-----------------------------------------------------------------------------
 }  //  namespace
 //-----------------------------------------------------------------------------
@@ -122,7 +167,7 @@ QImage::Format_ARGB32);
 // CellMarksPopup
 //-----------------------------------------------------------------------------
 
-CellMarksPopup::CellMarksPopup(QWidget *parent) : QDialog(parent) {
+CellMarksPopup::CellMarksPopup(QWidget *parent) : Dialog(parent) {
   setWindowTitle(tr("Cell Marks Settings"));
 
   QList<TSceneProperties::CellMark> marks = TApp::instance()
@@ -158,7 +203,8 @@ CellMarksPopup::CellMarksPopup(QWidget *parent) : QDialog(parent) {
     }
   }
   layout->setColumnStretch(2, 1);
-  setLayout(layout);
+  m_topLayout->setMargin(0);
+  m_topLayout->addLayout(layout);
 }
 
 void CellMarksPopup::update() {
@@ -236,11 +282,190 @@ void CellMarksPopup::onNameChanged() {
 }
 
 //=============================================================================
+// ColorFiltersPopup
+//-----------------------------------------------------------------------------
+
+ColorFiltersPopup::ColorFiltersPopup(QWidget *parent) : Dialog(parent) {
+  setWindowTitle(tr("Color Filters Settings"));
+
+  QList<TSceneProperties::ColorFilter> filters = TApp::instance()
+                                                     ->getCurrentScene()
+                                                     ->getScene()
+                                                     ->getProperties()
+                                                     ->getColorFilters();
+
+  QGridLayout *layout = new QGridLayout();
+  layout->setMargin(10);
+  layout->setHorizontalSpacing(5);
+  layout->setVerticalSpacing(10);
+  {
+    int id = 0;
+    for (auto filter : filters) {
+      // skip filter#0 (None)
+      if (id == 0) {
+        id++;
+        continue;
+      }
+      ColorField *colorF = new ColorField(this, false, filter.color, 20);
+      colorF->hideChannelsFields(true);
+      QLineEdit *nameF      = new QLineEdit(filter.name, this);
+      QPushButton *clearBtn = new QPushButton(this);
+      clearBtn->setFixedSize(20, 20);
+      clearBtn->setToolTip(tr("Clear"));
+      clearBtn->setIcon(createQIcon("delete"));
+      clearBtn->setFocusPolicy(Qt::NoFocus);
+      clearBtn->setDisabled(filter.name.isEmpty());
+
+      m_fields.insert(id, {colorF, nameF, clearBtn});
+
+      int row = layout->rowCount();
+
+      layout->addWidget(colorF, row, 0);
+      layout->addWidget(nameF, row, 1);
+      layout->addWidget(clearBtn, row, 2);
+
+      connect(colorF, SIGNAL(colorChanged(const TPixel32 &, bool)), this,
+              SLOT(onColorChanged(const TPixel32 &, bool)));
+      connect(nameF, SIGNAL(editingFinished()), this, SLOT(onNameChanged()));
+      connect(clearBtn, SIGNAL(clicked()), this, SLOT(onClearButtonClicked()));
+      id++;
+    }
+  }
+  layout->setColumnStretch(1, 1);
+  m_topLayout->setMargin(0);
+  m_topLayout->addLayout(layout);
+}
+
+void ColorFiltersPopup::updateContents() {
+  QList<TSceneProperties::ColorFilter> filters = TApp::instance()
+                                                     ->getCurrentScene()
+                                                     ->getScene()
+                                                     ->getProperties()
+                                                     ->getColorFilters();
+  assert(filters.count() == m_fields.count() + 1);
+  int id = 0;
+  for (const auto &filter : filters) {
+    // skip filter#0 (None)
+    if (id == 0) {
+      id++;
+      continue;
+    }
+    assert(m_fields.contains(id));
+    m_fields[id].colorField->setColor(filter.color);
+    m_fields[id].nameField->setText(filter.name);
+    m_fields[id].clearBtn->setDisabled(filter.name.isEmpty());
+    id++;
+  }
+}
+
+void ColorFiltersPopup::onColorChanged(const TPixel32 &color, bool isDragging) {
+  if (isDragging) return;
+  // obtain id
+  int id             = -1;
+  ColorField *colorF = qobject_cast<ColorField *>(sender());
+  for (const int keyId : m_fields.keys()) {
+    if (m_fields[keyId].colorField == colorF) {
+      id = keyId;
+      break;
+    }
+  }
+  if (id <= 0) return;
+
+  // return if the value is unchanged
+  TSceneProperties::ColorFilter oldCF = TApp::instance()
+                                            ->getCurrentScene()
+                                            ->getScene()
+                                            ->getProperties()
+                                            ->getColorFilter(id);
+  if (color == oldCF.color) return;
+
+  QString name = oldCF.name;
+  if (name.isEmpty()) {
+    name = tr("Color Filter %1").arg(id);
+    m_fields[id].nameField->setText(name);
+    m_fields[id].clearBtn->setEnabled(true);
+  }
+
+  EditColorFilterUndo *undo = new EditColorFilterUndo(id, color, name, this);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+}
+
+void ColorFiltersPopup::onNameChanged() {
+  // obtain id
+  int id           = -1;
+  QLineEdit *nameF = qobject_cast<QLineEdit *>(sender());
+  for (const int keyId : m_fields.keys()) {
+    if (m_fields[keyId].nameField == nameF) {
+      id = keyId;
+      break;
+    }
+  }
+  if (id <= 0) return;
+
+  // return if the value is unchanged
+  TSceneProperties::ColorFilter oldCF = TApp::instance()
+                                            ->getCurrentScene()
+                                            ->getScene()
+                                            ->getProperties()
+                                            ->getColorFilter(id);
+  if (nameF->text() == oldCF.name) return;
+  // reject empty string
+  if (nameF->text().isEmpty()) {
+    nameF->setText(oldCF.name);
+    return;
+  }
+
+  TPixel32 color = oldCF.color;
+  if (oldCF.name.isEmpty()) {
+    color = TPixel::Red;
+    m_fields[id].colorField->setColor(color);
+    m_fields[id].clearBtn->setEnabled(true);
+  }
+
+  EditColorFilterUndo *undo =
+      new EditColorFilterUndo(id, color, nameF->text(), this);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+}
+
+void ColorFiltersPopup::onClearButtonClicked() {
+  // obtain id
+  int id                = -1;
+  QPushButton *clearBtn = qobject_cast<QPushButton *>(sender());
+  for (const int keyId : m_fields.keys()) {
+    if (m_fields[keyId].clearBtn == clearBtn) {
+      id = keyId;
+      break;
+    }
+  }
+  if (id <= 0) return;
+
+  // return if the value is unchanged
+  TSceneProperties::ColorFilter oldCF = TApp::instance()
+                                            ->getCurrentScene()
+                                            ->getScene()
+                                            ->getProperties()
+                                            ->getColorFilter(id);
+  if (oldCF.name.isEmpty()) return;
+
+  m_fields[id].colorField->setColor(TPixel::Black);
+  m_fields[id].nameField->setText("");
+  m_fields[id].clearBtn->setEnabled(false);
+
+  EditColorFilterUndo *undo =
+      new EditColorFilterUndo(id, TPixel::Black, "", this);
+  undo->redo();
+  TUndoManager::manager()->add(undo);
+}
+//=============================================================================
 // SceneSettingsPopup
 //-----------------------------------------------------------------------------
 
 SceneSettingsPopup::SceneSettingsPopup()
-    : QDialog(TApp::instance()->getMainWindow()), m_cellMarksPopup(nullptr) {
+    : Dialog(TApp::instance()->getMainWindow())
+    , m_cellMarksPopup(nullptr)
+    , m_colorFiltersPopup(nullptr) {
   setWindowTitle(tr("Scene Settings"));
   setObjectName("SceneSettings");
   TSceneProperties *sprop = getProperties();
@@ -270,8 +495,8 @@ SceneSettingsPopup::SceneSettingsPopup()
   m_tlvSubsamplingFld = new DVGui::IntLineEdit(this, tlvSubsampling, 1);
 
   // Marker Interval - Start Frame
-  int distance, offset;
-  sprop->getMarkers(distance, offset);
+  int distance, offset, secDistance;
+  sprop->getMarkers(distance, offset, secDistance);
   m_markerIntervalFld = new DVGui::IntLineEdit(this, distance, 0);
   m_startFrameFld     = new DVGui::IntLineEdit(this, offset);
 
@@ -285,6 +510,22 @@ SceneSettingsPopup::SceneSettingsPopup()
   QPushButton *editCellMarksButton =
       new QPushButton(tr("Edit Cell Marks"), this);
 
+  QPushButton *editColorFiltersButton =
+      new QPushButton(tr("Edit Column Color Filters"), this);
+
+  m_overlayFile = new DVGui::FileField(this);
+  m_overlayFile->setFileMode(QFileDialog::AnyFile);
+  QStringList filters;
+  for (QByteArray &format : QImageReader::supportedImageFormats())
+    filters += format;
+  filters += "pli";
+  filters += "tlv";
+  m_overlayFile->setFilters(filters);
+
+  m_overlayOpacity = new DVGui::IntField(this);
+  m_overlayOpacity->setRange(0, 100);
+  m_overlayOpacity->setValue(100);
+
   // layout
   QGridLayout *mainLayout = new QGridLayout();
   mainLayout->setMargin(10);
@@ -294,7 +535,8 @@ SceneSettingsPopup::SceneSettingsPopup()
     // Frame Rate
     mainLayout->addWidget(new QLabel(tr("Frame Rate:"), this), 0, 0,
                           Qt::AlignRight | Qt::AlignVCenter);
-    mainLayout->addWidget(m_frameRateFld, 0, 1);
+    mainLayout->addWidget(m_frameRateFld, 0, 1, 1, 4,
+                          Qt::AlignLeft | Qt::AlignVCenter);
     // Camera BG color
     mainLayout->addWidget(new QLabel(tr("Camera BG Color:"), this), 1, 0,
                           Qt::AlignRight | Qt::AlignVCenter);
@@ -305,7 +547,8 @@ SceneSettingsPopup::SceneSettingsPopup()
     mainLayout->addWidget(m_fieldGuideFld, 2, 1);
     mainLayout->addWidget(new QLabel(tr("A/R:"), this), 2, 2,
                           Qt::AlignRight | Qt::AlignVCenter);
-    mainLayout->addWidget(m_aspectRatioFld, 2, 3);
+    mainLayout->addWidget(m_aspectRatioFld, 2, 3, 1, 2,
+                          Qt::AlignLeft | Qt::AlignVCenter);
     // Image Subsampling  - Tlv Subsampling
     mainLayout->addWidget(new QLabel(tr("Image Subsampling:"), this), 3, 0,
                           Qt::AlignRight | Qt::AlignVCenter);
@@ -325,11 +568,23 @@ SceneSettingsPopup::SceneSettingsPopup()
 
     // Use Color Filter and Transparency for Rendering
     mainLayout->addWidget(m_colorFilterOnRenderCB, 6, 0, 1, 4);
+    mainLayout->addWidget(editColorFiltersButton, 6, 4,
+                          Qt::AlignRight | Qt::AlignVCenter);
 
     // cell marks
     mainLayout->addWidget(new QLabel(tr("Cell Marks:"), this), 7, 0,
                           Qt::AlignRight | Qt::AlignVCenter);
     mainLayout->addWidget(editCellMarksButton, 7, 1, 1, 4,
+                          Qt::AlignLeft | Qt::AlignVCenter);
+
+    // Scene Overlay file
+    mainLayout->addWidget(new QLabel(tr("Overlay Image:"), this), 8, 0,
+                          Qt::AlignRight | Qt::AlignVCenter);
+    mainLayout->addWidget(m_overlayFile, 8, 1, 1, 4);
+
+    mainLayout->addWidget(new QLabel(tr("Overlay Opacity:"), this), 9, 0,
+                          Qt::AlignRight | Qt::AlignVCenter);
+    mainLayout->addWidget(m_overlayOpacity, 9, 1, 1, 4,
                           Qt::AlignLeft | Qt::AlignVCenter);
   }
   mainLayout->setColumnStretch(0, 0);
@@ -337,8 +592,9 @@ SceneSettingsPopup::SceneSettingsPopup()
   mainLayout->setColumnStretch(2, 0);
   mainLayout->setColumnStretch(3, 0);
   mainLayout->setColumnStretch(4, 1);
-  mainLayout->setRowStretch(7, 1);
-  setLayout(mainLayout);
+  mainLayout->setRowStretch(9, 1);
+  m_topLayout->setMargin(0);
+  m_topLayout->addLayout(mainLayout);
 
   // signal-slot connections
   bool ret = true;
@@ -362,15 +618,23 @@ SceneSettingsPopup::SceneSettingsPopup()
                          SLOT(onTlvSubsampEditingFinished()));
   // Marker Interval - Start Frame
   ret = ret && connect(m_markerIntervalFld, SIGNAL(editingFinished()), this,
-                       SLOT(onMakerIntervalEditingFinished()));
+                       SLOT(onMakerInformationChanged()));
   ret = ret && connect(m_startFrameFld, SIGNAL(editingFinished()), this,
-                       SLOT(onStartFrameEditingFinished()));
+                       SLOT(onMakerInformationChanged()));
+  ret = ret && connect(editColorFiltersButton, SIGNAL(clicked()), this,
+                       SLOT(onEditColorFiltersButtonClicked()));
+
   // Use Color Filter and Transparency for Rendering
   ret = ret && connect(m_colorFilterOnRenderCB, SIGNAL(stateChanged(int)), this,
                        SLOT(onColorFilterOnRenderChanged()));
   // Cell Marks
   ret = ret && connect(editCellMarksButton, SIGNAL(clicked()), this,
                        SLOT(onEditCellMarksButtonClicked()));
+  // Overlay File
+  ret = ret && connect(m_overlayFile, SIGNAL(pathChanged()), this,
+                       SLOT(onOverlayFileChanged()));
+  ret = ret && connect(m_overlayOpacity, SIGNAL(valueChanged(bool)), this,
+                       SLOT(onOverlayOpacityChanged(bool)));
   assert(ret);
 }
 
@@ -418,14 +682,17 @@ void SceneSettingsPopup::update() {
   m_fullcolorSubsamplingFld->setValue(sprop->getFullcolorSubsampling());
   if (m_tlvSubsamplingFld)
     m_tlvSubsamplingFld->setValue(sprop->getTlvSubsampling());
-  int markerDistance = 0, markerOffset = 0;
-  sprop->getMarkers(markerDistance, markerOffset);
+  int markerDistance = 0, markerOffset = 0, secDistance;
+  sprop->getMarkers(markerDistance, markerOffset, secDistance);
   m_markerIntervalFld->setValue(markerDistance);
   m_startFrameFld->setValue(markerOffset + 1);
   m_colorFilterOnRenderCB->setChecked(
       sprop->isColumnColorFilterOnRenderEnabled());
 
   if (m_cellMarksPopup) m_cellMarksPopup->update();
+  if (m_colorFiltersPopup) m_colorFiltersPopup->updateContents();
+  m_overlayFile->setPath(sprop->getOverlayFile().getQString());
+  m_overlayOpacity->setValue(double(100 * sprop->getOverlayOpacity()) / 255.0);
 }
 
 //-----------------------------------------------------------------------------
@@ -494,29 +761,13 @@ void SceneSettingsPopup::onTlvSubsampEditingFinished() {
 
 //-----------------------------------------------------------------------------
 
-void SceneSettingsPopup::onMakerIntervalEditingFinished() {
+void SceneSettingsPopup::onMakerInformationChanged() {
   TSceneProperties *sprop = getProperties();
-  int distance, offset;
-  sprop->getMarkers(distance, offset);
+  int distance, offset, secDistance;
+  sprop->getMarkers(distance, offset, secDistance);
   int markerDistance = m_markerIntervalFld->text().toInt();
   int markerOffset   = m_startFrameFld->text().toInt() - 1;
-  assert(offset == markerOffset);
-  if (distance == markerDistance) return;
-  sprop->setMarkers(markerDistance, markerOffset);
-  TApp::instance()->getCurrentScene()->notifySceneChanged();
-  TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
-}
-
-//-----------------------------------------------------------------------------
-
-void SceneSettingsPopup::onStartFrameEditingFinished() {
-  TSceneProperties *sprop = getProperties();
-  int distance, offset;
-  sprop->getMarkers(distance, offset);
-  int markerDistance = m_markerIntervalFld->text().toInt();
-  int markerOffset   = m_startFrameFld->text().toInt() - 1;
-  assert(markerDistance == distance);
-  if (offset == markerOffset) return;
+  if (distance == markerDistance && offset == markerOffset) return;
   sprop->setMarkers(markerDistance, markerOffset);
   TApp::instance()->getCurrentScene()->notifySceneChanged();
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
@@ -542,10 +793,59 @@ void SceneSettingsPopup::onColorFilterOnRenderChanged() {
 
 //-----------------------------------------------------------------------------
 
+void SceneSettingsPopup::onEditColorFiltersButtonClicked() {
+  if (!m_colorFiltersPopup) m_colorFiltersPopup = new ColorFiltersPopup(this);
+  m_colorFiltersPopup->show();
+  m_colorFiltersPopup->raise();
+}
+//-----------------------------------------------------------------------------
+
 void SceneSettingsPopup::onEditCellMarksButtonClicked() {
   if (!m_cellMarksPopup) m_cellMarksPopup = new CellMarksPopup(this);
   m_cellMarksPopup->show();
   m_cellMarksPopup->raise();
+  m_cellMarksPopup->activateWindow();
+}
+
+void SceneSettingsPopup::onOverlayFileChanged() {
+  ToonzScene *scene       = TApp::instance()->getCurrentScene()->getScene();
+  TSceneProperties *sprop = getProperties();
+
+  TFilePath fp(m_overlayFile->getPath());
+
+  if (!fp.isEmpty()) {
+    TFilePath decodedFp = scene->decodeFilePath(fp);
+    if (!TSystem::doesExistFileOrLevel(decodedFp)) {
+      fp = sprop->getOverlayFile();
+      m_overlayFile->setPath(fp.getQString());
+    }
+
+    if (fp.isLevelName()) {
+      TLevelReaderP lr(decodedFp);
+      TLevelP level;
+      if (lr) level = lr->loadInfo();
+      if (level.getPointer() && level->getTable()->size() > 0) {
+        TFrameId firstFrame = level->begin()->first;
+        fp                  = fp.withFrame(firstFrame);
+        m_overlayFile->setPath(fp.getQString());
+      }
+    }
+  }
+
+  sprop->setOverlayFile(fp);
+  scene->loadOverlayFile(fp);
+  TApp::instance()->getCurrentScene()->notifySceneChanged();
+}
+
+void SceneSettingsPopup::onOverlayOpacityChanged(bool isDragging) {
+  ToonzScene *scene       = TApp::instance()->getCurrentScene()->getScene();
+  TSceneProperties *sprop = getProperties();
+
+  int opacity = (int)(255.0f * (float)m_overlayOpacity->getValue() / 100.0f);
+
+  sprop->setOverlayOpacity(opacity);
+  scene->setOverlayOpacity(opacity);
+  TApp::instance()->getCurrentScene()->notifySceneChanged();
 }
 
 //=============================================================================

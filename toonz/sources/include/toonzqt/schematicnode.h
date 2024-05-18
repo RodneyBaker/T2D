@@ -19,6 +19,15 @@ class SchematicName final : public QGraphicsTextItem {
   Q_OBJECT
   double m_width;
   double m_height;
+  bool m_refocus;
+  QString m_defName;
+  QString m_curName;
+  QMenu *popup;
+  QAction *actionCut;
+  QAction *actionCopy;
+  QAction *actionPaste;
+  QAction *actionDelete;
+  QAction *actionSelectAll;
 
 public:
   SchematicName(QGraphicsItem *parent, double width, double height);
@@ -26,19 +35,31 @@ public:
 
   bool eventFilter(QObject *object, QEvent *event) override;
 
-  void setName(const QString &name);
+  void setName(const QString &name);  // Act as default name
+  void acceptName(const QString &name);
 
 protected:
   void focusInEvent(QFocusEvent *fe) override;
   void focusOutEvent(QFocusEvent *fe) override;
 
   void keyPressEvent(QKeyEvent *ke) override;
+#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
+  void contextMenuEvent(QGraphicsSceneContextMenuEvent *cme) override;
+#endif
 
 signals:
   void focusOut();
 
 protected slots:
   void onContentsChanged();
+#if QT_VERSION >= QT_VERSION_CHECK(5, 10, 0)
+  void onPopupHide();
+  void onCut();
+  void onCopy();
+  void onPaste();
+  void onDelete();
+  void onSelectAll();
+#endif
 };
 
 //========================================================
@@ -215,10 +236,14 @@ protected:
 */
 class SchematicLink : public QObject, public QGraphicsItem {
   Q_OBJECT
+  Q_INTERFACES(QGraphicsItem)
+
   SchematicPort *m_startPort, *m_endPort;
   QPainterPath m_path, m_hitPath;
   bool m_lineShaped;
   bool m_highlighted;
+
+  bool m_dropHighlighted;
 
 public:
   SchematicLink(QGraphicsItem *parent, QGraphicsScene *scene);
@@ -272,6 +297,9 @@ public:
 
   bool isHighlighted() { return m_highlighted; }
   void setHighlighted(bool value) { m_highlighted = value; }
+
+  bool isDropHighlighted() { return m_dropHighlighted; }
+  void setDropHighlighted(bool value) { m_dropHighlighted = value; }
 
 protected:
   void mousePressEvent(QGraphicsSceneMouseEvent *me) override;
@@ -423,6 +451,8 @@ protected:
   Qt::MouseButton m_buttonState;
   QMap<int, SchematicPort *> m_ports;
 
+  bool m_dropHighlighted;
+
 public:
   SchematicNode(SchematicScene *scene);
   ~SchematicNode();
@@ -443,6 +473,9 @@ public:
   void updateLinksGeometry();
   virtual void onClicked(){};
 
+  bool isDropHighlighted() { return m_dropHighlighted; }
+  void setDropHighlighted(bool value) { m_dropHighlighted = value; }
+
 protected:
   void mouseMoveEvent(QGraphicsSceneMouseEvent *me) override;
   void mousePressEvent(QGraphicsSceneMouseEvent *me) override;
@@ -452,6 +485,25 @@ signals:
   void sceneChanged();
   void xsheetChanged();
   void nodeChangedSize();
+};
+
+//========================================================
+//
+// class SnapTargetItem
+//
+//========================================================
+
+class SnapTargetItem : public QGraphicsItem {
+  QRectF m_rect;
+  QPointF m_theOtherEndPos, m_portEndOffset;
+
+public:
+  SnapTargetItem(const QPointF &pos, const QRectF &rect,
+                 const QPointF &theOtherEndPos, const QPointF &portEndOffset);
+
+  QRectF boundingRect() const override;
+  void paint(QPainter *painter, const QStyleOptionGraphicsItem *option,
+             QWidget *widget = 0) override;
 };
 
 #endif  // SCHEMATICNODE_H

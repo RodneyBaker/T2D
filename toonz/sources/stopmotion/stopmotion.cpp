@@ -46,9 +46,11 @@
 TEnv::IntVar StopMotionOpacity("StopMotionOpacity", 204);
 TEnv::IntVar StopMotionAlwaysLiveView("StopMotionAlwaysLiveView", 0);
 TEnv::IntVar StopMotionPlaceOnXSheet("StopMotionPlaceOnXSheet", 1);
-TEnv::IntVar StopMotionReviewTime("StopMotionReviewTime", 1);
+TEnv::IntVar StopMotionReviewDSec("StopMotionReviewDSec", 10);
+TEnv::IntVar StopMotionIntervalDSec("StopMotionIntervalDSec", 100);
 TEnv::IntVar StopMotionUseNumpad("StopMotionUseNumpad", 0);
 TEnv::IntVar StopMotionDrawBeneathLevels("StopMotionDrawBeneathLevels", 1);
+TEnv::IntVar StopMotionPlayCaptureSound("StopMotionPlayCaptureSound", 0);
 
 // Connected camera
 TEnv::StringVar StopMotionCameraName("CamCapCameraName", "");
@@ -244,17 +246,20 @@ bool FlexibleNameCreator::setCurrent(std::wstring name) {
 StopMotion::StopMotion() {
   m_opacity = StopMotionOpacity;
 
-  m_webcam = new Webcam();
-  m_canon  = Canon::instance();
-  m_serial = new StopMotionSerial();
-  m_light  = new StopMotionLight();
+  m_webcam    = new Webcam();
+  m_canon     = Canon::instance();
+  m_gphotocam = GPhotoCam::instance();
+  m_serial    = new StopMotionSerial();
+  m_light     = new StopMotionLight();
 
   m_alwaysLiveView = StopMotionAlwaysLiveView;
 
   m_placeOnXSheet      = StopMotionPlaceOnXSheet;
-  m_reviewTime         = StopMotionReviewTime;
+  m_reviewTimeDSec     = StopMotionReviewDSec;
+  m_intervalDSec       = StopMotionIntervalDSec;
   m_useNumpadShortcuts = StopMotionUseNumpad;
   m_drawBeneathLevels  = StopMotionDrawBeneathLevels;
+  m_playCaptureSound   = StopMotionPlayCaptureSound;
   m_numpadForStyleSwitching =
       Preferences::instance()->isUseNumpadForSwitchingStylesEnabled();
   setUseNumpadShortcuts(m_useNumpadShortcuts);
@@ -265,6 +270,7 @@ StopMotion::StopMotion() {
   m_intervalTimer      = new QTimer(this);
   m_countdownTimer     = new QTimer(this);
   m_webcamOverlayTimer = new QTimer(this);
+  m_camSnapSound       = new QSound(":Resources/camera_snap.wav");
 
   // Make the interval timer single-shot. When the capture finished, restart
   // timer for next frame.
@@ -293,9 +299,14 @@ StopMotion::StopMotion() {
                        SLOT(captureWebcamOnTimeout()));
   ret = ret && connect(m_canon, SIGNAL(newCanonImageReady()), this,
                        SLOT(directDslrImage()));
+  ret = ret && connect(m_gphotocam, SIGNAL(newGPhotocamImageReady()), this,
+                       SLOT(directDslrImage()));
   assert(ret);
   ret = ret && connect(m_canon, SIGNAL(canonCameraChanged(QString)), this,
-                       SLOT(onCanonCameraChanged(QString)));
+                       SLOT(onCameraChanged(QString)));
+  ret = ret && connect(m_gphotocam, SIGNAL(gphotoCameraChanged(QString)), this,
+                       SLOT(onCameraChanged(QString)));
+
   assert(ret);
 
   ToonzScene *scene = TApp::instance()->getCurrentScene()->getScene();
@@ -313,6 +324,9 @@ StopMotion::~StopMotion() {
   disconnectAllCameras();
 #ifdef WITH_CANON
   m_canon->closeAll();
+#endif
+#ifdef WITH_GPHOTO2
+  m_gphotocam->closeAll();
 #endif
 }
 
@@ -350,7 +364,11 @@ void StopMotion::onSceneSwitched() {
         loadXmlFile();
         buildLiveViewMap(sl);
         m_sl = sl;
-        getRasterLevelSize(sl, m_canon->m_proxyImageDimensions);
+        // Type should have been set by loadXmlFile
+        if (m_currentCameraType == CameraType::CanonDSLR)
+          getRasterLevelSize(sl, m_canon->m_proxyImageDimensions);
+        else if (m_currentCameraType == CameraType::GPhoto)
+          getRasterLevelSize(sl, m_gphotocam->m_proxyImageDimensions);
         found = true;
         break;
       }
@@ -380,7 +398,7 @@ bool StopMotion::buildLiveViewMap(TXshSimpleLevel *sl) {
     return false;
   }
 
-  if (m_usingWebcam) {
+  if (m_currentCameraType == CameraType::Web) {
     return false;
   }
 
@@ -416,19 +434,26 @@ bool StopMotion::buildLiveViewMap(TXshSimpleLevel *sl) {
 //-----------------------------------------------------------------
 
 void StopMotion::disconnectAllCameras() {
+  if (m_currentCameraType == CameraType::Web) {
+    m_webcam->releaseWebcam();
+    m_webcam->clearWebcam();
+  }
 #ifdef WITH_CANON
-  if (m_liveViewStatus > LiveViewClosed) {
-    m_canon->resetCanon(true);
-  } else {
-    m_canon->resetCanon(false);
+  if (m_currentCameraType == CameraType::CanonDSLR) {
+    if (m_liveViewStatus > LiveViewClosed) {
+      m_canon->resetCanon(true);
+    } else {
+      m_canon->resetCanon(false);
+    }
   }
 #endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto)
+    m_gphotocam->resetGphotocam((m_liveViewStatus > LiveViewClosed));
+#endif
 
-  if (m_usingWebcam) {
-    m_webcam->releaseWebcam();
-    m_usingWebcam = false;
-  }
-  m_webcam->clearWebcam();
+  m_currentCameraType      = CameraType::None;
+  m_currentCameraTypeIndex = -1;
 
   m_liveViewStatus = LiveViewClosed;
   setTEnvCameraName("");
@@ -442,9 +467,8 @@ void StopMotion::disconnectAllCameras() {
   m_liveViewDpi             = TPointD(0, 0);
 
   emit(intervalToggled(false));
-  emit(liveViewChanged(false));
-  emit(liveViewStopped());
-  emit(newCameraSelected(0, false));
+  stopLiveView();
+  emit(newCameraSelected(0));
   toggleNumpadShortcuts(false);
 }
 
@@ -517,10 +541,10 @@ void StopMotion::setPlaceOnXSheet(bool on) {
 
 //-----------------------------------------------------------------
 
-void StopMotion::setReviewTime(int time) {
-  m_reviewTime         = time;
-  StopMotionReviewTime = time;
-  emit(reviewTimeChangedSignal(time));
+void StopMotion::setReviewTimeDSec(int timeDSec) {
+  m_reviewTimeDSec     = timeDSec;
+  StopMotionReviewDSec = timeDSec;
+  emit(reviewTimeChangedSignal(timeDSec));
 }
 
 //-----------------------------------------------------------------
@@ -619,8 +643,8 @@ void StopMotion::toggleInterval(bool on) {
 
 void StopMotion::startInterval() {
   if (m_liveViewStatus > 1) {
-    m_intervalTimer->start(m_intervalTime * 1000);
-    if (m_intervalTime != 0) m_countdownTimer->start(100);
+    m_intervalTimer->start(m_intervalDSec * 100);
+    if (m_intervalDSec != 0) m_countdownTimer->start(100);
     m_intervalStarted = true;
     emit(intervalStarted());
   } else {
@@ -641,8 +665,9 @@ void StopMotion::stopInterval() {
 
 //-----------------------------------------------------------------
 
-void StopMotion::setIntervalAmount(int value) {
-  m_intervalTime = value;
+void StopMotion::setIntervalDSec(int value) {
+  m_intervalDSec         = value;
+  StopMotionIntervalDSec = value;
   emit(intervalAmountChanged(value));
 }
 
@@ -663,10 +688,10 @@ void StopMotion::onIntervalCaptureTimerTimeout() {
 void StopMotion::restartInterval() {
   // restart interval timer for capturing next frame (it is single shot)
   if (m_isTimeLapse && m_intervalStarted) {
-    m_intervalTimer->start(m_intervalTime * 1000);
+    m_intervalTimer->start(m_intervalDSec * 100);
     // restart the count down as well (for aligning the timing. It is not
     // single shot)
-    if (m_intervalTime != 0) m_countdownTimer->start(100);
+    if (m_intervalDSec != 0) m_countdownTimer->start(100);
   }
 }
 
@@ -1133,7 +1158,7 @@ bool StopMotion::loadLiveViewImage(int row, TRaster32P &image) {
 
   int frameNumber = frameId.getNumber();
 
-  if (m_usingWebcam) {
+  if (m_currentCameraType == CameraType::Web) {
     if (frameNumber > 0) {
       image = sl->getFrame(frameId, false)->raster();
       return true;
@@ -1314,6 +1339,14 @@ void StopMotion::getSubsampling() {
 
 //-----------------------------------------------------------------------------
 
+void StopMotion::setPlayCaptureSound(bool on) {
+  m_playCaptureSound         = on;
+  StopMotionPlayCaptureSound = on;
+  emit(playCaptureSignal(on));
+}
+
+//-----------------------------------------------------------------------------
+
 void StopMotion::update() { getSubsampling(); }
 
 //-----------------------------------------------------------------------------
@@ -1367,26 +1400,46 @@ void StopMotion::onTimeout() {
        !TApp::instance()->getCurrentFrame()->isPlaying()) ||
       (m_liveViewStatus == LiveViewPaused && !m_userCalledPause)) {
     if (getAlwaysLiveView() || (currentFrame >= m_xSheetFrameNumber - 2)) {
-      if (!m_usingWebcam) {
+      if (m_calibration.captureCue && m_playCaptureSound)
+        m_camSnapSound->play();
+
+      bool calibrateImage = !m_calibration.captureCue &&
+                            m_calibration.isValid && m_calibration.isEnabled;
+      bool success = false;
+
 #ifdef WITH_CANON
-        bool success = m_canon->downloadEVFData();
-        if (success) {
-          setLiveViewImage();
-        } else {
-          m_hasLiveViewImage = false;
-        }
-#endif
-      } else {
-        bool success = m_webcam->getWebcamImage(m_liveViewImage);
-        if (success) {
-          setLiveViewImage();
-        } else {
-          m_hasLiveViewImage = false;
-        }
+      if (m_currentCameraType == CameraType::CanonDSLR) {
+        m_canon->enableCalibration(calibrateImage);
+        success = m_canon->downloadEVFData();
       }
+#endif
+#ifdef WITH_GPHOTO2
+      if (m_currentCameraType == CameraType::GPhoto) {
+        m_gphotocam->enableCalibration(calibrateImage);
+        success = m_gphotocam->getGPhotocamImage();
+      }
+#endif
+      if (m_currentCameraType == CameraType::Web) {
+        m_webcam->enableCalibration(calibrateImage);
+        success = m_webcam->getWebcamImage(m_liveViewImage);
+      }
+
+      if (success) {
+        // capture calibration reference
+        if (m_calibration.captureCue) {
+          m_calibration.captureCue = false;
+          emit(calibrationImageCaptured());
+          return;
+        }
+
+        setLiveViewImage();
+      } else {
+        m_hasLiveViewImage = false;
+      }
+
       if ((!getAlwaysLiveView() &&
            !(currentFrame >= m_xSheetFrameNumber - 2)) ||
-          m_canon->m_pickLiveViewZoom) {
+          isPickLiveViewZoom()) {
         m_showLineUpImage = false;
       } else {
         m_showLineUpImage = true;
@@ -1411,23 +1464,31 @@ void StopMotion::setLiveViewImage() {
   if (m_liveViewDpi == TPointD(0.0, 0.0) || m_liveViewImageDimensions.lx == 0) {
     m_liveViewImageDimensions = m_liveViewImage->getSize();
 
-    if (m_usingWebcam) {
+    if (m_currentCameraType == CameraType::Web) {
       m_liveViewDpi = TPointD(Stage::standardDpi, Stage::standardDpi);
     } else {
       double minimumDpi;
-      if (m_canon->m_proxyImageDimensions == TDimension(0, 0)) {
-        TCamera *camera =
-            TApp::instance()->getCurrentScene()->getScene()->getCurrentCamera();
-        TDimensionD size = camera->getSize();
-        minimumDpi       = std::min(m_liveViewImageDimensions.lx / size.lx,
-                              m_liveViewImageDimensions.ly / size.ly);
-      } else {
-        TDimensionD size = TDimensionD(
+
+      TCamera *camera =
+          TApp::instance()->getCurrentScene()->getScene()->getCurrentCamera();
+      TDimensionD size = camera->getSize();
+
+      if (m_currentCameraType == CameraType::CanonDSLR &&
+          m_canon->m_proxyImageDimensions != TDimension(0, 0)) {
+        size = TDimensionD(
             (double)m_canon->m_proxyImageDimensions.lx / Stage::standardDpi,
             (double)m_canon->m_proxyImageDimensions.ly / Stage::standardDpi);
-        minimumDpi = std::min(m_liveViewImageDimensions.lx / size.lx,
-                              m_liveViewImageDimensions.ly / size.ly);
       }
+      if (m_currentCameraType == CameraType::GPhoto &&
+          m_gphotocam->m_proxyImageDimensions != TDimension(0, 0)) {
+        size = TDimensionD(
+            (double)m_gphotocam->m_proxyImageDimensions.lx / Stage::standardDpi,
+            (double)m_gphotocam->m_proxyImageDimensions.ly /
+                Stage::standardDpi);
+      }
+
+      minimumDpi = std::min(m_liveViewImageDimensions.lx / size.lx,
+                            m_liveViewImageDimensions.ly / size.ly);
 
       m_liveViewDpi = TPointD(minimumDpi, minimumDpi);
     }
@@ -1462,7 +1523,7 @@ bool StopMotion::importImage() {
     return false;
   }
 
-  if (m_usingWebcam) {
+  if (m_currentCameraType == CameraType::Web) {
     m_newImage = m_liveViewImage;
   }
 
@@ -1599,7 +1660,7 @@ bool StopMotion::importImage() {
       return false;
     }
   }
-  if (!m_usingWebcam) {
+  if (m_currentCameraType != CameraType::Web) {
     if (!TFileStatus(fullResFolder).doesExist()) {
       try {
         TSystem::mkDir(fullResFolder);
@@ -1621,7 +1682,7 @@ bool StopMotion::importImage() {
   }
 
   // move the temp file
-  if (!m_usingWebcam) {
+  if (m_currentCameraType != CameraType::Web) {
     TSystem::copyFile(fullResFile, tempFile);
     TSystem::deleteFile(tempFile);
 
@@ -1666,9 +1727,9 @@ bool StopMotion::importImage() {
   // for now always save.  This can be tweaked later
   sl->save();
   m_sl = sl;
-  if (getReviewTime() > 0 && !m_isTimeLapse) {
+  if (getReviewTimeDSec() > 0 && !m_isTimeLapse) {
     m_liveViewStatus = LiveViewPaused;
-    m_reviewTimer->start(getReviewTime() * 1000);
+    m_reviewTimer->start(getReviewTimeDSec() * 100);
   }
 
   /* placement in xsheet */
@@ -1691,7 +1752,7 @@ bool StopMotion::importImage() {
       xsh->setCell(row + i, col, TXshCell(sl, fid));
     }
     app->getCurrentColumn()->setColumnIndex(col);
-    if (getReviewTime() == 0 || m_isTimeLapse)
+    if (getReviewTimeDSec() == 0 || m_isTimeLapse)
       app->getCurrentFrame()->setFrame(row + m_captureNumberOfFrames);
     m_xSheetFrameNumber = row + 1 + m_captureNumberOfFrames;
     emit(xSheetFrameNumberChanged(m_xSheetFrameNumber));
@@ -1737,7 +1798,7 @@ bool StopMotion::importImage() {
       xsh->setCell(row + i, foundCol, TXshCell(sl, fid));
     }
     app->getCurrentColumn()->setColumnIndex(foundCol);
-    if (getReviewTime() == 0 || m_isTimeLapse)
+    if (getReviewTimeDSec() == 0 || m_isTimeLapse)
       app->getCurrentFrame()->setFrame(row + m_captureNumberOfFrames);
     m_xSheetFrameNumber = row + 1 + m_captureNumberOfFrames;
     emit(xSheetFrameNumberChanged(m_xSheetFrameNumber));
@@ -1753,7 +1814,7 @@ bool StopMotion::importImage() {
       xsh->setCell(row + i, col, TXshCell(sl, fid));
     }
     app->getCurrentColumn()->setColumnIndex(col);
-    if (getReviewTime() == 0 || m_isTimeLapse)
+    if (getReviewTimeDSec() == 0 || m_isTimeLapse)
       app->getCurrentFrame()->setFrame(row + m_captureNumberOfFrames);
     m_xSheetFrameNumber = row + 1 + m_captureNumberOfFrames;
     emit(xSheetFrameNumberChanged(m_xSheetFrameNumber));
@@ -1765,6 +1826,17 @@ bool StopMotion::importImage() {
 //-----------------------------------------------------------------
 
 void StopMotion::captureImage() {
+  if (m_currentCameraType == CameraType::None) {
+    DVGui::warning(tr("No camera selected."));
+    return;
+  }
+
+  if (m_currentCameraType == CameraType::Web &&
+      (!m_hasLiveViewImage || m_liveViewStatus != LiveViewOpen)) {
+    DVGui::warning(tr("Cannot capture image unless live view is active."));
+    return;
+  }
+
   if (m_isTimeLapse && !m_intervalStarted) {
     startInterval();
     return;
@@ -1773,21 +1845,30 @@ void StopMotion::captureImage() {
     stopInterval();
     return;
   }
-  if (!m_hasLiveViewImage || m_liveViewStatus != LiveViewOpen) {
-    DVGui::warning(tr("Cannot capture image unless live view is active."));
-    return;
-  }
 
   bool sessionOpen = false;
 #ifdef WITH_CANON
-  sessionOpen = m_canon->m_sessionOpen;
+  if (m_currentCameraType == CameraType::CanonDSLR)
+    sessionOpen = m_canon->m_sessionOpen;
 #endif
-  if ((!m_usingWebcam && !sessionOpen) || m_userCalledPause) {
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto)
+    sessionOpen = m_gphotocam->m_sessionOpen;
+#endif
+
+  if ((m_currentCameraType != CameraType::Web && !sessionOpen) ||
+      m_userCalledPause) {
     DVGui::warning(tr("Please start live view before capturing an image."));
     return;
   }
 
-  if (m_usingWebcam) {
+  if (m_playCaptureSound) {
+    m_camSnapSound->play();
+  }
+
+  emit captureStarted();
+
+  if (m_currentCameraType == CameraType::Web) {
     captureWebcamImage();
   } else {
     captureDslrImage();
@@ -1801,7 +1882,7 @@ void StopMotion::captureWebcamImage() {
     m_light->showOverlays();
     m_webcamOverlayTimer->start(500);
   } else {
-    if (getReviewTime() > 0 && !m_isTimeLapse) {
+    if (getReviewTimeDSec() > 0 && !m_isTimeLapse) {
       m_timer->stop();
       if (m_liveViewStatus > LiveViewClosed) {
         // m_liveViewStatus = LiveViewPaused;
@@ -1811,6 +1892,7 @@ void StopMotion::captureWebcamImage() {
     m_hasLineUpImage = true;
     emit(newLiveViewImageReady());
     importImage();
+    emit captureComplete();
     return;
   }
 }
@@ -1821,7 +1903,7 @@ void StopMotion::captureWebcamOnTimeout() {
     saveTestShot();
     return;
   }
-  if (getReviewTime() > 0 && !m_isTimeLapse) {
+  if (getReviewTimeDSec() > 0 && !m_isTimeLapse) {
     m_timer->stop();
     if (m_liveViewStatus > LiveViewClosed) {
       // m_liveViewStatus = LiveViewPaused;
@@ -1838,15 +1920,15 @@ void StopMotion::captureWebcamOnTimeout() {
 
 void StopMotion::captureDslrImage() {
   m_light->showOverlays();
-#ifdef WITH_CANON
-  if (m_canon->m_zooming) {
+
+  if (isZooming()) {
     DVGui::warning(
         tr("Can't capture an image with focus check on.\n"
            "Please click the Check button in the Settings tab."));
     return;
   }
-#endif
-  if (getReviewTime() > 0 && !m_isTimeLapse) {
+
+  if (getReviewTimeDSec() > 0 && !m_isTimeLapse) {
     m_timer->stop();
   }
 
@@ -1877,7 +1959,10 @@ void StopMotion::captureDslrImage() {
   m_tempRaw  = tempRaw.getQString();
 
 #ifdef WITH_CANON
-  m_canon->takePicture();
+  if (m_currentCameraType == CameraType::CanonDSLR) m_canon->takePicture();
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto) m_gphotocam->takePicture();
 #endif
 }
 
@@ -1888,10 +1973,18 @@ void StopMotion::directDslrImage() {
     saveTestShot();
   else
     importImage();
+
+   emit captureComplete();
+
 #ifdef WITH_CANON
-  if (m_canon->m_liveViewExposureOffset != 0) {
+  if (m_currentCameraType == CameraType::CanonDSLR &&
+      m_canon->m_liveViewExposureOffset != 0)
     m_canon->setShutterSpeed(m_canon->m_realShutterSpeed, false);
-  }
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto &&
+      m_gphotocam->m_liveViewExposureOffset != 0)
+    m_gphotocam->setShutterSpeed(m_gphotocam->m_realShutterSpeed, false);
 #endif
 }
 
@@ -1921,25 +2014,46 @@ void StopMotion::postImportProcess() {
 //-----------------------------------------------------------------
 
 void StopMotion::takeTestShot() {
+  if (m_currentCameraType == CameraType::None) {
+    DVGui::warning(tr("No camera selected."));
+    return;
+  }
+
+  if (m_currentCameraType == CameraType::Web &&
+      (!m_hasLiveViewImage || m_liveViewStatus != LiveViewOpen)) {
+    DVGui::warning(tr("Cannot capture image unless live view is active."));
+    return;
+  }
+
   bool sessionOpen = false;
 #ifdef WITH_CANON
-  sessionOpen = m_canon->m_sessionOpen;
+  if (m_currentCameraType == CameraType::CanonDSLR)
+    sessionOpen = m_canon->m_sessionOpen;
 #endif
-  if ((!m_usingWebcam && !sessionOpen) || m_userCalledPause) {
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto)
+    sessionOpen = m_gphotocam->m_sessionOpen;
+#endif
+
+  if ((m_currentCameraType != CameraType::Web && !sessionOpen) ||
+      m_userCalledPause) {
     DVGui::warning(tr("Please start live view before capturing an image."));
     return;
   }
+
   m_isTestShot = true;
-  if (m_usingWebcam) {
+
+  emit captureStarted();
+
+  if (m_currentCameraType == CameraType::Web) {
     if (m_light->useOverlays()) {
       m_light->showOverlays();
       m_webcamOverlayTimer->start(500);
     } else {
       saveTestShot();
+      emit captureComplete();
     }
-  }
-#ifdef WITH_CANON
-  else {
+  } else {
     TApp *app           = TApp::instance();
     ToonzScene *scene   = app->getCurrentScene()->getScene();
     TFilePath parentDir = scene->decodeFilePath(TFilePath(m_filePath));
@@ -1952,9 +2066,14 @@ void StopMotion::takeTestShot() {
     m_tempFile = tempFile.getQString();
     m_tempRaw  = tempRaw.getQString();
     m_light->showOverlays();
-    m_canon->takePicture();
-  }
+
+#ifdef WITH_GPHOTO2
+    if (m_currentCameraType == CameraType::GPhoto) m_gphotocam->takePicture();
 #endif
+#ifdef WITH_CANON
+    if (m_currentCameraType == CameraType::CanonDSLR) m_canon->takePicture();
+#endif
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -1972,7 +2091,7 @@ void StopMotion::saveTestShot() {
     return;
   }
 
-  if (m_usingWebcam) {
+  if (m_currentCameraType == CameraType::Web) {
     m_newImage = m_liveViewImage;
   }
 
@@ -2051,7 +2170,7 @@ void StopMotion::saveTestShot() {
   TFilePath tempFile = parentDir + "temp.jpg";
   TFilePath tempRaw  = parentDir + "temp.cr2";
 
-  if (!m_usingWebcam) {
+  if (m_currentCameraType != CameraType::Web) {
     TSystem::copyFile(testsFile, tempFile);
     TSystem::deleteFile(tempFile);
     if (TSystem::doesExistFileOrLevel(TFilePath(tempRaw))) {
@@ -2097,7 +2216,7 @@ void StopMotion::saveTestXml(TFilePath testsXml, int number) {
     xmlWriter.writeStartElement("body");
 
     xmlWriter.writeStartElement("Test_" + QString::number(number));
-    if (m_usingWebcam) {
+    if (m_currentCameraType == CameraType::Web) {
       xmlWriter.writeTextElement("Webcam", "yes");
       xmlWriter.writeTextElement("CameraName",
                                  m_webcam->getWebcamDescription());
@@ -2105,9 +2224,10 @@ void StopMotion::saveTestXml(TFilePath testsXml, int number) {
                                  QString::number(m_webcam->getWebcamWidth()));
       xmlWriter.writeTextElement("CameraResolutionY",
                                  QString::number(m_webcam->getWebcamHeight()));
-    } else {
-      xmlWriter.writeTextElement("Webcam", "no");
+    }
 #ifdef WITH_CANON
+    if (m_currentCameraType == CameraType::CanonDSLR) {
+      xmlWriter.writeTextElement("Webcam", "no");
       xmlWriter.writeTextElement("CameraName",
                                  QString::fromStdString(m_canon->m_cameraName));
       xmlWriter.writeTextElement("Aperture", m_canon->getCurrentAperture());
@@ -2118,14 +2238,38 @@ void StopMotion::saveTestXml(TFilePath testsXml, int number) {
                                  m_canon->getCurrentPictureStyle());
       xmlWriter.writeTextElement("ImageQuality",
                                  m_canon->getCurrentImageQuality());
+//      xmlWriter.writeTextElement("ImageSize",
+//                                 m_canon->getCurrentImageSize());
       xmlWriter.writeTextElement("WhiteBalance",
                                  m_canon->getCurrentWhiteBalance());
       xmlWriter.writeTextElement("ColorTemperature",
                                  m_canon->getCurrentColorTemperature());
       xmlWriter.writeTextElement("ExposureCompensation",
                                  m_canon->getCurrentExposureCompensation());
-#endif
     }
+#endif
+#ifdef WITH_GPHOTO2
+    if (m_currentCameraType == CameraType::GPhoto) {
+      xmlWriter.writeTextElement("Webcam", "no");
+      xmlWriter.writeTextElement("CameraName", m_gphotocam->m_cameraName);
+      xmlWriter.writeTextElement("Aperture", m_gphotocam->m_displayedAperture);
+      xmlWriter.writeTextElement("ShutterSpeed",
+                                 m_gphotocam->m_displayedShutterSpeed);
+      xmlWriter.writeTextElement("ISO", m_gphotocam->m_displayedIso);
+      xmlWriter.writeTextElement("PictureStyle",
+                                 m_gphotocam->getCurrentPictureStyle());
+      xmlWriter.writeTextElement("ImageQuality",
+                                 m_gphotocam->getCurrentImageQuality());
+      xmlWriter.writeTextElement("ImageSize",
+                                 m_gphotocam->getCurrentImageSize());
+      xmlWriter.writeTextElement("WhiteBalance",
+                                 m_gphotocam->getCurrentWhiteBalance());
+      xmlWriter.writeTextElement("ColorTemperature",
+                                 m_gphotocam->getCurrentColorTemperature());
+      xmlWriter.writeTextElement("ExposureCompensation",
+                                 m_gphotocam->getCurrentExposureCompensation());
+    }
+#endif
     xmlWriter.writeEndElement();
     xmlWriter.writeEndElement();
     xmlWriter.writeEndDocument();
@@ -2149,7 +2293,7 @@ void StopMotion::saveTestXml(TFilePath testsXml, int number) {
     QDomElement newTest =
         document.createElement("Test_" + QString::number(number));
 
-    if (m_usingWebcam) {
+    if (m_currentCameraType == CameraType::Web) {
       QDomElement webcam = document.createElement("Webcam");
       newTest.appendChild(webcam);
       webcam.appendChild(document.createTextNode("yes"));
@@ -2169,12 +2313,11 @@ void StopMotion::saveTestXml(TFilePath testsXml, int number) {
       resolutionY.appendChild(document.createTextNode(
           QString::number(m_webcam->getWebcamHeight())));
     }
-
-    else {
+#ifdef WITH_CANON
+    if (m_currentCameraType == CameraType::CanonDSLR) {
       QDomElement webcam = document.createElement("Webcam");
       newTest.appendChild(webcam);
       webcam.appendChild(document.createTextNode("no"));
-#ifdef WITH_CANON
       QDomElement cameraName = document.createElement("CameraName");
       newTest.appendChild(cameraName);
       cameraName.appendChild(document.createTextNode(
@@ -2204,6 +2347,11 @@ void StopMotion::saveTestXml(TFilePath testsXml, int number) {
       imageQuality.appendChild(
           document.createTextNode(m_canon->getCurrentImageQuality()));
 
+      //QDomElement imageSize = document.createElement("ImageSize");
+      //newTest.appendChild(imageSize);
+      //imageSize.appendChild(
+      //    document.createTextNode(m_canon->getCurrentImageSize()));
+
       QDomElement whiteBalance = document.createElement("WhiteBalance");
       newTest.appendChild(whiteBalance);
       whiteBalance.appendChild(
@@ -2219,8 +2367,64 @@ void StopMotion::saveTestXml(TFilePath testsXml, int number) {
       newTest.appendChild(exposureCompensation);
       exposureCompensation.appendChild(
           document.createTextNode(m_canon->getCurrentExposureCompensation()));
-#endif
     }
+#endif
+#ifdef WITH_GPHOTO2
+    if (m_currentCameraType == CameraType::GPhoto) {
+      QDomElement webcam = document.createElement("Webcam");
+      newTest.appendChild(webcam);
+      webcam.appendChild(document.createTextNode("no"));
+      QDomElement cameraName = document.createElement("CameraName");
+      newTest.appendChild(cameraName);
+      cameraName.appendChild(
+          document.createTextNode(m_gphotocam->m_cameraName));
+
+      QDomElement aperture = document.createElement("Aperture");
+      newTest.appendChild(aperture);
+      aperture.appendChild(
+          document.createTextNode(m_gphotocam->m_displayedAperture));
+
+      QDomElement shutterSpeed = document.createElement("ShutterSpeed");
+      newTest.appendChild(shutterSpeed);
+      shutterSpeed.appendChild(
+          document.createTextNode(m_gphotocam->m_displayedShutterSpeed));
+
+      QDomElement iso = document.createElement("ISO");
+      newTest.appendChild(iso);
+      iso.appendChild(document.createTextNode(m_gphotocam->m_displayedIso));
+
+      QDomElement pictureStyle = document.createElement("PictureStyle");
+      newTest.appendChild(pictureStyle);
+      pictureStyle.appendChild(
+          document.createTextNode(m_gphotocam->getCurrentPictureStyle()));
+
+      QDomElement imageQuality = document.createElement("ImageQuality");
+      newTest.appendChild(imageQuality);
+      imageQuality.appendChild(
+          document.createTextNode(m_gphotocam->getCurrentImageQuality()));
+
+      QDomElement imageSize = document.createElement("ImageSize");
+      newTest.appendChild(imageSize);
+      imageSize.appendChild(
+          document.createTextNode(m_gphotocam->getCurrentImageSize()));
+
+      QDomElement whiteBalance = document.createElement("WhiteBalance");
+      newTest.appendChild(whiteBalance);
+      whiteBalance.appendChild(
+          document.createTextNode(m_gphotocam->getCurrentWhiteBalance()));
+
+      QDomElement colorTemperature = document.createElement("ColorTemperature");
+      newTest.appendChild(colorTemperature);
+      colorTemperature.appendChild(
+          document.createTextNode(m_gphotocam->getCurrentColorTemperature()));
+
+      QDomElement exposureCompensation =
+          document.createElement("ExposureCompensation");
+      newTest.appendChild(exposureCompensation);
+      exposureCompensation.appendChild(document.createTextNode(
+          m_gphotocam->getCurrentExposureCompensation()));
+    }
+#endif
     docEle.appendChild(newTest);
     file.open(QIODevice::WriteOnly);
     file.resize(0);
@@ -2256,16 +2460,17 @@ void StopMotion::saveXmlFile() {
   xmlWriter.writeEndElement();
 
   xmlWriter.writeStartElement("CameraInfo");
-  if (m_usingWebcam) {
+  if (m_currentCameraType == CameraType::Web) {
     xmlWriter.writeTextElement("Webcam", "yes");
     xmlWriter.writeTextElement("CameraName", m_webcam->getWebcamDescription());
     xmlWriter.writeTextElement("CameraResolutionX",
                                QString::number(m_webcam->getWebcamWidth()));
     xmlWriter.writeTextElement("CameraResolutionY",
                                QString::number(m_webcam->getWebcamHeight()));
-  } else {
-    xmlWriter.writeTextElement("Webcam", "no");
+  }
 #ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR) {
+    xmlWriter.writeTextElement("Webcam", "no");
     xmlWriter.writeTextElement("CameraName",
                                QString::fromStdString(m_canon->m_cameraName));
     xmlWriter.writeTextElement("Aperture", m_canon->getCurrentAperture());
@@ -2276,6 +2481,8 @@ void StopMotion::saveXmlFile() {
                                m_canon->getCurrentPictureStyle());
     xmlWriter.writeTextElement("ImageQuality",
                                m_canon->getCurrentImageQuality());
+    //xmlWriter.writeTextElement("ImageSize",
+    //                           m_canon->getCurrentImageSize());
     xmlWriter.writeTextElement("WhiteBalance",
                                m_canon->getCurrentWhiteBalance());
     xmlWriter.writeTextElement("ColorTemperature",
@@ -2286,8 +2493,36 @@ void StopMotion::saveXmlFile() {
                                QString::number(m_canon->m_finalZoomPoint.x));
     xmlWriter.writeTextElement("FocusCheckLocationY",
                                QString::number(m_canon->m_finalZoomPoint.y));
-#endif
   }
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto) {
+    xmlWriter.writeTextElement("Webcam", "no");
+    xmlWriter.writeTextElement("CameraName", m_gphotocam->m_cameraName);
+    xmlWriter.writeTextElement("Aperture", m_gphotocam->m_displayedAperture);
+    xmlWriter.writeTextElement("ShutterSpeed",
+                               m_gphotocam->m_displayedShutterSpeed);
+    xmlWriter.writeTextElement("ISO", m_gphotocam->m_displayedIso);
+    xmlWriter.writeTextElement("PictureStyle",
+                               m_gphotocam->getCurrentPictureStyle());
+    xmlWriter.writeTextElement("ImageQuality",
+                               m_gphotocam->getCurrentImageQuality());
+    xmlWriter.writeTextElement("ImageSize",
+                               m_gphotocam->getCurrentImageSize());
+    xmlWriter.writeTextElement("WhiteBalance",
+                               m_gphotocam->getCurrentWhiteBalance());
+    xmlWriter.writeTextElement("ColorTemperature",
+                               m_gphotocam->getCurrentColorTemperature());
+    xmlWriter.writeTextElement("ExposureCompensation",
+                               m_gphotocam->getCurrentExposureCompensation());
+    xmlWriter.writeTextElement(
+        "FocusCheckLocationX",
+        QString::number(m_gphotocam->m_finalZoomPoint.x));
+    xmlWriter.writeTextElement(
+        "FocusCheckLocationY",
+        QString::number(m_gphotocam->m_finalZoomPoint.y));
+  }
+#endif
   xmlWriter.writeEndElement();
 
   xmlWriter.writeStartElement("Images");
@@ -2305,8 +2540,8 @@ bool StopMotion::loadXmlFile() {
   ToonzScene *scene = app->getCurrentScene()->getScene();
   TXsheet *xsh      = scene->getXsheet();
 
-  bool webcam      = false;
-  bool foundCamera = false;
+  bool foundCamera      = false;
+  CameraType cameraType = CameraType::None;
   QString text;
   int x;
   int y;
@@ -2322,113 +2557,201 @@ bool StopMotion::loadXmlFile() {
   QXmlStreamReader xmlReader;
   xmlReader.setDevice(&xmlFile);
   xmlReader.readNext();
+  QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+  int webCount               = cameras.count();
   while (!xmlReader.atEnd()) {
     if (xmlReader.isStartElement()) {
       if (xmlReader.name() == "Webcam") {
-        text                      = xmlReader.readElementText();
-        if (text == "yes") webcam = true;
-      }
-      if (xmlReader.name() == "CameraName") {
+        text                          = xmlReader.readElementText();
+        if (text == "yes") cameraType = CameraType::Web;
+      } else if (xmlReader.name() == "CameraName") {
         text = xmlReader.readElementText();
-        if (webcam) {
-          QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
-          if (cameras.size() > 0) {
-            for (int i = 0; i < cameras.size(); i++) {
-              if (cameras.at(i).description() == text) {
-                changeCameras(i + 1);
+        if (cameraType == CameraType::Web) {
+          for (int i = 0; i < webCount; i++) {
+            if (cameras.at(i).description() == text) {
+              changeCameras(i + 1, CameraType::Web, i);
+              foundCamera = true;
+              break;
+            }
+          }
+        } else {
+          int canonCount  = 0;
+          int gphotoCount = 0;
+#ifdef WITH_CANON
+          canonCount = m_canon->getCameraCount();
+          for (int i = 0; i < canonCount; i++) {
+            m_canon->getCamera(i);
+            m_canon->openCameraSession();
+            QString camName = QString::fromStdString(m_canon->getCameraName());
+            m_canon->closeCameraSession();
+
+            if (camName == text) {
+              changeCameras((webCount + i) + 1, CameraType::CanonDSLR, i);
+              foundCamera = true;
+              cameraType  = CameraType::CanonDSLR;
+              break;
+            }
+          }
+#endif
+#ifdef WITH_GPHOTO2
+          // If it's a canon camera, ignore the one in the gphoto list
+          if (!foundCamera) {
+            gphotoCount = m_gphotocam->getCameraCount();
+            for (int i = 0; i < gphotoCount; i++) {
+              if (m_gphotocam->getCameraName(i) == text) {
+                changeCameras((webCount + canonCount + i) + 1,
+                              CameraType::GPhoto, i);
                 foundCamera = true;
+                cameraType  = CameraType::GPhoto;
                 break;
               }
             }
           }
-        } else {
-#ifdef WITH_CANON
-          QString camName = "";
-          if (m_canon->getCameraCount() > 0) {
-            m_canon->openCameraSession();
-            camName = QString::fromStdString(m_canon->getCameraName());
-            m_canon->closeCameraSession();
-          }
-          if (text == camName) {
-            changeCameras(-1);
-            foundCamera = true;
-          }
 #endif
         }
-      }
-      if (xmlReader.name() == "CameraResolutionX") {
+      } else if (xmlReader.name() == "CameraResolutionX") {
         text = xmlReader.readElementText();
         x    = text.toInt();
-      }
-      if (xmlReader.name() == "CameraResolutionY") {
+      } else if (xmlReader.name() == "CameraResolutionY") {
         text = xmlReader.readElementText();
         y    = text.toInt();
-        if (foundCamera == true && webcam == true) {
+        if (foundCamera == true && cameraType == CameraType::Web) {
           setWebcamResolution(
               QString(QString::number(x) + " x " + QString::number(y)));
         }
-      }
+      } else if (xmlReader.name() == "Aperture") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
 #ifdef WITH_CANON
-      if (xmlReader.name() == "Aperture") {
-        text = xmlReader.readElementText();
-        if (foundCamera == true && webcam == false) {
-          m_canon->setAperture(text);
-        }
-      }
-      if (xmlReader.name() == "ShutterSpeed") {
-        text = xmlReader.readElementText();
-        if (foundCamera == true && webcam == false) {
-          m_canon->setShutterSpeed(text);
-        }
-      }
-      if (xmlReader.name() == "ISO") {
-        text = xmlReader.readElementText();
-        if (foundCamera == true && webcam == false) {
-          m_canon->setIso(text);
-        }
-      }
-      if (xmlReader.name() == "PictureStyle") {
-        text = xmlReader.readElementText();
-        if (foundCamera == true && webcam == false) {
-          m_canon->setPictureStyle(text);
-        }
-      }
-      if (xmlReader.name() == "ImageQuality") {
-        text = xmlReader.readElementText();
-        if (foundCamera == true && webcam == false) {
-          m_canon->setImageQuality(text);
-        }
-      }
-      if (xmlReader.name() == "WhiteBalance") {
-        text = xmlReader.readElementText();
-        if (foundCamera == true && webcam == false) {
-          m_canon->setWhiteBalance(text);
-        }
-      }
-      if (xmlReader.name() == "ColorTemperature") {
-        text = xmlReader.readElementText();
-        if (foundCamera == true && webcam == false) {
-          m_canon->setColorTemperature(text);
-        }
-      }
-      if (xmlReader.name() == "ExposureCompensation") {
-        text = xmlReader.readElementText();
-        if (foundCamera == true && webcam == false) {
-          m_canon->setExposureCompensation(text);
-        }
-      }
-      if (xmlReader.name() == "FocusCheckLocationX") {
-        text                        = xmlReader.readElementText();
-        m_canon->m_finalZoomPoint.x = text.toInt();
-      }
-      if (xmlReader.name() == "FocusCheckLocationY") {
-        text                        = xmlReader.readElementText();
-        m_canon->m_finalZoomPoint.y = text.toInt();
-      }
+          if (cameraType == CameraType::CanonDSLR) m_canon->setAperture(text);
 #endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto) m_gphotocam->setAperture(text);
+#endif
+        }
+      } else if (xmlReader.name() == "ShutterSpeed") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          if (cameraType == CameraType::CanonDSLR)
+            m_canon->setShutterSpeed(text);
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto)
+            m_gphotocam->setShutterSpeed(text);
+#endif
+        }
+      } else if (xmlReader.name() == "ISO") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          if (cameraType == CameraType::CanonDSLR) m_canon->setIso(text);
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto) m_gphotocam->setIso(text);
+#endif
+        }
+      } else if (xmlReader.name() == "PictureStyle") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          if (cameraType == CameraType::CanonDSLR)
+            m_canon->setPictureStyle(text);
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto)
+            m_gphotocam->setPictureStyle(text);
+#endif
+        }
+      } else if (xmlReader.name() == "ImageQuality") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          if (cameraType == CameraType::CanonDSLR)
+            m_canon->setImageQuality(text);
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto)
+            m_gphotocam->setImageQuality(text);
+#endif
+        }
+      } else if (xmlReader.name() == "ImageSize") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          //if (cameraType == CameraType::CanonDSLR)
+          //  m_canon->setImageSize(text);
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto)
+            m_gphotocam->setImageSize(text);
+#endif
+        }
+      } else if (xmlReader.name() == "WhiteBalance") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          if (cameraType == CameraType::CanonDSLR)
+            m_canon->setWhiteBalance(text);
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto)
+            m_gphotocam->setWhiteBalance(text);
+#endif
+        }
+      } else if (xmlReader.name() == "ColorTemperature") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          if (cameraType == CameraType::CanonDSLR)
+            m_canon->setColorTemperature(text);
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto)
+            m_gphotocam->setColorTemperature(text);
+#endif
+        }
+      } else if (xmlReader.name() == "ExposureCompensation") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          if (cameraType == CameraType::CanonDSLR)
+            m_canon->setExposureCompensation(text);
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto)
+            m_gphotocam->setExposureCompensation(text);
+#endif
+        }
+      } else if (xmlReader.name() == "FocusCheckLocationX") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          if (cameraType == CameraType::CanonDSLR)
+            m_canon->m_finalZoomPoint.x = text.toInt();
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto)
+            m_gphotocam->m_finalZoomPoint.x = text.toInt();
+#endif
+        }
+      } else if (xmlReader.name() == "FocusCheckLocationY") {
+        text = xmlReader.readElementText();
+        if (foundCamera == true) {
+#ifdef WITH_CANON
+          if (cameraType == CameraType::CanonDSLR)
+            m_canon->m_finalZoomPoint.y = text.toInt();
+#endif
+#ifdef WITH_GPHOTO2
+          if (cameraType == CameraType::GPhoto)
+            m_gphotocam->m_finalZoomPoint.y = text.toInt();
+#endif
+        }
+      }
     }
     xmlReader.readNext();
   }
+  emit(updateStopMotionControls());
   return true;
 }
 
@@ -2576,10 +2899,16 @@ void StopMotion::refreshFrameInfo() {
   bool sessionOpen = false;
 
 #ifdef WITH_CANON
-  sessionOpen = m_canon->m_sessionOpen;
+  if (m_currentCameraType == CameraType::CanonDSLR)
+    sessionOpen = m_canon->m_sessionOpen;
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto)
+    sessionOpen = m_gphotocam->m_sessionOpen;
 #endif
 
-  if ((!sessionOpen && m_liveViewStatus < LiveViewOpen) && !m_usingWebcam) {
+  if ((!sessionOpen && m_liveViewStatus < LiveViewOpen) &&
+      m_currentCameraType != CameraType::Web) {
     m_frameInfoText = "";
     return;
   }
@@ -2596,18 +2925,22 @@ void StopMotion::refreshFrameInfo() {
   int frameNumber        = m_frameNumber;
 
   TDimension stopMotionRes;
-  bool checkRes                    = true;
-  if (m_usingWebcam) stopMotionRes = m_liveViewImageDimensions;
+  bool checkRes = true;
+  if (m_currentCameraType == CameraType::Web)
+    stopMotionRes = m_liveViewImageDimensions;
 #ifdef WITH_CANON
-
-  if (!m_usingWebcam) {
+  if (m_currentCameraType == CameraType::CanonDSLR)
     stopMotionRes = m_canon->m_proxyImageDimensions;
-    if (m_canon->m_proxyImageDimensions == TDimension(0, 0)) {
-      checkRes = false;
-    }
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto)
+    stopMotionRes = m_gphotocam->m_proxyImageDimensions;
+#endif
+
+  if (stopMotionRes == TDimension(0, 0)) {
+    checkRes = false;
   }
 
-#endif
   // else
   //  stopMotionRes = m_fullImageDimensions;
 
@@ -2924,82 +3257,85 @@ void StopMotion::setToNextNewLevel() {
 void StopMotion::refreshCameraList() {
   QString camera = "";
   bool hasCamera = false;
+
+  if (m_currentCameraType == CameraType::Web) {
+    QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+    for (int i = 0; i < cameras.size(); i++) {
+      if (cameras.at(i).description() == m_webcam->getWebcamDescription()) {
+        hasCamera = true;
+        camera    = m_webcam->getWebcamDescription();
+        break;
+      }
+    }
+  }
 #ifdef WITH_CANON
-  if (m_canon->m_sessionOpen && m_canon->getCameraCount() > 0 &&
-      !m_usingWebcam && m_canon->m_cameraName == m_canon->getCameraName()) {
+  if (m_currentCameraType == CameraType::CanonDSLR && m_canon->m_sessionOpen &&
+      m_canon->getCameraCount() > 0 &&
+      m_canon->m_cameraName == m_canon->getCameraName()) {
     hasCamera = true;
     camera    = QString::fromStdString(m_canon->m_cameraName);
   }
 #endif
-  if (m_usingWebcam) {
-    QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
-    if (m_usingWebcam && cameras.size() > 0) {
-      for (int i = 0; i < cameras.size(); i++) {
-        if (cameras.at(i).description() == m_webcam->getWebcamDescription()) {
-          hasCamera = true;
-          camera    = m_webcam->getWebcamDescription();
-          break;
-        }
-      }
-    }
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto && m_gphotocam->m_sessionOpen) {
+    hasCamera = true;
+    camera    = m_gphotocam->m_cameraName;
   }
+#endif
   if (!hasCamera) disconnectAllCameras();
   emit(updateCameraList(camera));
 }
 
 //-----------------------------------------------------------------
 
-void StopMotion::changeCameras(int index) {
-  // note: index is negative if this is called to load DSLR from load settings
-
-  QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+void StopMotion::changeCameras(int comboIndex, CameraType cameraType,
+                               int cameraIndex) {
+  // first see if the index didn't actually change
+  if (cameraType == m_currentCameraType &&
+      cameraIndex == m_currentCameraTypeIndex)
+    return;
 
   // if selected the non-connected state, then disconnect the current camera
-  if (index == 0) {
+  if (cameraType == CameraType::None) {
     disconnectAllCameras();
     stopInterval();
     return;
   }
 
-  // There is a "Select Camera" as the first index
-  index -= 1;
-
-  // first see if the index didn't actually change
-  if (cameras.size() > 0 && index < cameras.size() && index >= 0) {
-    if (cameras.at(index).deviceName() == m_webcam->getWebcamDeviceName()) {
-      return;
-    }
-  }
-
-#ifdef WITH_CANON
-  if ((index > cameras.size() - 1) && m_canon->m_sessionOpen) return;
-#endif
-
   // close live view if open
-  if (m_liveViewStatus > LiveViewClosed) {
+  int liveViewStatus = m_liveViewStatus;
+  if (liveViewStatus > LiveViewClosed) {
     toggleLiveView();
   }
 
-  // Check if its a webcam or DSLR
-  // Webcams are listed first, so see if one of them is selected
-  if (index < 0 || index > cameras.size() - 1) {
-    m_usingWebcam = false;
-  } else {
-    m_usingWebcam = true;
-    m_webcam->setWebcamIndex(index);
+  // close current camera if open
+  if (m_currentCameraType == CameraType::Web) {
+    m_webcam->clearWebcam();
   }
-
-  // in case the camera is not changed
-  if (m_usingWebcam) {
 #ifdef WITH_CANON
-    if (m_canon->m_sessionOpen && m_canon->getCameraCount() > 0) {
-      m_canon->closeCameraSession();
-    }
+  if (m_currentCameraType == CameraType::CanonDSLR) {
+    if (m_canon->m_sessionOpen) m_canon->closeCameraSession();
+    m_canon->releaseCamera();
+  }
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto) {
+    if (m_gphotocam->m_sessionOpen) m_gphotocam->closeCameraSession();
+    m_gphotocam->releaseCamera();
+  }
 #endif
 
-    m_webcam->setWebcam(new QCamera(cameras.at(index)));
-    m_webcam->setWebcamDeviceName(cameras.at(index).deviceName());
-    m_webcam->setWebcamDescription(cameras.at(index).description());
+  m_currentCameraType      = cameraType;
+  m_currentCameraTypeIndex = cameraIndex;
+
+  if (m_currentCameraType == CameraType::Web) {
+    m_webcam->setWebcamIndex(cameraIndex);
+
+    QList<QCameraInfo> cameras = QCameraInfo::availableCameras();
+
+    m_webcam->setWebcam(new QCamera(cameras.at(cameraIndex)));
+    m_webcam->setWebcamDeviceName(cameras.at(cameraIndex).deviceName());
+    m_webcam->setWebcamDescription(cameras.at(cameraIndex).description());
 
     // loading new camera
     m_webcam->getWebcam()->load();
@@ -3032,22 +3368,33 @@ void StopMotion::changeCameras(int index) {
     setWebcamResolution(
         QString(QString::number(width) + " x " + QString::number(height)));
     setTEnvCameraName(m_webcam->getWebcamDescription().toStdString());
-    emit(newCameraSelected(index + 1, true));
+    //    emit(newCameraSelected(index + 1, true));
+    emit(changeCameraIndex(comboIndex));
     emit(webcamResolutionsChanged());
     emit(newWebcamResolutionSelected(sizeCount));
-
-  } else {
+  }
 #ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR) {
+    if (m_canon->getCanonIndex() != cameraIndex) {
+      if (m_canon->getCamera(cameraIndex)) m_canon->setCanonIndex(cameraIndex);
+    }
     m_canon->openCameraSession();
     setTEnvCameraName(m_canon->getCameraName());
-    if (index == -2) {
-      index = cameras.size();
-    }
-    m_webcam->clearWebcam();
-
-    emit(newCameraSelected(index + 1, false));
-#endif
+    emit(changeCameraIndex(comboIndex));
   }
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto) {
+    if (m_gphotocam->getGphotoIndex() != cameraIndex) {
+      if (m_gphotocam->getCamera(cameraIndex))
+        m_gphotocam->setGphotoIndex(cameraIndex);
+    }
+    m_gphotocam->initializeCamera();
+    m_gphotocam->openCameraSession();
+    setTEnvCameraName(m_gphotocam->getCameraName(cameraIndex).toStdString());
+    emit(changeCameraIndex(comboIndex));
+  }
+#endif
   if (m_useNumpadShortcuts) toggleNumpadShortcuts(true);
   m_liveViewDpi             = TPointD(0.0, 0.0);
   m_liveViewImageDimensions = TDimension(0, 0);
@@ -3056,16 +3403,18 @@ void StopMotion::changeCameras(int index) {
   if (m_isTimeLapse && m_intervalStarted) {
     stopInterval();
   }
-  emit(liveViewStopped());
-  emit(liveViewChanged(false));
+  stopLiveView();
   refreshFrameInfo();
   // after all live view data is cleared, start it again.
-  toggleLiveView();
+  if (liveViewStatus > LiveViewClosed) {
+    toggleLiveView();
+  }
 }
 //-----------------------------------------------------------------
 
 void StopMotion::setWebcamResolution(QString resolution) {
-  m_webcam->releaseWebcam();
+  bool webcamActive = m_webcam->isWebcamActive();
+  if (webcamActive) m_webcam->releaseWebcam();
 
   // resolution is written in the itemText with the format "<width> x
   // <height>" (e.g. "800 x 600")
@@ -3097,56 +3446,70 @@ void StopMotion::setWebcamResolution(QString resolution) {
   refreshFrameInfo();
 
   int index = m_webcam->getIndexOfResolution();
+  if (webcamActive) m_webcam->initWebcam(m_webcam->getWebcamIndex());
   emit(newWebcamResolutionSelected(index));
 }
 
 //-----------------------------------------------------------------
 
 bool StopMotion::toggleLiveView() {
-  bool sessionOpen = false;
+  bool retVal = false;
 
-#ifdef WITH_CANON
-  sessionOpen = m_canon->m_sessionOpen;
-#endif
+  if (m_currentCameraType == CameraType::None) {
+    DVGui::warning(tr("No camera selected."));
+    return false;
+  }
 
-  if ((sessionOpen || m_usingWebcam) && m_liveViewStatus == LiveViewClosed) {
+  if (m_liveViewStatus == LiveViewClosed) {
     m_liveViewDpi             = TPointD(0.0, 0.0);
     m_liveViewImageDimensions = TDimension(0, 0);
-    if (!m_usingWebcam) {
 #ifdef WITH_CANON
-      m_canon->startCanonLiveView();
+    // m_liveViewStatus is set by startLiveView if successful
+    if (m_currentCameraType == CameraType::CanonDSLR &&
+        (m_canon->startLiveView() != EDS_ERR_OK)) {
+      DVGui::warning(tr("Unable to start Live View."));
+      return false;
+    }
 #endif
-    } else
+#ifdef WITH_GPHOTO2
+    // m_liveViewStatus is set by startLiveView if successful
+    if (m_currentCameraType == CameraType::GPhoto &&
+        !m_gphotocam->startLiveView()) {
+      DVGui::warning(tr("Unable to start Live View."));
+      return false;
+    }
+#endif
+    if (m_currentCameraType == CameraType::Web)
       m_liveViewStatus = LiveViewStarting;
+
     loadLineUpImage();
     m_timer->start(40);
     emit(liveViewChanged(true));
     Preferences::instance()->setValue(rewindAfterPlayback, false);
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
-    return true;
-  } else if ((sessionOpen || m_usingWebcam) &&
-             m_liveViewStatus > LiveViewClosed) {
-    if (!m_usingWebcam) {
+    retVal = true;
+  } else if (m_liveViewStatus > LiveViewClosed) {
 #ifdef WITH_CANON
-      m_canon->endCanonLiveView();
+    if (m_currentCameraType == CameraType::CanonDSLR)
+      m_canon->endLiveView();
 #endif
-    } else {
-      m_webcam->releaseWebcam();
-    }
+#ifdef WITH_GPHOTO2
+    if (m_currentCameraType == CameraType::GPhoto)
+      m_gphotocam->endLiveView();
+#endif
+    if (m_currentCameraType == CameraType::Web) m_webcam->releaseWebcam();
 
     m_timer->stop();
-    emit(liveViewStopped());
-    emit(liveViewChanged(false));
+    stopLiveView();
     if (m_turnOnRewind) {
       Preferences::instance()->setValue(rewindAfterPlayback, true);
     }
     TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
     m_liveViewStatus = LiveViewClosed;
-    return false;
-  } else {
-    DVGui::warning(tr("No camera selected."));
-    return false;
+    retVal           = false;
   }
+
+  return retVal;
 }
 
 //-----------------------------------------------------------------
@@ -3174,8 +3537,10 @@ void StopMotion::toggleAlwaysUseLiveViewImages() {
 
 //-----------------------------------------------------------------
 
-void StopMotion::onCanonCameraChanged(QString camera) {
+void StopMotion::onCameraChanged(QString camera) {
+  if (camera.isEmpty()) m_currentCameraType = CameraType::None;
   emit(cameraChanged(camera));
+  emit(updateStopMotionControls());
 }
 
 //-----------------------------------------------------------------
@@ -3191,6 +3556,141 @@ std::string StopMotion::getTEnvCameraResolution() {
 //-----------------------------------------------------------------
 void StopMotion::setTEnvCameraResolution(std::string resolution) {
   StopMotionCameraResolution = resolution;
+}
+
+//-----------------------------------------------------------------
+
+bool StopMotion::isPickLiveViewZoom() {
+#ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR)
+    return m_canon->m_pickLiveViewZoom;
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto)
+    return m_gphotocam->m_pickLiveViewZoom;
+#endif
+
+  return false;
+}
+
+//-----------------------------------------------------------------
+
+bool StopMotion::isZooming() {
+#ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR) return m_canon->m_zooming;
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto) return m_gphotocam->m_zooming;
+#endif
+
+  return false;
+}
+
+//-----------------------------------------------------------------
+
+bool StopMotion::isLiveViewZoomReadyToPick() {
+#ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR)
+    return m_canon->m_liveViewZoomReadyToPick;
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto)
+    return m_gphotocam->m_liveViewZoomReadyToPick;
+#endif
+
+  return false;
+}
+
+//-----------------------------------------------------------------
+
+void StopMotion::makeZoomPoint(TPointD pickPos) {
+#ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR) {
+    m_canon->makeZoomPoint(pickPos);
+    m_canon->setZoomPoint();
+  }
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto) {
+    m_gphotocam->makeZoomPoint(pickPos);
+    m_gphotocam->setZoomPoint();
+  }
+#endif
+}
+
+//-----------------------------------------------------------------
+
+TRect StopMotion::getZoomRect() {
+#ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR) return m_canon->m_zoomRect;
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto) return m_gphotocam->m_zoomRect;
+#endif
+
+  return TRect(0, 0, 0, 0);
+}
+
+//-----------------------------------------------------------------
+
+void StopMotion::toggleZoomPicking() {
+#ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR)
+    m_canon->toggleZoomPicking();
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto)
+    m_gphotocam->toggleZoomPicking();
+#endif
+}
+
+//-----------------------------------------------------------------
+
+void StopMotion::calculateZoomPoint() {
+#ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR)
+    m_canon->calculateZoomPoint();
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto)
+    m_gphotocam->calculateZoomPoint();
+#endif
+}
+
+//-----------------------------------------------------------------
+
+void StopMotion::setZoomPoint() {
+#ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR) m_canon->setZoomPoint();
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto) m_gphotocam->setZoomPoint();
+#endif
+}
+
+//-----------------------------------------------------------------
+
+void StopMotion::adjustLiveViewZoomPickPoint(int x, int y) {
+#ifdef WITH_CANON
+  if (m_currentCameraType == CameraType::CanonDSLR) {
+    m_canon->m_liveViewZoomPickPoint.x += x;
+    m_canon->m_liveViewZoomPickPoint.y += y;
+  }
+#endif
+#ifdef WITH_GPHOTO2
+  if (m_currentCameraType == CameraType::GPhoto) {
+    m_gphotocam->m_liveViewZoomPickPoint.x += x;
+    m_gphotocam->m_liveViewZoomPickPoint.y += y;
+  }
+#endif
+}
+
+//-----------------------------------------------------------------
+
+void StopMotion::stopLiveView() {
+  m_liveViewStatus = 0;
+  emit(liveViewChanged(false));
+  emit(liveViewStopped());
 }
 
 //=============================================================================
@@ -3338,7 +3838,14 @@ public:
   StopMotionPickFocusCheck() : MenuItemHandler(MI_StopMotionPickFocusCheck) {}
   void execute() {
     StopMotion *sm = StopMotion::instance();
-    sm->m_canon->toggleZoomPicking();
+#ifdef WITH_CANON
+    if (sm->m_currentCameraType == CameraType::CanonDSLR)
+      sm->m_canon->toggleZoomPicking();
+#endif
+#ifdef WITH_GPHOTO2
+    if (sm->m_currentCameraType == CameraType::GPhoto)
+      sm->m_gphotocam->toggleZoomPicking();
+#endif
   }
 } StopMotionPickFocusCheck;
 
@@ -3349,7 +3856,14 @@ public:
   StopMotionToggleZoomCommand() : MenuItemHandler(MI_StopMotionToggleZoom) {}
   void execute() {
     StopMotion *sm = StopMotion::instance();
-    sm->m_canon->zoomLiveView();
+#ifdef WITH_CANON
+    if (sm->m_currentCameraType == CameraType::CanonDSLR)
+      sm->m_canon->zoomLiveView();
+#endif
+#ifdef WITH_GPHOTO2
+    if (sm->m_currentCameraType == CameraType::GPhoto)
+      sm->m_gphotocam->zoomLiveView();
+#endif
   }
 } StopMotionToggleZoomCommand;
 #endif

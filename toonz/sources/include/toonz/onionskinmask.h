@@ -46,7 +46,7 @@ public:
   };
 
 public:
-  OnionSkinMask() : m_enabled(false), m_wholeScene(false) {}
+  OnionSkinMask();
 
   void clear();
 
@@ -86,7 +86,10 @@ public:
   void enable(bool on) { m_enabled = on; }
 
   bool isWholeScene() const { return m_wholeScene; }
-  void setIsWholeScene(bool wholeScene) { m_wholeScene = wholeScene; }
+  void setIsWholeScene(bool wholeScene);
+
+  bool isEveryFrame() const { return m_everyFrame; }
+  void setIsEveryFrame(bool everyFrame);
 
   /*!
 Returns the fade (transparency) value, in the [0.0, 1.0] range, corresponding to
@@ -104,7 +107,16 @@ since underlying onion-skinned drawings must be visible.
     m_shiftTraceStatus = status;
   }
 
+  bool isShowShiftOrigin() const { return m_showShiftOrigin; }
+  void setShowShiftOrigin(bool showShiftOrigin) {
+    m_showShiftOrigin = showShiftOrigin;
+  }
   bool isShiftTraceEnabled() const { return m_shiftTraceStatus != DISABLED; }
+  bool isEditingShift() const { return m_shiftTraceStatus == EDITING_GHOST; }
+
+  bool getLightTableStatus() const { return m_LightTableStatus; }
+  void setLightTableStatus(bool status) { m_LightTableStatus = status; }
+  bool isLightTableEnabled() const { return m_LightTableStatus; }
 
   const TAffine getShiftTraceGhostAff(int index) const {
     return m_ghostAff[index];
@@ -137,13 +149,17 @@ private:
   std::vector<int> m_fos, m_mos;  //!< Fixed and Mobile Onion Skin indices
   bool m_enabled;                 //!< Whether onion skin is enabled
   bool m_wholeScene;              //!< Whether the OS works on the entire scene
+  bool m_everyFrame;              //!< Whether the OS renders every frame or only on new exposures.
 
   ShiftTraceStatus m_shiftTraceStatus;
+  bool m_showShiftOrigin;
   TAffine m_ghostAff[2];
   TPointD m_ghostCenter[2];
   int m_ghostFrame[2];         // relative frame position of the ghosts
   QList<int> m_ghostFlipKeys;  // If F1, F2 or F3 key is pressed, then only
                                // display the corresponding ghost
+
+  bool m_LightTableStatus;
 };
 
 //***************************************************************************

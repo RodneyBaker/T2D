@@ -1,11 +1,12 @@
 
 
 #include "tiio_plt.h"
-//#include "tiio.h"
+// #include "tiio.h"
 #include "trastercm.h"
 #include "toonztags.h"
 
 #include "tiffio.h"
+#include "texception.h"
 
 #ifdef _MSC_VER
 #pragma warning(disable : 4996)
@@ -93,8 +94,8 @@ static int decode_group_name(char group_name[], char **name, int *key,
       *sister_index = atoi(s + 1);
     else if (s[0] >= '0' && s[0] <= '9')
       *key = atoi(s);
-    *t     = '!';
-    s      = t + 1;
+    *t = '!';
+    s  = t + 1;
   }
   *name = s;
   return 1;
@@ -141,7 +142,10 @@ void PltReader::open(FILE *file) {
   m_tiff     = TIFFFdOpen(fd, "", "rb");
   TIFFSetWarningHandler(oldhandler);
 
-  if (!m_tiff) return;
+  if (!m_tiff) {
+    throw TException("Can't open file");
+    return;
+  }
 
   uint32 w = 0, h = 0, rps = 0;
   uint32 tileWidth = 0, tileLength = 0;
@@ -213,6 +217,11 @@ void PltReader::open(FILE *file) {
   m_nColor  = palette[10];
   m_nPencil = palette[11];
 
+  bool isOldCmap13Plt = false;
+  if (m_nColor == 128 && m_nPencil == 32) {
+    isOldCmap13Plt = true;
+  }
+
   std::string colorNames;
   if (TIFFGetField(m_tiff, TIFFTAG_TOONZCOLORNAMES, &count, &data))
     colorNames = data;
@@ -234,7 +243,7 @@ void PltReader::open(FILE *file) {
 
     if (strcmp(pageName, "_UNUSED_PAGE") == 0) continue;
     if (sisterIndex == -1 || i < m_nColor) m_infoRow[i].r = 255;
-    if (i < m_nColor) m_infoRow[i].g                      = 255;
+    if (i < m_nColor) m_infoRow[i].g = 255;
 
     while (isdigit(item->name[0]))  // in toonz colors cannot begin with digits
       item->name++;
@@ -245,8 +254,17 @@ void PltReader::open(FILE *file) {
       m_pltNames[i] = std::pair<std::string, std::string>(pageName, item->name);
 
     if (sisterIndex != -1) {
-      int comboindex = (i < 256) ? (sisterIndex >> 16) + 256 : sisterIndex >> 8;
-      if (i >= 256) ComboInkIndex[i - 256] = comboindex;
+      int comboindex;
+      if (isOldCmap13Plt) {
+        comboindex = (i < 128) ? (sisterIndex >> 11) + 128 : sisterIndex >> 4;
+        if (i == 128)
+          ComboInkIndex[0] = 0;
+        else if (i > 128)
+          ComboInkIndex[i - 128] = comboindex;
+      } else {
+        comboindex = (i < 256) ? (sisterIndex >> 16) + 256 : sisterIndex >> 8;
+        if (i >= 256) ComboInkIndex[i - 256] = comboindex;
+      }
       std::map<int, std::pair<std::string, std::string>>::iterator it;
       if ((it = m_pltNames.find(comboindex)) == m_pltNames.end() ||
           isDefaultName(it->second.second)) {
@@ -285,7 +303,7 @@ void PltReader::readLine(char *buffer, int x0, int x1, int shrink) {
   int i;
 
   for (i = 0; i < m_info.m_lx; i++) pix[i] = TPixelRGBM32();
-  int y                                    = m_row++;
+  int y = m_row++;
 
   if (y == 1) {
     for (i = 0; i < m_info.m_lx; i++) pix[i] = m_infoRow[i];

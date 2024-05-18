@@ -30,6 +30,7 @@ public:
   const std::set<int> &getIndices() const { return m_indices; }
 
   void enableCommands() override;
+  void setAlternativeCommandNames();
 
   void copyColumns();
   void pasteColumns();
@@ -38,6 +39,8 @@ public:
   void cutColumns();
   void insertColumns();
   void insertColumnsBelow();
+  void groupColumns();
+  void ungroupColumns();
 
   void collapse();
   void explodeChild();
@@ -53,6 +56,8 @@ public:
   void reframe4Cells() { reframeCells(4); }
 
   void reframeWithEmptyInbetweens();
+
+  void renumberColumns();
 };
 
 #endif  // TCELLSELECTION_H

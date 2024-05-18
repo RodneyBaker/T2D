@@ -25,6 +25,7 @@ class TXshSoundTextColumn;
 namespace DVGui {
   class FileField;
   class ColorField;
+  class IntLineEdit;
 }  // namespace DVGui
 class XSheetPDFTemplate;
 class QFontComboBox;
@@ -49,23 +50,28 @@ const std::string DrawCameraHeaderLabel = "DrawCameraHeaderLabel";
 const std::string DrawCellsHeaderLabel  = "DrawCellsHeaderLabel";
 const std::string TranslateBodyLabel    = "TranslateBodyLabel";
 const std::string TranslateInfoLabel    = "TranslateInfoLabel";
+const std::string IsBlockBorderThick    = "IsBlockBorderThick";
+
 // lengths
-const std::string BodyWidth       = "BodyWidth";
-const std::string BodyHeight      = "BodyHeight";
-const std::string BodyHMargin     = "BodyHMargin";
-const std::string BodyTop         = "BodyTop";
-const std::string HeaderHeight    = "HeaderHeight";
-const std::string KeyColWidth     = "KeyColWidth";
-const std::string LastKeyColWidth = "LastKeyColWidth";
-const std::string DialogColWidth  = "DialogColWidth";
-const std::string CellsColWidth   = "CellsColWidth";
-const std::string CameraColWidth  = "CameraColWidth";
-const std::string RowHeight       = "RowHeight";
-const std::string OneSecHeight    = "1SecHeight";
-const std::string InfoOriginLeft  = "InfoOriginLeft";
-const std::string InfoOriginTop   = "InfoOriginTop";
-const std::string InfoTitleHeight = "InfoTitleHeight";
-const std::string InfoBodyHeight  = "InfoBodyHeight";
+const std::string BodyWidth        = "BodyWidth";
+const std::string BodyHeight       = "BodyHeight";
+const std::string BodyHMargin      = "BodyHMargin";
+const std::string BodyTop          = "BodyTop";
+const std::string HeaderHeight     = "HeaderHeight";
+const std::string KeyColWidth      = "KeyColWidth";
+const std::string LastKeyColWidth  = "LastKeyColWidth";
+const std::string DialogColWidth   = "DialogColWidth";
+const std::string CellsColWidth    = "CellsColWidth";
+const std::string CameraColWidth   = "CameraColWidth";
+const std::string RowHeight        = "RowHeight";
+const std::string OneSecHeight     = "1SecHeight";
+const std::string InfoOriginLeft   = "InfoOriginLeft";
+const std::string InfoOriginTop    = "InfoOriginTop";
+const std::string InfoTitleHeight  = "InfoTitleHeight";
+const std::string InfoBodyHeight   = "InfoBodyHeight";
+const std::string ThinLineWidth    = "ThinLineWidth";
+const std::string ThickLineWidth   = "ThickLineWidth";
+const std::string BodyOutlineWidth = "BodyOutlineWidth";
 };  // namespace XSheetPDFTemplateParamIDs
 
 // ids for various information area
@@ -137,7 +143,7 @@ protected:
 
   QMap<std::string, int> m_params;
 
-  QPen thinPen, thickPen;
+  QPen thinPen, thickPen, blockBorderPen, bodyOutlinePen;
 
   XSheetPDFFormatInfo m_info;
 
@@ -284,6 +290,7 @@ class ExportXsheetPdfPopup final : public DVGui::Dialog {
   QComboBox *m_templateCombo, *m_exportAreaCombo, *m_continuousLineCombo,
       *m_dialogueColCombo;
   DVGui::ColorField* m_lineColorFld;
+  DVGui::IntLineEdit* m_durationFld;
 
   QCheckBox *m_addDateTimeCB, *m_addScenePathCB, *m_drawSoundCB,
       *m_addSceneNameCB, *m_serialFrameNumberCB, *m_levelNameOnBottomCB,
@@ -342,6 +349,7 @@ protected slots:
   void onNext();
 
   void onTickIdComboActivated();
+  void onDurationEdited();
 };
 
 #endif

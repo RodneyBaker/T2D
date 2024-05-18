@@ -34,6 +34,7 @@
 #include "tstream.h"
 #include "tsystem.h"
 #include "tcontenthistory.h"
+#include "tfilepath.h"
 
 // Qt includes
 #include <QDir>
@@ -118,10 +119,7 @@ bool isAreadOnlyLevel(const TFilePath &path) {
   if (path.getDots() == "." ||
       (path.getDots() == ".." &&
        (path.getType() == "tlv" || path.getType() == "tpl"))) {
-    if (path.getType() == "psd" || path.getType() == "gif" ||
-        path.getType() == "mp4" || path.getType() == "webm" ||
-        path.getType() == "mov")
-      return true;
+    if (path.isUneditable()) return true;
     if (!TSystem::doesExistFileOrLevel(path)) return false;
     TFileStatus fs(path);
     return !fs.isWritable();
@@ -196,6 +194,7 @@ TXshSimpleLevel::TXshSimpleLevel(const std::wstring &name)
     , m_editableRangeUserInfo(L"")
     , m_isSubsequence(false)
     , m_16BitChannelLevel(false)
+    , m_floatChannelLevel(false)
     , m_isReadOnly(false)
     , m_temporaryHookMerged(false) {}
 
@@ -332,7 +331,10 @@ void TXshSimpleLevel::touchFrame(const TFrameId &fid) {
   m_properties->setDirtyFlag(true);
   TContentHistory *ch = getContentHistory();
   if (!ch) {
-    ch = new TContentHistory(true);
+    QString altUsername =
+        Preferences::instance()->getStringValue(recordAsUsername);
+    bool recordEdit = Preferences::instance()->getBoolValue(recordFileHistory);
+    ch              = new TContentHistory(true, altUsername, recordEdit);
     setContentHistory(ch);
   }
   ch->frameModifiedNow(fid);
@@ -626,7 +628,7 @@ TImageP TXshSimpleLevel::getFrameIcon(const TFrameId &fid) const {
 //-----------------------------------------------------------------------------
 // load icon (and image) data of all frames into cache
 void TXshSimpleLevel::loadAllIconsAndPutInCache(bool cacheImagesAsWell) {
-  if (m_type != TZP_XSHLEVEL) return;
+  if (m_type != TZP_XSHLEVEL && m_type != OVL_XSHLEVEL) return;
 
   std::vector<TFrameId> fids;
   getFids(fids);
@@ -781,6 +783,27 @@ TImageP buildIcon(const TImageP &img, const TDimension &size) {
 
 //-----------------------------------------------------------------------------
 
+// modify frameId to be with the same frame format as existing frames
+void TXshSimpleLevel::formatFId(TFrameId &fid, TFrameId _tmplFId) {
+  if (m_type != OVL_XSHLEVEL && m_type != TZI_XSHLEVEL) return;
+
+  if (!m_frames.empty()) {
+    TFrameId tmplFId = *m_frames.begin();
+    fid.setZeroPadding(tmplFId.getZeroPadding());
+    fid.setStartSeqInd(tmplFId.getStartSeqInd());
+  }
+  // since there is no reference frame, take sepChar from the path
+  else {
+    // override sepchar by the path
+    QChar sepChar = m_path.getSepChar();
+    if (!sepChar.isNull()) _tmplFId.setStartSeqInd(sepChar.toLatin1());
+    fid.setZeroPadding(_tmplFId.getZeroPadding());
+    fid.setStartSeqInd(_tmplFId.getStartSeqInd());
+  }
+}
+
+//-----------------------------------------------------------------------------
+
 void TXshSimpleLevel::setFrame(const TFrameId &fid, const TImageP &img) {
   assert(m_type != UNKNOWN_XSHLEVEL);
 
@@ -917,11 +940,12 @@ void TXshSimpleLevel::loadData(TIStream &is) {
       } else if (tagName == "info") {
         std::string v;
         double xdpi = 0, ydpi = 0;
-        int subsampling                      = 1;
-        int doPremultiply                    = 0;
-        int whiteTransp                      = 0;
-        int antialiasSoftness                = 0;
-        int isStopMotionLevel                = 0;
+        int subsampling        = 1;
+        int doPremultiply      = 0;
+        int whiteTransp        = 0;
+        int antialiasSoftness  = 0;
+        int isStopMotionLevel  = 0;
+        double colorSpaceGamma = LevelOptions::DefaultColorSpaceGamma;
         double vanishingPoint1x              = 0.0;
         double vanishingPoint1y              = 0.0;
         double vanishingPoint2x              = 0.0;
@@ -943,6 +967,8 @@ void TXshSimpleLevel::loadData(TIStream &is) {
         if (is.getTagParam("whiteTransp", v)) whiteTransp = std::stoi(v);
         if (is.getTagParam("isStopMotionLevel", v))
           isStopMotionLevel = std::stoi(v);
+        if (is.getTagParam("colorSpaceGamma", v))
+          colorSpaceGamma = std::stod(v);
 
         if (is.getTagParam("vanishingPoint1x", v))
           vanishingPoint1x = std::stod(v);
@@ -986,6 +1012,7 @@ void TXshSimpleLevel::loadData(TIStream &is) {
         m_properties->setDoAntialias(antialiasSoftness);
         m_properties->setWhiteTransp(whiteTransp);
         m_properties->setIsStopMotion(isStopMotionLevel);
+        m_properties->setColorSpaceGamma(colorSpaceGamma);
         m_properties->setVanishingPoints(vanishingPoints);
         if (isStopMotionLevel == 1) setIsReadOnly(true);
       } else
@@ -1198,6 +1225,8 @@ void TXshSimpleLevel::load() {
     TLevelReaderP lr(path);  // May throw
     assert(lr);
 
+    lr->setUseExactPath(getScene()->isLoading());
+
     TLevelP level = lr->loadInfo();
     if (level->getFrameCount() > 0) {
       const TImageInfo *info = lr->getImageInfo(level->begin()->first);
@@ -1211,7 +1240,10 @@ void TXshSimpleLevel::load() {
         return;
       }
 
-      if (info) set16BitChannelLevel(info->m_bitsPerSample == 16);
+      if (info) {
+        set16BitChannelLevel(info->m_bitsPerSample == 16);
+        setFloatChannelLevel(info->m_bitsPerSample == 32);
+      }
     }
     if ((getType() & FULLCOLOR_TYPE) && !is16BitChannelLevel())
       setPalette(FullColorPalette::instance()->getPalette(getScene()));
@@ -1354,7 +1386,10 @@ void TXshSimpleLevel::load(const std::vector<TFrameId> &fIds) {
         setFrame(fIds[i], TImageP());
       }
       const TImageInfo *info = lr->getImageInfo(fIds[0]);
-      if (info) set16BitChannelLevel(info->m_bitsPerSample == 16);
+      if (info) {
+        set16BitChannelLevel(info->m_bitsPerSample == 16);
+        setFloatChannelLevel(info->m_bitsPerSample == 32);
+      }
     } else {
       TLevelP level = lr->loadInfo();
       for (TLevel::Iterator it = level->begin(); it != level->end(); it++) {
@@ -1363,7 +1398,10 @@ void TXshSimpleLevel::load(const std::vector<TFrameId> &fIds) {
         setFrame(it->first, TImageP());
       }
       const TImageInfo *info = lr->getImageInfo(level->begin()->first);
-      if (info) set16BitChannelLevel(info->m_bitsPerSample == 16);
+      if (info) {
+        set16BitChannelLevel(info->m_bitsPerSample == 16);
+        setFloatChannelLevel(info->m_bitsPerSample == 32);
+      }
     }
 
     if ((getType() & FULLCOLOR_TYPE) && !is16BitChannelLevel())
@@ -1454,6 +1492,11 @@ void TXshSimpleLevel::saveData(TOStream &os) {
       attr["vanishingPoint4x"] = std::to_string(vanishingPoints.at(3).x);
       attr["vanishingPoint4y"] = std::to_string(vanishingPoints.at(3).y);
     }
+  }
+  if (!areAlmostEqual(getProperties()->colorSpaceGamma(),
+                      LevelOptions::DefaultColorSpaceGamma)) {
+    attr["colorSpaceGamma"] =
+        std::to_string(getProperties()->colorSpaceGamma());
   }
 
   if (m_type == TZI_XSHLEVEL) attr["type"] = "s";
@@ -1681,25 +1724,30 @@ void TXshSimpleLevel::saveSimpleLevel(const TFilePath &decodedFp,
     // Dobbiamo
     // ripensarci con piu' calma. Per ora cerco di fare meno danno possibile).
     TDimension oldRes(0, 0);
+    bool fileOrLevelRemoved = false;
 
     if (TSystem::doesExistFileOrLevel(decodedFp)) {
       TLevelReaderP lr(decodedFp);
       lr->doReadPalette(false);
-      const TImageInfo *imageInfo = m_frames.empty()
-                                        ? lr->getImageInfo()
-                                        : lr->getImageInfo(*(m_frames.begin()));
+      try {
+        const TImageInfo *imageInfo =
+            m_frames.empty() ? lr->getImageInfo()
+                             : lr->getImageInfo(*(m_frames.begin()));
 
-      if (imageInfo) {
-        oldRes.lx = imageInfo->m_lx;
-        oldRes.ly = imageInfo->m_ly;
-        lr        = TLevelReaderP();
-        if (getProperties()->getImageRes() != oldRes) {
-          // Il comando canvas size cambia le dimensioni del livello!!!
-          // Se il file già esiste, nel level writer vengono risettate le
-          // dimesnioni del file esistente
-          // e salva male
-          TSystem::removeFileOrLevel(decodedFp);
+        if (getType() != MESH_XSHLEVEL && imageInfo) {
+          oldRes.lx = imageInfo->m_lx;
+          oldRes.ly = imageInfo->m_ly;
+          lr        = TLevelReaderP();
+          if (getProperties()->getImageRes() != oldRes) {
+            // Il comando canvas size cambia le dimensioni del livello!!!
+            // Se il file già esiste, nel level writer vengono risettate le
+            // dimesnioni del file esistente
+            // e salva male
+            TSystem::removeFileOrLevel(decodedFp);
+            fileOrLevelRemoved = true;
+          }
         }
+      } catch (...) {
       }
     }
     // overwrite tlv
@@ -1759,7 +1807,9 @@ void TXshSimpleLevel::saveSimpleLevel(const TFilePath &decodedFp,
         for (auto const &fid : fids) {
           std::string imageId = getImageId(
               fid, Normal);  // Retrieve the actual level frames ("L_whatever")
-          if (!ImageManager::instance()->isModified(imageId)) continue;
+          if (!fileOrLevelRemoved &&
+              !ImageManager::instance()->isModified(imageId))
+            continue;
 
           extData.m_fid = fid;
           TImageP img =
@@ -1826,7 +1876,9 @@ void TXshSimpleLevel::saveSimpleLevel(const TFilePath &decodedFp,
         for (auto const &fid : fids) {
           std::string imageId = getImageId(
               fid, Normal);  // Retrieve the actual level frames ("L_whatever")
-          if (!ImageManager::instance()->isModified(imageId)) continue;
+          if (!fileOrLevelRemoved &&
+              !ImageManager::instance()->isModified(imageId))
+            continue;
 
           extData.m_fid = fid;
           TImageP img =
@@ -2472,9 +2524,7 @@ bool TXshSimpleLevel::isFrameReadOnly(TFrameId fid) {
     if (getProperties()->isStopMotionLevel()) return true;
     TFilePath fullPath   = getScene()->decodeFilePath(m_path);
     std::string fileType = fullPath.getType();
-    if (fileType == "psd" || fileType == "gif" || fileType == "mp4" ||
-        fileType == "webm" || fileType == "mov")
-      return true;
+    if (fullPath.isUneditable()) return true;
     TFilePath path =
         fullPath.getDots() == ".." ? fullPath.withFrame(fid) : fullPath;
     if (!TSystem::doesExistFileOrLevel(path)) return false;

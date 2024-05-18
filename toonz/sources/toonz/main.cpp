@@ -1,9 +1,7 @@
 // Soli Deo gloria
-#ifdef WITH_CRASHRPT
-#include <tchar.h>
-#endif
 
 // Tnz6 includes
+#include "crashhandler.h"
 #include "mainwindow.h"
 #include "flipbook.h"
 #include "tapp.h"
@@ -12,6 +10,9 @@
 #include "cleanupsettingspopup.h"
 #include "filebrowsermodel.h"
 #include "expressionreferencemanager.h"
+#include "thirdparty.h"
+#include "startuppopup.h"
+#include "tw/stringtable.h"
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -66,10 +67,6 @@
 #include "tfont.h"
 
 #include "kis_tablet_support_win8.h"
-
-#ifdef WITH_CRASHRPT
-#include "CrashRpt.h"
-#endif
 
 #ifdef MACOSX
 #include "tipc.h"
@@ -126,6 +123,7 @@ static void lastWarningError(QString msg) {
   DVGui::error(msg);
   // exit(0);
 }
+
 //-----------------------------------------------------------------------------
 
 static void toonzRunOutOfContMemHandler(unsigned long size) {
@@ -171,10 +169,10 @@ static void initToonzEnv(QHash<QString, QString> &argPathValues) {
   QCoreApplication::setApplicationName(
       QString::fromStdString(TEnv::getApplicationName()));
 
-  /*-- TOONZROOTのPathの確認 --*/
+  /*-- TAHOMA2DROOTのPathの確認 --*/
   // controllo se la xxxroot e' definita e corrisponde ad un folder esistente
 
-  /*-- ENGLISH: Confirm TOONZROOT Path
+  /*-- ENGLISH: Confirm TAHOMA2DROOT Path
         Check if the xxxroot is defined and corresponds to an existing folder
   --*/
 
@@ -216,7 +214,7 @@ static void initToonzEnv(QHash<QString, QString> &argPathValues) {
   // for (it = projectsRoots.begin(); it != projectsRoots.end(); ++it)
   //  projectManager->addProjectsRoot(*it);
 
-  /*-- もしまだ無ければ、TOONZROOT/sandboxにsandboxプロジェクトを作る --*/
+  /*-- もしまだ無ければ、TAHOMA2DROOT/sandboxにsandboxプロジェクトを作る --*/
   projectManager->createSandboxIfNeeded();
 
   /*
@@ -230,7 +228,7 @@ project->setUseScenePath(TProject::Extras, false);
   // Imposto la rootDir per ImageCache
 
   /*-- TOONZCACHEROOTの設定  --*/
-  TFilePath cacheDir               = ToonzFolder::getCacheRootFolder();
+  TFilePath cacheDir = ToonzFolder::getCacheRootFolder();
   if (cacheDir.isEmpty()) cacheDir = TEnv::getStuffDir() + "cache";
   TImageCache::instance()->setRootDir(cacheDir);
 
@@ -251,23 +249,25 @@ static void script_output(int type, const QString &value) {
 }
 
 //-----------------------------------------------------------------------------
-#ifdef WITH_CRASHRPT
-LPCWSTR convertToLPCWSTR(std::string str) {
-  std::wstring stemp = std::wstring(str.begin(), str.end());
-  return stemp.c_str();
-}
-#endif
 
 int main(int argc, char *argv[]) {
 #ifdef Q_OS_WIN
-  //  Enable standard input/output on Windows Platform for debug
-  BOOL consoleAttached = ::AttachConsole(ATTACH_PARENT_PROCESS);
-  if (consoleAttached) {
+  // Enable standard input/output on Windows Platform for debug
+  if (::AttachConsole(ATTACH_PARENT_PROCESS)) {
     freopen("CON", "r", stdin);
     freopen("CON", "w", stdout);
     freopen("CON", "w", stderr);
+    atexit([]() {
+      ::FreeConsole();
+    });
   }
 #endif
+
+  // Build icon map
+  ThemeManager::getInstance().buildIconPathsMap(":/icons");
+
+  // Install signal handlers to catch crashes
+  CrashHandler::install();
 
   // parsing arguments and qualifiers
   TFilePath loadFilePath;
@@ -331,17 +331,15 @@ int main(int argc, char *argv[]) {
 
   // Enables high-DPI scaling. This attribute must be set before QApplication is
   // constructed. Available from Qt 5.6.
-#if QT_VERSION >= 0x050600
   QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-#endif
 
   QApplication a(argc, argv);
 
 #ifdef MACOSX
-// This workaround is to avoid missing left button problem on Qt5.6.0.
-// To invalidate m_rightButtonClicked in Qt/qnsview.mm, sending
-// NSLeftButtonDown event before NSLeftMouseDragged event propagated to
-// QApplication. See more details in ../mousedragfilter/mousedragfilter.mm.
+  // This workaround is to avoid missing left button problem on Qt5.6.0.
+  // To invalidate m_rightButtonClicked in Qt/qnsview.mm, sending
+  // NSLeftButtonDown event before NSLeftMouseDragged event propagated to
+  // QApplication. See more details in ../mousedragfilter/mousedragfilter.mm.
 
 #include "mousedragfilter.h"
 
@@ -422,6 +420,7 @@ int main(int argc, char *argv[]) {
 #endif
 
 #ifdef _WIN32
+  // BUG_WORKAROUND: #20230627
   // This attribute is set to make menubar icon to be always (16 x devPixRatio).
   // Without this attribute the menu bar icon size becomes the same as tool bar
   // when Windows scale is in 125%. Currently hiding the menu bar icon is done
@@ -447,22 +446,19 @@ int main(int argc, char *argv[]) {
   }
 #endif
 
-  // Set icon theme search paths
-  QStringList themeSearchPathsList = {":/icons"};
-  QIcon::setThemeSearchPaths(themeSearchPathsList);
-  // qDebug() << "All icon theme search paths:" << QIcon::themeSearchPaths();
+  TEnv::setApplicationFileName(argv[0]);
 
   // Set show icons in menus flag (use iconVisibleInMenu to disable selectively)
-  QApplication::instance()->setAttribute(Qt::AA_DontShowIconsInMenus, false);
-
-  TEnv::setApplicationFileName(argv[0]);
+  bool dontShowIcon =
+      !Preferences::instance()->isShowAdvancedOptionsEnabled() ||
+      !Preferences::instance()->getBoolValue(showIconsInMenu);
+  QApplication::instance()->setAttribute(Qt::AA_DontShowIconsInMenus,
+                                         dontShowIcon);
 
   // splash screen
   QPixmap splashPixmap =
-      QIcon(":Resources/splash2.svg").pixmap(QSize(344, 344));
-  splashPixmap.setDevicePixelRatio(QApplication::desktop()->devicePixelRatio());
+      QIcon(":Resources/tahoma2d_splash.svg").pixmap(QSize(344, 344));
 
-// QPixmap splashPixmap(":Resources/splash.png");
 #ifdef _WIN32
   QFont font("Segoe UI", -1);
 #else
@@ -487,91 +483,6 @@ int main(int argc, char *argv[]) {
   splash.setMask(mask);
   if (!isRunScript) splash.show();
   a.processEvents();
-
-  splash.showMessage(offsetStr + "Initializing QGLFormat...",
-                     Qt::AlignRight | Qt::AlignBottom, Qt::black);
-  a.processEvents();
-
-  // OpenGL
-  QGLFormat fmt;
-  fmt.setAlpha(true);
-  fmt.setStencil(true);
-  QGLFormat::setDefaultFormat(fmt);
-
-  glutInit(&argc, argv);
-
-  splash.showMessage(offsetStr + "Initializing environment...",
-                     Qt::AlignRight | Qt::AlignBottom, Qt::black);
-  a.processEvents();
-
-  // Install run out of contiguous memory callback
-  TBigMemoryManager::instance()->setRunOutOfContiguousMemoryHandler(
-      &toonzRunOutOfContMemHandler);
-
-  // Toonz environment
-  initToonzEnv(argumentPathValues);
-
-#ifdef WITH_CRASHRPT
-  CR_INSTALL_INFO pInfo;
-  memset(&pInfo, 0, sizeof(CR_INSTALL_INFO));
-  pInfo.cb = sizeof(CR_INSTALL_INFO);
-  pInfo.pszAppName = convertToLPCWSTR(TEnv::getApplicationName());
-  pInfo.pszAppVersion = convertToLPCWSTR(TEnv::getApplicationVersion());
-  TFilePath crashrptCache =
-    ToonzFolder::getCacheRootFolder() + TFilePath("crashrpt");
-  pInfo.pszErrorReportSaveDir =
-    convertToLPCWSTR(crashrptCache.getQString().toStdString());
-  // Install all available exception handlers.
-  // Don't send reports automaticall, store locally
-  pInfo.dwFlags |= CR_INST_ALL_POSSIBLE_HANDLERS | CR_INST_DONT_SEND_REPORT;
-
-  crInstall(&pInfo);
-#endif
-
-  // Initialize thread components
-  TThread::init();
-
-  TProjectManager *projectManager = TProjectManager::instance();
-  if (Preferences::instance()->isSVNEnabled()) {
-    // Read Version Control repositories and add it to project manager as
-    // "special" svn project root
-    VersionControl::instance()->init();
-    QList<SVNRepository> repositories =
-        VersionControl::instance()->getRepositories();
-    int count = repositories.size();
-    for (int i = 0; i < count; i++) {
-      SVNRepository r = repositories.at(i);
-
-      TFilePath localPath(r.m_localPath.toStdWString());
-      if (!TFileStatus(localPath).doesExist()) {
-        try {
-          TSystem::mkDir(localPath);
-        } catch (TException &e) {
-          fatalError(QString::fromStdWString(e.getMessage()));
-        }
-      }
-      projectManager->addSVNProjectsRoot(localPath);
-    }
-  }
-
-#if defined(MACOSX) && defined(__LP64__)
-
-  // Load the shared memory settings
-  int shmmax = Preferences::instance()->getShmMax();
-  int shmseg = Preferences::instance()->getShmSeg();
-  int shmall = Preferences::instance()->getShmAll();
-  int shmmni = Preferences::instance()->getShmMni();
-
-  if (shmall <
-      0)  // Make sure that at least 100 MB of shared memory are available
-    shmall = (tipc::shm_maxSharedPages() < (100 << 8)) ? (100 << 8) : -1;
-
-  tipc::shm_set(shmmax, shmseg, shmall, shmmni);
-
-#endif
-
-  // DVDirModel must be instantiated after Version Control initialization...
-  FolderListenerManager::instance()->addListener(DvDirModel::instance());
 
   splash.showMessage(offsetStr + "Loading Translator...",
                      Qt::AlignRight | Qt::AlignBottom, Qt::black);
@@ -634,38 +545,123 @@ int main(int argc, char *argv[]) {
   // Apply translation to file writers properties
   Tiio::updateFileWritersPropertiesTranslation();
 
+  // Translate string table
+  TStringTable::instance()->updateTranslation(
+      Preferences::instance()->getCurrentLanguage());
+
   // Force to have left-to-right layout direction in any language environment.
   // This function has to be called after installTranslator().
   a.setLayoutDirection(Qt::LeftToRight);
 
-  splash.showMessage(offsetStr + "Loading styles...",
+  splash.showMessage(offsetStr + QObject::tr("Initializing QGLFormat..."),
                      Qt::AlignRight | Qt::AlignBottom, Qt::black);
   a.processEvents();
 
-  // Set default start icon theme
-  QIcon::setThemeName(Preferences::instance()->getIconTheme() ? "dark"
-                                                              : "light");
-  // qDebug() << "Icon theme name:" << QIcon::themeName();
+  // OpenGL
+  QGLFormat fmt;
+  fmt.setAlpha(true);
+  fmt.setStencil(true);
+  QGLFormat::setDefaultFormat(fmt);
+
+#ifndef __HAIKU__
+  glutInit(&argc, argv);
+#endif
+
+  splash.showMessage(offsetStr + QObject::tr("Initializing environment..."),
+                     Qt::AlignRight | Qt::AlignBottom, Qt::black);
+  a.processEvents();
+
+  // Install run out of contiguous memory callback
+  TBigMemoryManager::instance()->setRunOutOfContiguousMemoryHandler(
+      &toonzRunOutOfContMemHandler);
+
+  // Setup third party
+  ThirdParty::initialize();
+
+  // Toonz environment
+  initToonzEnv(argumentPathValues);
+
+  // prepare for 30bit display
+  if (Preferences::instance()->is30bitDisplayEnabled()) {
+    QSurfaceFormat sFmt = QSurfaceFormat::defaultFormat();
+    sFmt.setRedBufferSize(10);
+    sFmt.setGreenBufferSize(10);
+    sFmt.setBlueBufferSize(10);
+    sFmt.setAlphaBufferSize(2);
+    QSurfaceFormat::setDefaultFormat(sFmt);
+  }
+
+  // Initialize thread components
+  TThread::init();
+
+  TProjectManager *projectManager = TProjectManager::instance();
+  if (Preferences::instance()->isSVNEnabled()) {
+    // Read Version Control repositories and add it to project manager as
+    // "special" svn project root
+    VersionControl::instance()->init();
+    QList<SVNRepository> repositories =
+        VersionControl::instance()->getRepositories();
+    int count = repositories.size();
+    for (int i = 0; i < count; i++) {
+      SVNRepository r = repositories.at(i);
+
+      TFilePath localPath(r.m_localPath.toStdWString());
+      if (!TFileStatus(localPath).doesExist()) {
+        try {
+          TSystem::mkDir(localPath);
+        } catch (TException &e) {
+          fatalError(QString::fromStdWString(e.getMessage()));
+        } catch (...) {
+          fatalError("Unhandled exception encountered");
+        }
+      }
+      projectManager->addSVNProjectsRoot(localPath);
+    }
+  }
+
+#if defined(MACOSX) && defined(__LP64__)
+
+  // Load the shared memory settings
+  int shmmax = Preferences::instance()->getShmMax();
+  int shmseg = Preferences::instance()->getShmSeg();
+  int shmall = Preferences::instance()->getShmAll();
+  int shmmni = Preferences::instance()->getShmMni();
+
+  if (shmall <
+      0)  // Make sure that at least 100 MB of shared memory are available
+    shmall = (tipc::shm_maxSharedPages() < (100 << 8)) ? (100 << 8) : -1;
+
+  tipc::shm_set(shmmax, shmseg, shmall, shmmni);
+
+#endif
+
+  // DVDirModel must be instantiated after Version Control initialization...
+  FolderListenerManager::instance()->addListener(DvDirModel::instance());
+
+
+  splash.showMessage(offsetStr + QObject::tr("Loading styles..."),
+                     Qt::AlignRight | Qt::AlignBottom, Qt::black);
+  a.processEvents();
 
   // stile
   QApplication::setStyle("windows");
 
   IconGenerator::setFilmstripIconSize(Preferences::instance()->getIconSize());
 
-  splash.showMessage(offsetStr + "Loading shaders...",
+  splash.showMessage(offsetStr + QObject::tr("Loading shaders..."),
                      Qt::AlignRight | Qt::AlignBottom, Qt::black);
   a.processEvents();
 
   loadShaderInterfaces(ToonzFolder::getLibraryFolder() + TFilePath("shaders"));
 
-  splash.showMessage(offsetStr + "Initializing Tahoma2D...",
+  splash.showMessage(offsetStr + QObject::tr("Initializing Tahoma2D..."),
                      Qt::AlignRight | Qt::AlignBottom, Qt::black);
   a.processEvents();
 
   TTool::setApplication(TApp::instance());
   TApp::instance()->init();
 
-  splash.showMessage(offsetStr + "Loading Plugins...",
+  splash.showMessage(offsetStr + QObject::tr("Loading Plugins..."),
                      Qt::AlignRight | Qt::AlignBottom, Qt::black);
   a.processEvents();
   /* poll the thread ends:
@@ -678,12 +674,14 @@ int main(int argc, char *argv[]) {
     a.processEvents();
   }
 
-  splash.showMessage(offsetStr + "Creating main window...",
+  splash.showMessage(offsetStr + QObject::tr("Creating main window..."),
                      Qt::AlignRight | Qt::AlignBottom, Qt::black);
   a.processEvents();
 
   /*-- Layoutファイル名をMainWindowのctorに渡す --*/
   MainWindow w(argumentLayoutFileName);
+  CrashHandler::attachParentWindow(&w);
+  CrashHandler::reportProjectInfo(true);
 
   TFilePath fp = ToonzFolder::getModuleFile("mainwindow.ini");
   QSettings settings(toQString(fp), QSettings::IniFormat);
@@ -748,16 +746,16 @@ int main(int argc, char *argv[]) {
   QWindowsWindowFunctions::setWinTabEnabled(!useQtNativeWinInk);
 #endif
 
-  splash.showMessage(offsetStr + "Loading style sheet...",
+  splash.showMessage(offsetStr + QObject::tr("Loading style sheet..."),
                      Qt::AlignRight | Qt::AlignBottom, Qt::black);
   a.processEvents();
 
   // Carico lo styleSheet
-  QString currentStyle = Preferences::instance()->getCurrentStyleSheetPath();
+  QString currentStyle = Preferences::instance()->getCurrentStyleSheet();
   a.setStyleSheet(currentStyle);
 
   // Perspective grid tool - custom grid
-  splash.showMessage(offsetStr + "Loading Perspective Grid...",
+  splash.showMessage(offsetStr + QObject::tr("Loading Perspective Grid..."),
                      Qt::AlignRight | Qt::AlignBottom, Qt::black);
   a.processEvents();
 
@@ -765,12 +763,21 @@ int main(int argc, char *argv[]) {
       TTool::getTool(T_PerspectiveGrid, TTool::VectorImage);
   if (perspectiveTool) perspectiveTool->loadTool();
 
+  // Symmetry tool - 
+  splash.showMessage(offsetStr + QObject::tr("Loading Symmetry Guide..."),
+                     Qt::AlignRight | Qt::AlignBottom, Qt::black);
+  a.processEvents();
+
+  TTool *symmetryTool =
+      TTool::getTool(T_Symmetry, TTool::VectorImage);
+  if (symmetryTool) symmetryTool->loadTool();
+
   w.setWindowTitle(QString::fromStdString(TEnv::getApplicationFullName()));
   if (TEnv::getIsPortable()) {
-    splash.showMessage(offsetStr + "Starting Tahoma2D...",
+    splash.showMessage(offsetStr + QObject::tr("Starting Tahoma2D..."),
                        Qt::AlignRight | Qt::AlignBottom, Qt::black);
   } else {
-    splash.showMessage(offsetStr + "Starting main window...",
+    splash.showMessage(offsetStr + QObject::tr("Starting main window..."),
                        Qt::AlignRight | Qt::AlignBottom, Qt::black);
   }
   a.processEvents();
@@ -799,20 +806,23 @@ int main(int argc, char *argv[]) {
     w.checkForUpdates();
   DvDirModel::instance()->forceRefresh();
 
-  // Disable the layout temporarily to avoid redistribution of panes that is
-  // executed during resizeEvents that are being called. It will reenable when
-  // the resizeEvent() is called
-  w.getCurrentRoom()->dockLayout()->setEnabled(false);
   w.show();
 
   // Show floating panels only after the main window has been shown
   w.startupFloatingPanels();
 
+  if (Preferences::instance()->isStartupPopupEnabled()) {
+    StartupPopup *startupPopup = new StartupPopup();
+    startupPopup->show();
+    startupPopup->raise();
+    startupPopup->activateWindow();
+  }
+
   CommandManager::instance()->execute(T_Hand);
   if (!loadFilePath.isEmpty()) {
-    splash.showMessage(
-        QString("Loading file '") + loadFilePath.getQString() + "'...",
-        Qt::AlignRight | Qt::AlignBottom, Qt::black);
+    splash.showMessage(QString(QObject::tr("Loading file '%1'..."))
+                           .arg(loadFilePath.getQString()),
+                       Qt::AlignRight | Qt::AlignBottom, Qt::black);
     loadFilePath = loadFilePath.withType("tnz");
     if (TFileStatus(loadFilePath).doesExist()) IoCmd::loadScene(loadFilePath);
   }
@@ -832,6 +842,8 @@ int main(int argc, char *argv[]) {
     isItalic   = fontMgr->isItalic(fontName, fontStyle);
     hasKerning = fontMgr->hasKerning();
   } catch (TFontCreationError &) {
+    // Do nothing. A default font should load
+  } catch (...) {
     // Do nothing. A default font should load
   }
 
@@ -884,24 +896,10 @@ int main(int argc, char *argv[]) {
 
   a.installEventFilter(TApp::instance());
 
-  // Disable the layout temporarily to avoid redistribution of panes that is
-  // executed during resizeEvents that are being called. It will reenable when
-  // the resizeEvent() is called
-  w.getCurrentRoom()->dockLayout()->setEnabled(false);
   int ret = a.exec();
 
   TUndoManager::manager()->reset();
   PreviewFxManager::instance()->reset();
-
-#ifdef _WIN32
-  if (consoleAttached) {
-    ::FreeConsole();
-  }
-#endif
-
-#ifdef WITH_CRASHRPT
-  crUninstall();
-#endif
 
   return ret;
 }

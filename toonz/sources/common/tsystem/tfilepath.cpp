@@ -1,7 +1,7 @@
 
 
 #ifdef _WIN32
-//#define UNICODE  // per le funzioni di conversione da/a UNC
+// #define UNICODE  // per le funzioni di conversione da/a UNC
 #include <windows.h>
 #include <lm.h>
 
@@ -39,9 +39,8 @@ int TFilePath::m_letterCountForSuffix     = 1;
 
 namespace {
 
-/*-- fromSeg位置 と
- * toSeg位置は含まず、それらの間に挟まれている文字列が「数字4ケタ」ならtrueを返す
- * --*/
+// Returns true if the string between the fromSeg position and the toSeg
+// position is "4 digits".
 bool isNumbers(std::wstring str, int fromSeg, int toSeg) {
   /*
     if (toSeg - fromSeg != 5) return false;
@@ -95,6 +94,8 @@ std::string TFrameId::expand(FrameFormat format) const {
     return "";
   else if (m_frame == NO_FRAME)
     return "-";
+  else if (m_frame == STOP_FRAME)
+    return "x";
   std::ostringstream o_buff;
   if (format == FOUR_ZEROS || format == UNDERSCORE_FOUR_ZEROS) {
     o_buff.fill('0');
@@ -277,8 +278,7 @@ void TFilePath::setPath(std::wstring path) {
       }
     } else if (isSlash(path[pos])) {
       int firstSlashPos = pos;
-      do
-        pos++;
+      do pos++;
       while (pos < length && isSlash(path[pos]));
       if (firstSlashPos == 0 && pos == 4)  // Caso "\\\\MachineName"
         m_path.append(2, wslash);
@@ -571,6 +571,36 @@ std::string TFilePath::getDots() const {
 
 //-----------------------------------------------------------------------------
 
+QChar TFilePath::getSepChar() const {
+  if (!TFilePath::m_useStandard) return analyzePath().sepChar;
+  //-----
+  QString type = QString::fromStdString(getType()).toLower();
+  if (isFfmpegType()) return QChar();
+  int i            = getLastSlash(m_path);
+  std::wstring str = m_path.substr(i + 1);
+  // potrei anche avere a.b.c.d dove d e' l'estensione
+  i = str.rfind(L".");
+  if (i == (int)std::wstring::npos || str == L"..") return QChar();
+
+  int j = str.substr(0, i).rfind(L".");
+
+  if (j != (int)std::wstring::npos)
+    return (j == i - 1 || (checkForSeqNum(type) && isNumbers(str, j, i)))
+               ? QChar('.')
+               : QChar();
+  if (!m_underscoreFormatAllowed) return QChar();
+
+  j = str.substr(0, i).rfind(L"_");
+  if (j != (int)std::wstring::npos)
+    return (j == i - 1 || (checkForSeqNum(type) && isNumbers(str, j, i)))
+               ? QChar('_')
+               : QChar();
+  else
+    return QChar();
+}
+
+//-----------------------------------------------------------------------------
+
 std::string TFilePath::getDottedType()
     const  // ritorna l'estensione con PUNTO (se c'e')
 {
@@ -741,7 +771,8 @@ TFrameId TFilePath::getFrame() const {
   if (j == (int)std::wstring::npos) return TFrameId(TFrameId::NO_FRAME);
   if (i == j + 1) return TFrameId(TFrameId::EMPTY_FRAME);
 
-  // 間が数字でない場合（ファイル名にまぎれた"_" や "."がある場合）を除外する
+  // Exclude cases with non-numeric characters inbetween. (In case the file name
+  // contains "_" or ".")
   if (!checkForSeqNum(type) || !isNumbers(str, j, i))
     return TFrameId(TFrameId::NO_FRAME);
 
@@ -768,10 +799,15 @@ TFrameId TFilePath::getFrame() const {
 
 bool TFilePath::isFfmpegType() const {
   QString type = QString::fromStdString(getType()).toLower();
-  if (type == "gif" || type == "mp4" || type == "webm" || type == "mov")
-    return true;
-  else
-    return false;
+  return (type == "gif" || type == "mp4" || type == "webm" || type == "mov");
+}
+
+//-----------------------------------------------------------------------------
+
+bool TFilePath::isUneditable() const {
+  QString type = QString::fromStdString(getType()).toLower();
+  return (type == "psd" || type == "gif" || type == "mp4" || type == "webm" ||
+          type == "mov");
 }
 
 //-----------------------------------------------------------------------------
@@ -879,7 +915,8 @@ TFilePath TFilePath::withFrame(const TFrameId &frame,
     if (frame.isNoFrame()) {
       return TFilePath(info.parentDir + info.levelName + "." + info.extension);
     }
-    QString sepChar = (info.sepChar.isNull()) ? "." : QString(info.sepChar);
+    QString sepChar = (info.sepChar.isNull()) ? QString(frame.getStartSeqInd())
+                                              : QString(info.sepChar);
 
     return TFilePath(info.parentDir + info.levelName + sepChar +
                      QString::fromStdString(frame.expand(format)) + "." +
@@ -942,7 +979,7 @@ TFilePath TFilePath::withFrame(const TFrameId &frame,
         (k == j - 1 ||
          (checkForSeqNum(type) &&
           isNumbers(str, k,
-                    j))))  //-- "_." の並びか、"_[数字]."の並びのとき --
+                    j))))  // -- In case of "_." or "_[numbers]." --
       return TFilePath(m_path.substr(0, k + i + 1) +
                        ((frame.isNoFrame())
                             ? L""
@@ -1033,9 +1070,9 @@ QString TFilePath::fidRegExpStr() {
   QString suffixLetter = (m_acceptNonAlphabetSuffix)
                              ? "[^\\._ \\\\/:,;*?\"<>|0123456789]"
                              : "[a-zA-Z]";
-  QString countLetter = (m_letterCountForSuffix == 0)
-                            ? "{0,}"
-                            : (QString("{0,%1}").arg(m_letterCountForSuffix));
+  QString countLetter  = (m_letterCountForSuffix == 0)
+                             ? "{0,}"
+                             : (QString("{0,%1}").arg(m_letterCountForSuffix));
   return QString("(\\d+)(%1%2)").arg(suffixLetter).arg(countLetter);
   // const QString fIdRegExp("(\\d+)([a-zA-Z]?)");
 }
@@ -1061,7 +1098,7 @@ TFilePath::TFilePathInfo TFilePath::analyzePath() const {
   // Frame Number and Suffix
   QString fIdRegExp = TFilePath::fidRegExpStr();
 
-  // Extension：letters other than "._" or  \/:,;*?"<>|  or " "(space)
+  // Extension: letters other than "._" or  \/:,;*?"<>|  or " "(space)
   const QString extensionRegExp("([^\\._ \\\\/:,;*?\"<>|]+)");
 
   // ignore frame numbers on non-sequential (i.e. movie) extension case :
@@ -1072,7 +1109,7 @@ TFilePath::TFilePathInfo TFilePath::analyzePath() const {
   //  if (!checkForSeqNum(ext)) {
   //    info.levelName = rx_mf.cap(1);
   //    info.sepChar = QChar();
-  //    info.fId = TFrameId(TFrameId::NO_FRAME, 0, 0); //NO_PADで初期化する
+  //    info.fId = TFrameId(TFrameId::NO_FRAME, 0, 0); // initialize with NO_PAD
   //    info.extension = ext;
   //    return info;
   //  }
@@ -1080,8 +1117,9 @@ TFilePath::TFilePathInfo TFilePath::analyzePath() const {
 
   // hogehoge.0001a.jpg
   // empty frame case : hogehoge..jpg
-  QRegExp rx("^" + levelNameRegExp + sepCharRegExp + "(?:" + fIdRegExp + ")?" +
-             "\\." + extensionRegExp + "$");
+  // empty level name case : ..jpg   .0001a.jpg
+  QRegExp rx("^(?:" + levelNameRegExp + ")?" + sepCharRegExp +
+             "(?:" + fIdRegExp + ")?" + "\\." + extensionRegExp + "$");
   if (rx.indexIn(fileName) != -1) {
     assert(rx.captureCount() == 5);
     info.levelName = rx.cap(1);

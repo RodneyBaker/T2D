@@ -7,12 +7,13 @@
 #include "tproperty.h"
 #include "toonz/txshlevelhandle.h"
 #include "toonz/txshsimplelevel.h"
-#include "toonz/strokegenerator.h"
 // TnzTools includes
 #include "tools/tool.h"
 #include "tools/toolutils.h"
 #include "autofill.h"
 #include "toonz/fill.h"
+#include "vectorbrush.h"
+#include "symmetrystroke.h"
 
 #include <QObject>
 
@@ -26,12 +27,13 @@
 
 class NormalLineFillTool;
 namespace {
+
 class AreaFillTool {
 public:
-  enum Type { RECT, FREEHAND, POLYLINE };
+  enum Type { RECT, FREEHAND, POLYLINE, FREEPICK };
 
 private:
-  bool m_frameRange;
+  int m_frameRange;
   bool m_onlyUnfilled;
   Type m_type;
 
@@ -42,26 +44,30 @@ private:
   bool m_firstFrameSelected;
   TXshSimpleLevelP m_level;
   TFrameId m_firstFrameId, m_veryFirstFrameId;
+  int m_firstFrameIdx, m_lastFrameIdx;
   TTool *m_parent;
   std::wstring m_colorType;
   std::pair<int, int> m_currCell;
-  StrokeGenerator m_track;
-  std::vector<TPointD> m_polyline;
+  VectorBrush m_track;
+  SymmetryStroke m_polyline;
   bool m_isPath;
   bool m_active;
   bool m_enabled;
   double m_thick;
   TPointD m_firstPos;
-  TStroke *m_firstStroke;
+  std::vector<TStroke *> m_firstStrokes;
   TPointD m_mousePosition;
   bool m_onion;
   bool m_isLeftButtonPressed;
   bool m_autopaintLines;
   bool m_fillOnlySavebox;
 
+  int m_bckStyleId;
+
 public:
   AreaFillTool(TTool *Parent);
   void draw();
+  int pick(const TImageP &image, const TPointD &pos, const int frame, int mode);
   void resetMulti();
   void leftButtonDown(const TPointD &pos, const TMouseEvent &, TImage *img);
   void leftButtonDoubleClick(const TPointD &pos, const TMouseEvent &e,
@@ -72,7 +78,7 @@ public:
   void leftButtonUp(const TPointD &pos, const TMouseEvent &e, bool fillGaps,
                     bool closeGaps, int closeStyleIndex);
   void onImageChanged();
-  bool onPropertyChanged(bool multi, bool onlyUnfilled, bool onion, Type type,
+  bool onPropertyChanged(int multi, bool onlyUnfilled, bool onion, Type type,
                          std::wstring colorType, bool autopaintLines,
                          bool fillOnlySavebox);
   void onActivate();
@@ -93,7 +99,7 @@ class FillTool final : public QObject, public TTool {
   TEnumProperty m_colorType;  // Line, Area
   TEnumProperty m_fillType;   // Rect, Polyline etc.
   TBoolProperty m_onion;
-  TBoolProperty m_frameRange;
+  TEnumProperty m_frameRange;
   TBoolProperty m_selective;
   TDoublePairProperty m_fillDepth;
   TBoolProperty m_segment;
@@ -153,6 +159,14 @@ public:
   int getCursorId() const override;
 
   int getColorClass() const { return 2; }
+
+private:
+  void applyFill(const TImageP &img, const TPointD &pos, FillParameters &params,
+                 bool isShiftFill, TXshSimpleLevel *sl, const TFrameId &fid,
+                 bool autopaintLines, bool fillGaps = false,
+                 bool closeGaps = false, int closeStyleIndex = -1,
+                 int frameIndex = -1);
+
 public slots:
   void onFrameSwitched() override;
 };

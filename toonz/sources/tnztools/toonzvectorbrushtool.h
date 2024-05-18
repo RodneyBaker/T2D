@@ -8,12 +8,12 @@
 #include "trasterimage.h"
 #include "ttoonzimage.h"
 #include "tstroke.h"
-#include "toonz/strokegenerator.h"
 
 #include "tools/tool.h"
 #include "tools/cursors.h"
 
 #include "toonzrasterbrushtool.h"
+#include "vectorbrush.h"
 
 #include <QCoreApplication>
 #include <QRadialGradient>
@@ -24,8 +24,6 @@
 
 class TTileSetCM32;
 class TTileSaverCM32;
-class RasterStrokeGenerator;
-class BluredBrush;
 
 //--------------------------------------------------------------
 
@@ -130,13 +128,22 @@ public:
 
   void addTrackPoint(const TThickPoint &point, double pixelSize2);
   void flushTrackPoint();
-  bool doFrameRangeStrokes(TFrameId firstFrameId, TStroke *firstStroke,
-                           TFrameId lastFrameId, TStroke *lastStroke,
-                           int interpolationType, bool breakAngles,
-                           bool autoGroup = false, bool autoFill = false,
-                           bool drawFirstStroke = true,
-                           bool drawLastStroke = true, bool withUndo = true,
-                           bool sendToBack = false);
+  bool doFrameRangeStrokes(
+      TFrameId firstFrameId, TStroke *firstStroke, TFrameId lastFrameId,
+      TStroke *lastStroke, int interpolationType, bool breakAngles,
+      bool autoGroup = false, bool autoFill = false,
+      bool drawFirstStroke = true, bool drawLastStroke = true,
+      bool withUndo = true, bool sendToBack = false,
+      std::vector<TStroke *> firstSymmetryStrokes = std::vector<TStroke *>(),
+      std::vector<TStroke *> lastSymmetryStrokes  = std::vector<TStroke *>());
+  bool doFrameRangeStrokes(
+      int firstFrameIdx, TStroke *firstStroke, int lastFrameIdx,
+      TStroke *lastStroke, int interpolationType, bool breakAngles,
+      bool autoGroup = false, bool autoFill = false,
+      bool drawFirstStroke = true, bool drawLastStroke = true,
+      bool withUndo = true, bool sendToBack = false,
+      std::vector<TStroke *> firstSymmetryStrokes = std::vector<TStroke *>(),
+      std::vector<TStroke *> lastSymmetryStrokes  = std::vector<TStroke *>());
   void checkGuideSnapping(bool beforeMousePress, bool invertCheck);
   void checkStrokeSnapping(bool beforeMousePress, bool invertCheck);
   bool doGuidedAutoInbetween(TFrameId cFid, const TVectorImageP &cvi,
@@ -165,13 +172,14 @@ protected:
   TIntProperty m_miterJoinLimit;
   TBoolProperty m_snapGrid;
 
-  StrokeGenerator m_track;
-  StrokeGenerator m_rangeTrack;
-  RasterStrokeGenerator *m_rasterTrack;
+  VectorBrush m_track;
+  VectorBrush m_rangeTrack;
   TStroke *m_firstStroke;
+  std::vector<TStroke *> m_firstSymmetryStrokes;
   TTileSetCM32 *m_tileSet;
   TTileSaverCM32 *m_tileSaver;
   TFrameId m_firstFrameId, m_veryFirstFrameId;
+  int m_firstFrameIdx;
   TPixel32 m_currentColor;
   int m_styleId;
   double m_minThick, m_maxThick;
@@ -186,9 +194,10 @@ protected:
   TPointD m_dpiScale,
       m_mousePos,  //!< Current mouse position, in world coordinates.
       m_brushPos,  //!< World position the brush will be painted at.
-      m_firstSnapPoint, m_lastSnapPoint;
+      m_firstSnapPoint, m_lastSnapPoint,
+      m_windowMousePos; //!< Current mouse position, in window coordinates.
 
-  BluredBrush *m_bluredBrush;
+
   QRadialGradient m_brushPad;
 
   TRasterCM32P m_backupRas;

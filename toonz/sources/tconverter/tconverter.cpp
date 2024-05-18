@@ -41,8 +41,8 @@ typedef QualifierT<TFilePath> FilePathQualifier;
 
 #define RENDER_LICENSE_NOT_FOUND 888
 
-const char *rootVarName     = "TOONZROOT";
-const char *systemVarPrefix = "TOONZ";
+const char *rootVarName     = "TAHOMA2DROOT";
+const char *systemVarPrefix = "TAHOMA2D";
 
 namespace {
 
@@ -449,7 +449,7 @@ int main(int argc, char *argv[]) {
         exit(1);
       }
     }
-    if (ext != "pli") {
+    if (ext != "3gp" && ext != "pli") {
       convert(srcFilePath, dstFilePath, range, width, prop, resQuality);
     } else {
       msg = "Cannot convert to ." + ext + " format.";
@@ -459,6 +459,9 @@ int main(int argc, char *argv[]) {
   } catch (TException &e) {
     msg = "Untrapped exception: " + ::to_string(e.getMessage());
     cout << msg << endl;
+    return -1;
+  } catch (...) {
+    cout << "Unhandled exception" << endl;
     return -1;
   }
   msg = "Conversion terminated!";

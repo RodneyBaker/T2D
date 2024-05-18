@@ -79,7 +79,7 @@ public:
 std::map<TStageObjectId, CameraSettingsPopup *> CameraSettingsPopup::m_popups;
 
 CameraSettingsPopup::CameraSettingsPopup()
-    : QDialog(TApp::instance()->getMainWindow()) {
+    : Dialog(TApp::instance()->getMainWindow()) {
   m_nameFld              = new LineEdit();
   m_cameraSettingsWidget = new CameraSettingsWidget();
 
@@ -102,7 +102,8 @@ CameraSettingsPopup::CameraSettingsPopup()
 
     mainLay->addWidget(m_cameraSettingsWidget, 1);
   }
-  setLayout(mainLay);
+  m_topLayout->setMargin(0);
+  m_topLayout->addLayout(mainLay);
 
   //---- signal-slot connections
   bool ret = true;
@@ -151,6 +152,7 @@ void CameraSettingsPopup::showEvent(QShowEvent *e) {
 
 void CameraSettingsPopup::hideEvent(QHideEvent *e) {
   m_cameraSettingsWidget->setCurrentLevel(0);
+  m_cameraSettingsWidget->setOverlayLevel(0);
 
   if (m_cameraId != TStageObjectId::NoneId) {
     // Remove the popup from currentlyOpened ones and schedule for deletion
@@ -254,6 +256,8 @@ void CameraSettingsPopup::updateFields() {
         TDimensionD(res.lx / Stage::standardDpi, res.ly / Stage::standardDpi));
   }
   if (camera) m_cameraSettingsWidget->setFields(camera);
+  m_cameraSettingsWidget->setOverlayLevel(
+      TApp::instance()->getCurrentScene()->getScene()->getOverlayLevel());
 }
 
 void CameraSettingsPopup::onLevelSwitched(TXshLevel *) {

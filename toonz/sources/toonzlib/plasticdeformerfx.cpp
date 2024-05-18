@@ -10,6 +10,7 @@
 #include "toonz/txshlevelcolumn.h"
 #include "toonz/dpiscale.h"
 #include "toonz/stage.h"
+#include "toonz/preferences.h"
 
 // TnzExt includes
 #include "ext/plasticskeleton.h"
@@ -148,7 +149,7 @@ std::string PlasticDeformerFx::getAlias(double frame,
       meshColumnObj->getPlasticSkeletonDeformation();
   if (sd) alias += ", " + toString(sd, meshColumnObj->paramsTime(frame));
 
-  alias + "]";
+  alias += "]";
 
   return alias;
 }
@@ -194,7 +195,7 @@ bool PlasticDeformerFx::buildTextureDataSl(double frame, TRenderSettings &info,
   TLevelColumnFx *lcfx       = (TLevelColumnFx *)m_port.getFx();
   TXshLevelColumn *texColumn = lcfx->getColumn();
 
-  const TXshCell &texCell = texColumn->getCell(row);
+  TXshCell texCell = texColumn->getCell(row);
 
   TXshSimpleLevel *texSl = texCell.getSimpleLevel();
   const TFrameId &texFid = texCell.getFrameId();
@@ -243,6 +244,8 @@ bool PlasticDeformerFx::buildTextureDataSl(double frame, TRenderSettings &info,
           TScale(handledAff.a11 / worldLevelToLevelAff.a11) * info.m_affine;
   }
 
+  info.m_invertedMask = texColumn->isInvertedMask();
+
   return true;
 }
 
@@ -271,6 +274,10 @@ void PlasticDeformerFx::doCompute(TTile &tile, double frame,
 
   // Build texture data
   TRenderSettings texInfo(info);
+  texInfo.m_applyMask   = false;
+  texInfo.m_useMaskBox  = false;
+  texInfo.m_plasticMask = info.m_applyMask;
+
   TAffine worldTexLevelToTexLevelAff;
 
   if (dynamic_cast<TLevelColumnFx *>(m_port.getFx())) {
@@ -354,6 +361,9 @@ void PlasticDeformerFx::doCompute(TTile &tile, double frame,
   TTile inTile;
   m_port->allocateAndCompute(inTile, bbox.getP00(), tileSize, TRasterP(), frame,
                              texInfo);
+
+  TTile origTile(tile.getRaster()->clone());
+
   QOpenGLContext *context;
   // Draw the textured mesh
   {
@@ -443,8 +453,17 @@ void PlasticDeformerFx::doCompute(TTile &tile, double frame,
 
     // ts->unloadTexture(texId);                                // Auto-released
     // due to display list destruction
-    context->deleteLater();
-    // context->doneCurrent();
+    //context->deleteLater();
+    context->moveToThread(0);
+    context->doneCurrent();
+    delete context;
+
+    if (info.m_applyMask) {
+      if (texInfo.m_invertedMask)
+        TRop::ropout(origTile.getRaster(), tile.getRaster(), tile.getRaster());
+      else
+        TRop::ropin(origTile.getRaster(), tile.getRaster(), tile.getRaster());
+    }
   }
   assert(glGetError() == GL_NO_ERROR);
 }

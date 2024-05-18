@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   Linux:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
         compiler: [ gcc, clang ]
@@ -16,12 +16,12 @@ jobs:
             cc: clang
             cxx: clang++
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install Dependencies
         run: |
           ci-scripts/linux/tahoma-install.sh
           sudo apt-get install ccache
-      - uses: actions/cache@v2
+      - uses: actions/cache@v4
         with:
           path: |
             /home/runner/.ccache
@@ -47,6 +47,11 @@ jobs:
           export CC="ccache ${{ matrix.cc }}"
           export CXX="ccache ${{ matrix.cxx }}"
           ci-scripts/linux/tahoma-buildlibmypaint.sh
+      - name: Build libgphoto2
+        run: |
+          export CC="ccache ${{ matrix.cc }}"
+          export CXX="ccache ${{ matrix.cxx }}"
+          ci-scripts/linux/tahoma-buildlibgphoto2.sh
       - name: Build Tahoma2D
         run: |
           export CC="ccache ${{ matrix.cc }}"
@@ -89,7 +94,7 @@ jobs:
           artifacts: toonz/build/Tahoma2D-linux-${{ matrix.compiler }}.tar.gz
           artifactContentType: "raw"
           body: ${{ github.event.head_commit.message }}
-          name: Lastest Nightly ${{ env.NIGHTLYDATE }}
+          name: Latest Nightly ${{ env.NIGHTLYDATE }}
           prerelease: true
           replacesArtifacts: true
           tag: nightly

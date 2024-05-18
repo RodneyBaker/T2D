@@ -108,8 +108,9 @@ void TifReader::open(FILE *file) {
   m_tiff = TIFFFdOpen(dup(fd), "", "rb");
 #endif
   if (!m_tiff) {
-    std::string str("Tiff file closed");
-    throw(str);
+//    std::string str("Tiff file closed");
+//    throw(str);
+    throw TException("Can't open file");
   }
 
   uint32 w = 0, h = 0, rps = 0;
@@ -1049,7 +1050,7 @@ void TifWriter::writeLine(char *buffer) {
 
 //============================================================
 #ifdef _DEBUG
-/* Error & Waring Handler per debug */
+/* Error & Warning Handler per debug */
 
 extern "C" {
 static void MyWarningHandler(const char *module, const char *fmt, va_list ap) {

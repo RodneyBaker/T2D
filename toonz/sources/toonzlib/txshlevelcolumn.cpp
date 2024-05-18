@@ -6,6 +6,7 @@
 #include "toonz/tcolumnfxset.h"
 #include "toonz/tcolumnfx.h"
 #include "toonz/txshleveltypes.h"
+#include "toonz/txsheet.h"
 
 #include "tstream.h"
 
@@ -17,6 +18,8 @@ TFrameId qstringToFrameId(QString str) {
     return TFrameId::EMPTY_FRAME;
   else if (str == "-" || str == "-2")
     return TFrameId::NO_FRAME;
+  else if (str == "x" || str == "-3")
+    return TFrameId::STOP_FRAME;
 
   QString regExpStr = QString("^%1$").arg(TFilePath::fidRegExpStr());
   QRegExp rx(regExpStr);
@@ -85,7 +88,8 @@ TXshColumn *TXshLevelColumn::clone() const {
   column->m_cells = m_cells;
   column->m_first = m_first;
   column->setColorTag(getColorTag());
-  column->setFilterColorId(getFilterColorId());
+  column->setColorFilterId(getColorFilterId());
+  column->setFolderIdStack(getFolderIdStack());
 
   // column->updateIcon();
   return column;
@@ -111,7 +115,7 @@ void TXshLevelColumn::loadData(TIStream &is) {
     } else if (tagName == "filter_color_id") {
       int id;
       is >> id;
-      setFilterColorId((TXshColumn::FilterColor)id);
+      setColorFilterId(id);
     } else if (tagName == "cells") {
       while (is.openChild(tagName)) {
         if (tagName == "cell") {
@@ -153,6 +157,8 @@ void TXshLevelColumn::loadData(TIStream &is) {
       fxSet.loadData(is);
     } else if (loadCellMarks(tagName, is)) {
       // do nothing
+    } else if (loadFolderInfo(tagName, is)) {
+      // do nothing
     } else
       throw TException("TXshLevelColumn, unknown tag: " + tagName);
     is.closeChild();
@@ -164,20 +170,20 @@ void TXshLevelColumn::loadData(TIStream &is) {
 void TXshLevelColumn::saveData(TOStream &os) {
   os.child("status") << getStatusWord();
   if (getOpacity() < 255) os.child("camerastand_opacity") << (int)getOpacity();
-  if (getFilterColorId() != 0)
-    os.child("filter_color_id") << (int)getFilterColorId();
+  if (getColorFilterId() != 0)
+    os.child("filter_color_id") << (int)getColorFilterId();
   int r0, r1;
   if (getRange(r0, r1)) {
     os.openChild("cells");
     for (int r = r0; r <= r1; r++) {
-      TXshCell cell = getCell(r);
+      TXshCell cell = getCell(r, false);
       if (cell.isEmpty()) continue;
       TFrameId fid = cell.m_frameId;
       int n = 1, inc = 0, dr = fid.getNumber();
       // If fid has not letter save more than one cell and its incrementation;
       // otherwise save one cell.
       if (r < r1 && fid.getLetter().isEmpty()) {
-        TXshCell cell2 = getCell(r + 1);
+        TXshCell cell2 = getCell(r + 1, false);
         TFrameId fid2  = cell2.m_frameId;
         if (cell2.m_level.getPointer() == cell.m_level.getPointer() &&
             fid2.getLetter().isEmpty()) {
@@ -185,7 +191,7 @@ void TXshLevelColumn::saveData(TOStream &os) {
           n++;
           for (;;) {
             if (r + n > r1) break;
-            cell2         = getCell(r + n);
+            cell2         = getCell(r + n, false);
             TFrameId fid2 = cell2.m_frameId;
             if (cell2.m_level.getPointer() != cell.m_level.getPointer() ||
                 !fid2.getLetter().isEmpty())
@@ -205,6 +211,8 @@ void TXshLevelColumn::saveData(TOStream &os) {
 
   // cell marks
   saveCellMarks(os);
+  // folder info
+  saveFolderInfo(os);
 }
 
 //-----------------------------------------------------------------------------
@@ -303,6 +311,27 @@ bool TXshLevelColumn::setNumbers(int row, int rowCount,
     m_first = 0;
   }
   return true;
+}
+
+//-----------------------------------------------------------------------------
+
+std::vector<TXshColumn *> TXshLevelColumn::getColumnMasks() {
+  std::vector<TXshColumn *> masks;
+
+  if (m_index <= 0) return masks;
+
+  TXsheet *xsh = getXsheet();
+  for (int i = m_index - 1; i >= 0; i--) {
+    TXshColumn *mcol = xsh->getColumn(i);
+
+    if (!mcol || mcol->isEmpty()) break;
+    if (mcol->getColumnType() == TXshColumn::eMeshType)
+      continue;  // ignore mesh levels
+    if (!mcol->isMask() || !mcol->isPreviewVisible()) break;
+    masks.push_back(mcol);
+  }
+
+  return masks;
 }
 
 //-----------------------------------------------------------------------------

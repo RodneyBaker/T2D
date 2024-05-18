@@ -16,6 +16,7 @@
 
 // TnzCore includes
 #include "tconvert.h"
+#include "tlevel_io.h"
 
 // Qt includes
 #include <QTreeWidget>
@@ -34,15 +35,6 @@ using namespace DVGui;
 
 //=============================================================================
 
-namespace {
-bool isMovieType(std::string type) {
-  return (type == "avi" || type == "mp4" ||
-          type == "webm" || type == "mov");
-}
-};  // namespace
-
-//=============================================================================
-
 const std::vector<QAction *> &TasksViewer::getActions() const {
   return m_actions;
 }
@@ -51,13 +43,8 @@ const std::vector<QAction *> &TasksViewer::getActions() const {
 
 void TasksViewer::add(const QString &iconName, QString text, QToolBar *toolBar,
                       const char *slot, QString iconText) {
-#if QT_VERSION >= 0x050500
   QAction *action = new QAction(
       createQIcon(iconName.toLatin1().constData(), false), text, this);
-#else
-  QAction *action = new QAction(
-      createQIcon(iconName.toAscii().constData(), false), text, this);
-#endif
   action->setIconText(iconText);
   bool ret = connect(action, SIGNAL(triggered(bool)),
                      (TaskTreeModel *)m_treeView->model(), slot);
@@ -86,7 +73,7 @@ QWidget *TasksViewer::createToolBar() {
   add("play", tr("&Start"), cmdToolbar, SLOT(start(bool)), tr("Start"));
   add("stop", tr("&Stop"), cmdToolbar, SLOT(stop(bool)), tr("Stop"));
   cmdToolbar->addSeparator();
-  add("render_add", tr("&Add Render Task"), cmdToolbar,
+  add("new_scene", tr("&Add Render Task"), cmdToolbar,
       SLOT(addRenderTask(bool)), tr("Add Render"));
   add("cleanup_add", tr("&Add Cleanup Task"), cmdToolbar,
       SLOT(addCleanupTask(bool)), tr("Add Cleanup"));
@@ -118,11 +105,7 @@ QWidget *TasksViewer::createToolBar() {
 /*! \class TasksViewer
                 Inherits \b QSplitter.
 */
-#if QT_VERSION >= 0x050500
 TasksViewer::TasksViewer(QWidget *parent, Qt::WindowFlags flags)
-#else
-TasksViewer::TasksViewer(QWidget *parent, Qt::WFlags flags)
-#endif
     : QSplitter(parent) {
   QFrame *box;
 
@@ -357,6 +340,10 @@ void TaskSheet::update(TFarmTask *task) {
       m_step->setText(QString::number(task->m_step));
       m_shrink->setText(QString::number(task->m_shrink));
       m_multimedia->setCurrentIndex(task->m_multimedia);
+      m_renderKeysOnly->setChecked(task->m_renderKeysOnly);
+      m_renderToFolders->setChecked(task->m_renderToFolders);
+      m_renderKeysOnly->setEnabled(m_multimedia->currentIndex());
+      m_renderToFolders->setEnabled(m_multimedia->currentIndex());
       m_threadsCombo->setCurrentIndex(task->m_threadsIndex);
       m_rasterGranularityCombo->setCurrentIndex(task->m_maxTileSizeIndex);
 
@@ -462,9 +449,9 @@ void inline create(QLabel *&ret, QGridLayout *layout, QString name, int row,
 
 //-----------------------------------------------------------------------------
 
-void inline create(CheckBox *&ret, QGridLayout *layout, QString name, int row) {
+void inline create(CheckBox *&ret, QGridLayout *layout, QString name, int row, int col = 0) {
   ret = new CheckBox(name);
-  layout->addWidget(ret, row, 0, 1, 2, Qt::AlignLeft | Qt::AlignVCenter);
+  layout->addWidget(ret, row, col, 1, 2, Qt::AlignLeft | Qt::AlignVCenter);
 }
 
 //-----------------------------------------------------------------------------
@@ -615,7 +602,7 @@ void TaskSheet::setShrink() {
     // Update children tasks, if present.
     TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
     if (taskGroup) {
-      for (int i                        = 0; i < taskGroup->getTaskCount(); ++i)
+      for (int i = 0; i < taskGroup->getTaskCount(); ++i)
         taskGroup->getTask(i)->m_shrink = taskGroup->m_shrink;
     }
   }
@@ -643,7 +630,7 @@ void TaskSheet::setStep() {
     // Update children tasks, if present.
     TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
     if (taskGroup) {
-      for (int i                      = 0; i < taskGroup->getTaskCount(); ++i)
+      for (int i = 0; i < taskGroup->getTaskCount(); ++i)
         taskGroup->getTask(i)->m_step = taskGroup->m_step;
     }
   }
@@ -707,6 +694,53 @@ void TaskSheet::setMultimedia(int) {
   if (taskGroup) {
     for (int i = 0; i < taskGroup->getTaskCount(); ++i)
       taskGroup->getTask(i)->m_multimedia = taskGroup->m_multimedia;
+  }
+
+  m_renderKeysOnly->setEnabled(m_multimedia->currentIndex());
+  m_renderToFolders->setEnabled(m_multimedia->currentIndex());
+
+  m_viewer->startTimer();
+}
+
+//-----------------------------------------------------------------------------
+
+void TaskSheet::setRenderKeysOnly(int) {
+  if (!m_task) return;
+  if (m_task->m_renderKeysOnly ==
+      (m_renderKeysOnly->checkState() == Qt::Checked))
+    return;
+
+  m_task->m_renderKeysOnly = (m_renderKeysOnly->checkState() == Qt::Checked);
+  m_commandLine->setText(m_task->getCommandLine());
+  BatchesController::instance()->setDirtyFlag(true);
+
+  // Update children tasks, if present.
+  TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
+  if (taskGroup) {
+    for (int i = 0; i < taskGroup->getTaskCount(); ++i)
+      taskGroup->getTask(i)->m_renderKeysOnly = taskGroup->m_renderKeysOnly;
+  }
+
+  m_viewer->startTimer();
+}
+
+//-----------------------------------------------------------------------------
+
+void TaskSheet::setRenderToFolders(int) {
+  if (!m_task) return;
+  if (m_task->m_renderToFolders ==
+      (m_renderToFolders->checkState() == Qt::Checked))
+    return;
+
+  m_task->m_renderToFolders = (m_renderToFolders->checkState() == Qt::Checked);
+  m_commandLine->setText(m_task->getCommandLine());
+  BatchesController::instance()->setDirtyFlag(true);
+
+  // Update children tasks, if present.
+  TFarmTaskGroup *taskGroup = dynamic_cast<TFarmTaskGroup *>(m_task);
+  if (taskGroup) {
+    for (int i = 0; i < taskGroup->getTaskCount(); ++i)
+      taskGroup->getTask(i)->m_renderToFolders = taskGroup->m_renderToFolders;
   }
 
   m_viewer->startTimer();
@@ -862,6 +896,10 @@ TaskSheet::TaskSheet(TasksViewer *owner) : QScrollArea(owner) {
   ::create(m_chunkSize, m_multimedia, layout1, tr("Frames per Chunk:"),
            tr("Multimedia:"), Qt::AlignRight | Qt::AlignTop,
            Qt::AlignLeft | Qt::AlignTop, row1++);
+  ::create(m_renderKeysOnly, layout1, tr("Render Key Drawings Only"), row1++,
+           4);
+  ::create(m_renderToFolders, layout1, tr("Render To Folders"), row1++,
+           4);
   ::create(m_from, m_to, layout1, tr("From:"), tr("To:"),
            Qt::AlignRight | Qt::AlignTop, Qt::AlignRight | Qt::AlignTop,
            row1++);
@@ -874,6 +912,9 @@ TaskSheet::TaskSheet(TasksViewer *owner) : QScrollArea(owner) {
   multimediaTypes << tr("None") << tr("Fx Schematic Flows")
                   << tr("Fx Schematic Terminal Nodes");
   m_multimedia->addItems(multimediaTypes);
+
+  m_renderKeysOnly->setEnabled(false);
+  m_renderToFolders->setEnabled(false);
 
   ::create(m_threadsCombo, layout1, tr("Dedicated CPUs:"), row1++, 3);
   QStringList threadsTypes;
@@ -970,6 +1011,10 @@ TaskSheet::TaskSheet(TasksViewer *owner) : QScrollArea(owner) {
 
   ret = ret && connect(m_multimedia, SIGNAL(currentIndexChanged(int)), this,
                        SLOT(setMultimedia(int)));
+  ret = ret && connect(m_renderKeysOnly, SIGNAL(stateChanged(int)), this,
+                       SLOT(setRenderKeysOnly(int)));
+  ret = ret && connect(m_renderToFolders, SIGNAL(stateChanged(int)), this,
+                       SLOT(setRenderToFolders(int)));
   ret = ret && connect(m_visible, SIGNAL(stateChanged(int)), this,
                        SLOT(setVisible(int)));
 
@@ -1138,49 +1183,32 @@ QVariant TaskTreeModel::data(const QModelIndex &index, int role) const {
       bool sourceFileIsCLN = (t->m_taskFilePath.getType() == "cln");
       switch (t->m_status) {
       case Suspended:
-        return QIcon(
-            t->m_isComposerTask
-                ? getIconThemePath("actions/35/task_render_suspended.svg")
-                : (sourceFileIsCLN
-                       ? getIconThemePath("actions/35/task_cln_suspended.svg")
-                       : getIconThemePath(
-                             "actions/35/task_cleanup_suspended.svg")));
+        return createQIcon(t->m_isComposerTask
+                               ? "task_render_suspended"
+                               : (sourceFileIsCLN ? "task_cln_suspended"
+                                                  : "task_cleanup_suspended"));
       case Waiting:
-        return QIcon(
-            t->m_isComposerTask
-                ? getIconThemePath(
-                      "actions/35/task_render_completed_with_errors.svg")
-                : (sourceFileIsCLN
-                       ? getIconThemePath(
-                             "actions/35/task_cln_completed_with_errors.svg")
-                       : getIconThemePath(
-                             "actions/35/"
-                             "task_cleanup_completed_with_errors.svg")));
+        return createQIcon(t->m_isComposerTask
+                               ? "task_render_completed_with_errors"
+                               : (sourceFileIsCLN
+                                      ? "task_cln_completed_with_errors"
+                                      : "task_cleanup_completed_with_errors"));
       case Running:
-        return QIcon(
-            t->m_isComposerTask
-                ? getIconThemePath("actions/35/task_render_computing.svg")
-                : (sourceFileIsCLN
-                       ? getIconThemePath("actions/35/task_cln_computing.svg")
-                       : getIconThemePath(
-                             "actions/35/task_cleanup_computing.svg")));
+        return createQIcon(t->m_isComposerTask
+                               ? "task_render_computing"
+                               : (sourceFileIsCLN ? "task_cln_computing"
+                                                  : "task_cleanup_computing"));
       case Completed:
-        return QIcon(
-            t->m_isComposerTask
-                ? getIconThemePath("actions/35/task_render_completed.svg")
-                : (sourceFileIsCLN
-                       ? getIconThemePath("actions/35/task_cln_completed.svg")
-                       : getIconThemePath(
-                             "actions/35/task_cleanup_completed.svg")));
+        return createQIcon(t->m_isComposerTask
+                               ? "task_render_completed"
+                               : (sourceFileIsCLN ? "task_cln_completed"
+                                                  : "task_cleanup_completed"));
       case Aborted:
       case TaskUnknown:
-        return QIcon(
-            t->m_isComposerTask
-                ? getIconThemePath("actions/35/task_render_failed.svg")
-                : (sourceFileIsCLN
-                       ? getIconThemePath("actions/35/task_cln_failed.svg")
-                       : getIconThemePath(
-                             "actions/35/task_cleanup_failed.svg")));
+        return createQIcon(t->m_isComposerTask
+                               ? "task_render_failed"
+                               : (sourceFileIsCLN ? "task_cln_failed"
+                                                  : "task_cleanup_failed"));
       default:
         assert(false);
       }
@@ -1247,6 +1275,8 @@ void TaskTreeModel::start(bool) {
       }
   } catch (TException &e) {
     DVGui::warning(QString::fromStdString(::to_string(e.getMessage())));
+  } catch (...) {
+    DVGui::warning("Unhandled exception encountered");
   }
 
   emit layoutChanged();
@@ -1277,6 +1307,8 @@ void TaskTreeModel::stop(bool) {
       }
   } catch (TException &e) {
     DVGui::warning(QString::fromStdString(::to_string(e.getMessage())));
+  } catch (...) {
+    DVGui::warning("Unhandled exception encountered");
   }
 
   emit layoutChanged();

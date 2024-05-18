@@ -53,6 +53,7 @@ class TFrameId;
 class Orientation;
 class TXsheetColumnChangeObserver;
 class ExpressionReferenceMonitor;
+class NavigationTags;
 
 //=============================================================================
 
@@ -158,11 +159,14 @@ private:
   std::unique_ptr<TXsheetImp> m_imp;
   TXshNoteSet *m_notes;
   SoundProperties *m_soundProperties;
+  NavigationTags *m_navigationTags;
 
   int m_cameraColumnIndex;
   TXshColumn *m_cameraColumn;
 
   TXsheetColumnChangeObserver *m_observer;
+
+  bool m_currentDrawingOnTop;
 
   DECLARE_CLASS_CODE
 
@@ -192,9 +196,14 @@ public:
      an empty cell.
           \sa setCell(), getCells(), setCells()
   */
-  const TXshCell &getCell(int row, int col) const;
+  const TXshCell &getCell(int row, int col, bool implicitLookup = true) const;
 
-  const TXshCell &getCell(const CellPosition &pos) const;
+  const TXshCell &getCell(const CellPosition &pos,
+                          bool implicitLookup = true) const;
+
+  bool isImplicitCell(int row, int col) const;
+
+  bool isImplicitCell(const CellPosition &pos) const;
 
   bool setCell(int row, int col, const TXshCell &cell);
   /*! Set \b \e cells[] to \b \e rowCount cells of column identified by index \b
@@ -203,7 +212,8 @@ public:
      TXshCellColumn set \b \e cells[] to \b \e rowCount empty cells.
           \sa getCells(), setCells(), getCell()
 */
-  void getCells(int row, int col, int rowCount, TXshCell cells[]) const;
+  void getCells(int row, int col, int rowCount, TXshCell cells[],
+                bool implicitLookup = false) const;
   /*! If column identified by index \b \e col is a \b TXshCellColumn or is empty
     and is not
     locked, this method sets to \b \e cells[] the given \b \e rowCount cells of
@@ -431,8 +441,8 @@ frame duplication.
 
   // force cells order in n-steps. returns the row amount after process
   // if withBlank is greater than -1, remove empty cell from its order and
-  // insert blank frames with type*withBlank length at each n-step.
-  int reframeCells(int r0, int r1, int col, int type, int withBlank = -1);
+  // insert blank frames with step*withBlank length at each n-step.
+  int reframeCells(int r0, int r1, int col, int step, int withBlank = -1);
 
   /*! Exposes level \b \e xl in xsheet starting from cell identified by \b \e
      row and \b \e col.
@@ -583,6 +593,20 @@ in TXsheetImp.
   void notifyFxAdded(const std::vector<TFx *> &fxs);
   void notifyStageObjectAdded(const TStageObjectId id);
   bool isReferenceManagementIgnored(TDoubleParam *);
+
+  void convertToImplicitHolds();
+  void convertToExplicitHolds(int endPlayRange);
+
+  NavigationTags *getNavigationTags() const { return m_navigationTags; }
+  bool isFrameTagged(int frame) const;
+  void toggleTaggedFrame(int frame);
+
+  bool isCurrentDrawingOnTop() { return m_currentDrawingOnTop; }
+  void setCurrentDrawingOnTop(bool onTop) { m_currentDrawingOnTop = onTop; }
+
+  int getNewFolderId();
+  bool isFolderColumn(int col);
+  void openCloseFolder(int folderCol, bool openFolder);
 
 protected:
   bool checkCircularReferences(TXsheet *childCandidate);

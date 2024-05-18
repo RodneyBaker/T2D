@@ -541,6 +541,9 @@ transformation.
   virtual void saveTool(){};
   virtual void loadTool(){};
 
+  void setAlignMethod(int method) { m_alignMethod = method; }
+  int getAlignMethod() { return m_alignMethod; }
+ 
 public:
   struct CellOps {
     int r0;
@@ -576,6 +579,8 @@ protected:
 
   static std::set<TFrameId> m_selectedFrames;
 
+  int m_alignMethod;
+
 protected:
   void bind(int targetType);
 
@@ -605,9 +610,10 @@ protected:
   int guidedStrokePickMode = 0;
   int m_guidedFrontStroke  = -1;
   int m_guidedBackStroke   = -1;
+  QWidget *m_viewerWidget  = nullptr;
 
 public:
-  Viewer() {}
+  Viewer(QWidget *widget) : m_viewerWidget(widget) {}
   virtual ~Viewer() {}
 
   const ImagePainter::VisualSettings &visualSettings() const {
@@ -687,6 +693,7 @@ public:
 
   /*-- Toolで画面の内外を判断するため --*/
   virtual TRectD getGeometry() const = 0;
+  virtual TRectD getCameraRect() const { return TRectD(); }
 
   virtual void bindFBO() {}
   virtual void releaseFBO() {}
@@ -717,6 +724,8 @@ public:
 
   void getGuidedFrameIdx(int *backIdx, int *frontIdx);
   void doPickGuideStroke(const TPointD &pos);
+
+  QWidget *viewerWidget() { return m_viewerWidget; }
 };
 
 #endif

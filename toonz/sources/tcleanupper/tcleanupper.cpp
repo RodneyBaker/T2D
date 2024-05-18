@@ -22,6 +22,7 @@
 #include "toonz/txshcolumn.h"
 #include "toonz/tlog.h"
 #include "toonz/imagestyles.h"
+#include "toonz/filepathproperties.h"
 
 // TnzBase includes
 #include "tcli.h"
@@ -62,8 +63,8 @@ inline ostream &operator<<(ostream &out, const TFilePath &fp) {
 //------------------------------------------------------------------------
 namespace {
 
-const char *rootVarName     = "TOONZROOT";
-const char *systemVarPrefix = "TOONZ";
+const char *rootVarName     = "TAHOMA2DROOT";
+const char *systemVarPrefix = "TAHOMA2D";
 
 namespace {
 
@@ -595,6 +596,12 @@ int main(int argc, char *argv[]) {
   }
 
   cout << "project:" << project->getName() << endl;
+
+  // update TFilePath condition on loading the current project
+  FilePathProperties *fpProp = project->getFilePathProperties();
+  TFilePath::setFilePathProperties(fpProp->useStandard(),
+                                   fpProp->acceptNonAlphabetSuffix(),
+                                   fpProp->letterCountForSuffix());
 
   TFilePath fp = srcName;
 

@@ -40,6 +40,15 @@
   padding-right: 3;
 }
 
+#XsheetBreadcrumbs {
+  padding: 0 5px 0 5px;
+  margin: 0;
+  border-bottom: 1 solid @accent;
+  &::separator:horizontal {
+    margin: 0 0 0 2;
+  }
+}
+
 /* xsheetColumnHeader (Context Menus)
 ----------------------------------------------------------------------------- */
 
@@ -75,15 +84,18 @@
 XsheetViewer {
   qproperty-TextColor: @xsheet-text-color;
   qproperty-ErrorTextColor: @xsheet-error-text-color;
+  qproperty-SelectedTextColor: @xsheet-selected-text-color;
+  qproperty-CurrentFrameTextColor: @xsheet-currentFrame-text-color;
   qproperty-BGColor: @xsheet-bg-color;
   qproperty-LightLineColor: @xsheet-LightLine-color;
   qproperty-MarkerLineColor: @xsheet-MarkerLine-color;
+  qproperty-SecMarkerLineColor: @xsheet-SecMarkerLine-color;
+  qproperty-SelectedMarkerLineColor: @xsheet-SelectedMarkerLine-color;
   qproperty-VerticalLineColor: @xsheet-VerticalLine-color;
   qproperty-VerticalLineHeadColor: @xsheet-VerticalLineHead-color;
   qproperty-PreviewFrameTextColor: @xsheet-PreviewFrameText-color;
   qproperty-CurrentRowBgColor: @xsheet-CurrentRowBG-color;
   qproperty-OnionSkinAreaBgColor: @xsheet-OnionSkinAreaBG-color;
-  qproperty-CellFocusColor: @xsheet-CellFocus-color;
   qproperty-ColumnIconLineColor: @xsheet-ColumnIconLine-color;
   qproperty-EmptyColumnHeadColor: @xsheet-EmptyColumnHead-color;
   qproperty-ColumnHeadPastelizer: @xsheet-ColumnHeadPastelizer-color;
@@ -143,6 +155,10 @@ XsheetViewer {
   qproperty-SoundColumnHlColor: @xsheet-SoundColumnHL-color;
   qproperty-SoundColumnTrackColor: @xsheet-SoundColumnTrack-color;
 
+  qproperty-FolderColumnColor: @xsheet-FolderColumn-color;
+  qproperty-FolderColumnBorderColor: desaturate(darken(@xsheet-FolderColumn-color, @columnBorderDarkness), @columnBorderDesaturation);
+  qproperty-SelectedFolderColumnColor: mix(shade(@xsheet-FolderColumn-color, @cellHighlightLightness), @cellHighlightTintColor, @cellHighlightTintAmount);
+ 
   qproperty-ActiveCameraColor: @xsheet-ActiveCamera-color;
   qproperty-SelectedActiveCameraColor: mix(shade(@xsheet-ActiveCamera-color, @cellHighlightLightness), @cellHighlightTintColor, @cellHighlightTintAmount);
   qproperty-OtherCameraColor: @xsheet-OtherCamera-color;
@@ -152,6 +168,8 @@ XsheetViewer {
   qproperty-LightBGColor: @xsheet-LightBG-color;
   qproperty-DarkBGColor: @xsheet-DarkBG-color;
   qproperty-DarkLineColor: @xsheet-DarkLine-color;
+
+  qproperty-ImplicitCellAlpha: @xsheet-ImplicitCellAlpha;
 
   // Column Header: Vertical
   qproperty-TimelineIconLineColor: @timeline-IconLine-color;
@@ -183,29 +201,21 @@ XsheetViewer {
   qproperty-TimelinePreviewButtonBgOnColor: @bg;
   qproperty-TimelinePreviewButtonOnImage: url('@{img-url}/preview_small.svg');
   qproperty-TimelinePreviewButtonBgOffColor: @bg;
-  qproperty-TimelinePreviewButtonOffImage: url('none');
+  qproperty-TimelinePreviewButtonOffImage: url('@{img-url}/transparent.svg');
 
   qproperty-TimelineCamstandButtonBgOnColor: @bg;
   qproperty-TimelineCamstandButtonOnImage: url('@{img-url}/table_small.svg');
   qproperty-TimelineCamstandButtonTranspImage: url('@{img-url}/trans_small.svg');
   qproperty-TimelineCamstandButtonBgOffColor: @bg;
-  qproperty-TimelineCamstandButtonOffImage: url('none');
+  qproperty-TimelineCamstandButtonOffImage: url('@{img-url}/transparent.svg');
 
   qproperty-TimelineLockButtonBgOnColor: @bg;
   qproperty-TimelineLockButtonOnImage: url('@{img-url}/lock_on_small.svg');
   qproperty-TimelineLockButtonBgOffColor: @bg;
-  qproperty-TimelineLockButtonOffImage: url('none');
+  qproperty-TimelineLockButtonOffImage: url('@{img-url}/transparent.svg');
 
   qproperty-TimelineConfigButtonBgColor: @bg;
   qproperty-TimelineConfigButtonImage: url('@{img-url}/timeline_config.svg');
-
-  // Header Control
-  qproperty-LayerHeaderPreviewImage: url('@{img-url}/layer_header_prev_eye.svg');
-  qproperty-LayerHeaderPreviewOverImage: url('@{img-url}/layer_header_prev_eye_over.svg');
-  qproperty-LayerHeaderCamstandImage: url('@{img-url}/layer_header_table_view.svg');
-  qproperty-LayerHeaderCamstandOverImage: url('@{img-url}/layer_header_table_view_over.svg');
-  qproperty-LayerHeaderLockImage: url('@{img-url}/layer_lock_on.svg');
-  qproperty-LayerHeaderLockOverImage: url('@{img-url}/layer_lock_on_over.svg');
 }
 
 /* -----------------------------------------------------------------------------
@@ -275,6 +285,7 @@ SpreadsheetViewer {
   qproperty-CurrentRowBgColor: @xsheet-CurrentRowBG-color; // paired
   qproperty-LightLineColor: @xsheet-LightLine-color; // paired
   qproperty-MarkerLineColor: @xsheet-MarkerLine-color; // paired
+  qproperty-SecMarkerLineColor: @xsheet-SecMarkerLine-color;
   qproperty-BGColor: @function-ColumnHeaderBG-color;
   qproperty-VerticalLineColor: @xsheet-VerticalLine-color; // paired
   qproperty-KeyFrameColor: @function-KeyFrame-color;
@@ -290,6 +301,7 @@ SpreadsheetViewer {
   qproperty-SelectedEmptyColor: @xsheet-SelectedEmptyCell-color; // paired
   qproperty-SelectedSceneRangeEmptyColor: @function-SelectedSceneRangeEmpty-color;
   qproperty-TextColor: @xsheet-text-color; // paired
+  qproperty-CurrentRowTextColor: @xsheet-currentFrame-text-color; // paired
   qproperty-ColumnHeaderBorderColor: @function-ColumnHeaderBorder-color; // paired
 }
 

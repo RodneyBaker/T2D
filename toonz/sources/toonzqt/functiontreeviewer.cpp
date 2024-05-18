@@ -272,27 +272,14 @@ QVariant StageObjectChannelGroup::data(int role) const {
   if (role == Qt::DisplayRole) {
     std::string name = (m_stageObject->getId().isTable())
                            ? FunctionTreeView::tr("Table").toStdString()
-                           : m_stageObject->getName();
-    std::string id = m_stageObject->getId().toString();
+                           : m_stageObject->getFullName();
 
-    return (name == id) ? QString::fromStdString(name)
-                        : QString::fromStdString(id + " (" + name + ")");
-
+    return QString::fromStdString(name);
   } else if (role == Qt::ForegroundRole) {
     FunctionTreeModel *model = dynamic_cast<FunctionTreeModel *>(getModel());
-    if (!model)
-#if QT_VERSION >= 0x050000
-      return QColor(Qt::black);
-#else
-      return Qt::black;
-#endif
+    if (!model) return QColor(Qt::black);
     FunctionTreeView *view = dynamic_cast<FunctionTreeView *>(model->getView());
-    if (!view || !model->getCurrentStageObject())
-#if QT_VERSION >= 0x050000
-      return QColor(Qt::black);
-#else
-      return Qt::black;
-#endif
+    if (!view || !model->getCurrentStageObject()) return QColor(Qt::black);
     TStageObjectId currentId = model->getCurrentStageObject()->getId();
     return m_stageObject->getId() == currentId
                ? view->getViewer()->getCurrentTextColor()
@@ -345,7 +332,9 @@ QString FxChannelGroup::getShortName() const {
 //-----------------------------------------------------------------------------
 
 QString FxChannelGroup::getLongName() const {
-  return QString::fromStdWString(m_fx->getFxId());
+  std::wstring name = m_fx->getName();
+  std::wstring id   = m_fx->getFxId();
+  return QString::fromStdWString(id + L" (" + name + L")");
 }
 
 //-----------------------------------------------------------------------------
@@ -399,19 +388,9 @@ QVariant FxChannelGroup::data(int role) const {
       return QString::fromStdWString(id + L" (" + name + L")");
   } else if (role == Qt::ForegroundRole) {
     FunctionTreeModel *model = dynamic_cast<FunctionTreeModel *>(getModel());
-    if (!model)
-#if QT_VERSION >= 0x050000
-      return QColor(Qt::black);
-#else
-      return Qt::black;
-#endif
+    if (!model) return QColor(Qt::black);
     FunctionTreeView *view = dynamic_cast<FunctionTreeView *>(model->getView());
-    if (!view)
-#if QT_VERSION >= 0x050000
-      return QColor(Qt::black);
-#else
-      return Qt::black;
-#endif
+    if (!view) return QColor(Qt::black);
     TFx *currentFx = model->getCurrentFx();
     return m_fx == currentFx ? view->getViewer()->getCurrentTextColor()
                              : view->getTextColor();
@@ -514,19 +493,9 @@ QVariant SkVDChannelGroup::data(int role) const {
     // it selection color
     // if this group refers to current vertex
     FunctionTreeModel *model = dynamic_cast<FunctionTreeModel *>(getModel());
-    if (!model)
-#if QT_VERSION >= 0x050000
-      return QColor(Qt::black);
-#else
-      return Qt::black;
-#endif
+    if (!model) return QColor(Qt::black);
     FunctionTreeView *view = dynamic_cast<FunctionTreeView *>(model->getView());
-    if (!view || !model->getCurrentStageObject())
-#if QT_VERSION >= 0x050000
-      return QColor(Qt::black);
-#else
-      return Qt::black;
-#endif
+    if (!view || !model->getCurrentStageObject()) return QColor(Qt::black);
 
     if (PlasticVertexSelection *vxSel =
             dynamic_cast<PlasticVertexSelection *>(TSelection::getCurrent()))
@@ -649,12 +618,7 @@ QVariant FunctionTreeModel::Channel::data(int role) const {
   } else if (role == Qt::ForegroundRole) {
     // 130221 iwasawa
     FunctionTreeView *view = dynamic_cast<FunctionTreeView *>(m_model->m_view);
-    if (!view)
-#if QT_VERSION >= 0x050000
-      return QColor(Qt::black);
-#else
-      return Qt::black;
-#endif
+    if (!view) return QColor(Qt::black);
     return (isCurrent()) ? view->getViewer()->getCurrentTextColor()
                          : view->getTextColor();
   } else if (role == Qt::ToolTipRole) {
@@ -1177,8 +1141,11 @@ void FunctionTreeModel::addChannels(TFx *fx, ChannelGroup *groupItem,
   const std::string &paramNamePref = fx->getFxType() + ".";
 
   int p, pCount = params->getParamCount();
-  for (p = 0; p != pCount; ++p)
+  for (p = 0; p != pCount; ++p) {
+    // hidden parameter are not displayed in the tree
+    if (params->isParamHidden(p)) continue;
     addParameter(fxItem, paramNamePref, fxId, params->getParam(p));
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -1285,9 +1252,7 @@ void FunctionTreeModel::onParamChange(bool isDragging) {
 //-----------------------------------------------------------------------------
 
 void FunctionTreeModel::resetAll() {
-#if QT_VERSION >= 0x050000
   beginResetModel();
-#endif
   m_activeChannels.clear();
 
   TreeModel::Item *root_item = getRootItem();
@@ -1295,9 +1260,6 @@ void FunctionTreeModel::resetAll() {
 
   m_stageObjects = 0;
   m_fxs          = 0;
-#if QT_VERSION < 0x050000
-  reset();
-#endif
 
   beginRefresh();
   refreshActiveChannels();
@@ -1309,9 +1271,7 @@ void FunctionTreeModel::resetAll() {
 
   m_currentChannel = 0;
 
-#if QT_VERSION >= 0x050000
   endResetModel();
-#endif
 }
 
 //-----------------------------------------------------------------------------
@@ -1486,10 +1446,10 @@ void FunctionTreeView::onActivated(const QModelIndex &index) {
   // were active
   bool someInactiveChannels = (activeFlag != ACTIVE_CHANNELS);
 
-  if (someInactiveChannels && !isExpanded(index)) {
-    setExpanded(index, true);
-    ftModel->onExpanded(index);
-  }
+//  if (someInactiveChannels && !isExpanded(index)) {
+//    setExpanded(index, true);
+//    ftModel->onExpanded(index);
+//  }
 
   if (item) {
     if (!childChannels.empty()) {
@@ -1563,7 +1523,7 @@ void FunctionTreeView::onMidClick(TreeModel::Item *item, const QPoint &itemPos,
                                   QMouseEvent *e) {
   FunctionTreeModel::Channel *channel =
       dynamic_cast<FunctionTreeModel::Channel *>(item);
-  if (channel && e->button() == Qt::MidButton) {
+  if (channel && e->button() == Qt::MiddleButton) {
     m_draggingChannel   = channel;
     m_dragStartPosition = e->pos();
   } else
@@ -1575,7 +1535,7 @@ void FunctionTreeView::onMidClick(TreeModel::Item *item, const QPoint &itemPos,
 void FunctionTreeView::onDrag(TreeModel::Item *item, const QPoint &itemPos,
                               QMouseEvent *e) {
   // middle drag of the channel item can retrieve expression name
-  if ((e->buttons() & Qt::MidButton) && m_draggingChannel &&
+  if ((e->buttons() & Qt::MiddleButton) && m_draggingChannel &&
       (e->pos() - m_dragStartPosition).manhattanLength() >=
           QApplication::startDragDistance()) {
     QDrag *drag         = new QDrag(this);

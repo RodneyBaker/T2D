@@ -1,4 +1,7 @@
-﻿cmake_minimum_required(VERSION 2.8.11)
+﻿cmake_policy(SET CMP0141 NEW)
+set(CMAKE_POLICY_DEFAULT_CMP0141 NEW)
+
+cmake_minimum_required(VERSION 2.8.11)
 
 set(CMAKE_BUILD_TYPE_INIT Release)
 
@@ -102,8 +105,8 @@ endif()
 option(WITH_SYSTEM_LZO "Use the system LZO library instead of 'thirdpary'" ${_init_SYSTEM_LZO})
 option(WITH_SYSTEM_SUPERLU "Use the system SuperLU library instead of 'thirdpary'" ${_init_SYSTEM_SUPERLU})
 option(WITH_CANON "Build with Canon DSLR support - Requires Canon SDK" OFF)
+option(WITH_GPHOTO2 "Build with Libgphoto2" OFF)
 option(WITH_TRANSLATION "Generate translation projects as well" ON)
-option(WITH_CRASHRPT "Build CrashRpt support - Requires CrashRpt Library" OFF)
 option(WITH_WINTAB "(Windows only) Build with customized Qt with WinTab support. https://github.com/shun-iwasawa/qt5/releases/tag/v5.15.2_wintab" OFF)
 
 # avoid using again
@@ -143,6 +146,7 @@ if(BUILD_ENV_MSVC)
         -DNOMINMAX
         -D_USE_MATH_DEFINES
     )
+    set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<$<CONFIG:Debug,RelWithDebInfo>:Embedded>")
 elseif(BUILD_ENV_APPLE)
     if(NOT PLATFORM)
         set(PLATFORM 64)
@@ -183,7 +187,7 @@ elseif(BUILD_ENV_APPLE)
 elseif(BUILD_ENV_UNIXLIKE)
     # Needed for correct Qt detection
     cmake_minimum_required(VERSION 2.8.12)
-
+    set(PRELOAD_VARIABLE "LD_LIBRARY_PATH")
     if(CMAKE_SIZEOF_VOID_P MATCHES "8")
         set(PLATFORM 64)
     else()
@@ -191,6 +195,9 @@ elseif(BUILD_ENV_UNIXLIKE)
     endif()
     if(CMAKE_SYSTEM_NAME MATCHES "Linux")
         add_definitions(-DLINUX)
+    elseif(CMAKE_SYSTEM_NAME MATCHES "Haiku")
+        add_definitions(-DHAIKU)
+        set(PRELOAD_VARIABLE "LIBRARY_PATH")
     elseif(CMAKE_SYSTEM_NAME MATCHES "^.*BSD$|DragonFly")
         set(BUILD_TARGET_BSD ON)
         add_definitions(-D_BSD_SOURCE -DFREEBSD)
@@ -252,6 +259,7 @@ find_package(Qt5 REQUIRED
     Multimedia
     MultimediaWidgets
     SerialPort
+    UiTools
 )
 
 set(QT_MINIMUM_VERSION 5.5.0)
@@ -275,11 +283,11 @@ if(BUILD_ENV_MSVC)
         -DGLUT_NO_LIB_PRAGMA
     )
 
-	if(WITH_CRASHRPT)
-		include_directories(
-			${SDKROOT}/crashrpt/include
-		)
-	endif()
+    if(WITH_GPHOTO2)
+        include_directories(
+            ${SDKROOT}/libgphoto2/include
+        )
+    endif()
 endif()
 
 if(BUILD_ENV_MSVC)
@@ -336,7 +344,16 @@ if(BUILD_ENV_MSVC)
         set(PLATFORM2 _64)
     endif()
 
-    if(MSVC_VERSION GREATER 1800)
+#--- MSVC_VERSIONs ---
+#1800      = VS 12.0 (v120 toolset) - 2013
+#1900      = VS 14.0 (v140 toolset) - 2015
+#1910-1919 = VS 15.0 (v141 toolset) - 2017
+#1920-1929 = VS 16.0 (v142 toolset) - 2019
+#1930-1939 = VS 17.0 (v143 toolset) - 2022
+#
+    if(MSVC_VERSION GREATER 1919)
+        set(MSVC_LIB_VERSION 2019)
+    elseif(MSVC_VERSION GREATER 1800)
         set(MSVC_LIB_VERSION 2015)
     else()
         set(MSVC_LIB_VERSION 2013)
@@ -351,10 +368,10 @@ if(BUILD_ENV_MSVC)
     #set(JPEG_LIB ${SDKROOT}/LibJPEG/jpeg-9/lib/LibJPEG-9_${MSVC_LIB_VERSION}${PLATFORM2}.lib)
     set(JPEG_LIB ${SDKROOT}/libjpeg-turbo/lib/jpeg-static_${MSVC_LIB_VERSION}${PLATFORM2}.lib)
     set(TURBOJPEG_LIB ${SDKROOT}/libjpeg-turbo/lib/turbojpeg-static_${MSVC_LIB_VERSION}${PLATFORM2}.lib)
-    set(TIFF_INCLUDE_DIR ${SDKROOT}/tiff-4.0.3/libtiff)
+    set(TIFF_INCLUDE_DIR ${SDKROOT}/tiff-4.2.0/libtiff)
     set(TIFF_LIB
-        optimized ${SDKROOT}/tiff-4.0.3/lib/LibTIFF-4.0.3_${MSVC_LIB_VERSION}${PLATFORM2}.lib
-        debug  ${SDKROOT}/tiff-4.0.3/lib/LibTIFF-4.0.3_${MSVC_LIB_VERSION}${PLATFORM2}d.lib
+        optimized ${SDKROOT}/tiff-4.2.0/lib/Libtiff-4.2.0_${MSVC_LIB_VERSION}${PLATFORM2}.lib
+        debug  ${SDKROOT}/tiff-4.2.0/lib/Libtiff-4.2.0_${MSVC_LIB_VERSION}${PLATFORM2}d.lib
     )
     set(PNG_LIB
         optimized ${SDKROOT}/libpng-1.6.21/lib/libpng16_${MSVC_LIB_VERSION}${PLATFORM2}.lib
@@ -375,9 +392,11 @@ if(BUILD_ENV_MSVC)
     set(MYPAINT_LIB_INCLUDE_DIRS ${SDKROOT}/libmypaint/dist/${PLATFORM}/include/libmypaint)
     set(MYPAINT_LIB_LDFLAGS ${SDKROOT}/libmypaint/dist/${PLATFORM}/libmypaint.lib)
 
-	if(WITH_CRASHRPT)
-		set(CRASHRPT_LIB ${SDKROOT}/crashrpt/CrashRpt1500.lib)
-	endif()
+    if(WITH_GPHOTO2)
+        set(GPHOTO2_LIB ${SDKROOT}/libgphoto2/lib/libgphoto2.lib)
+        set(GPHOTO2_PORT_LIB ${SDKROOT}/libgphoto2/lib/libgphoto2_port.lib)
+        set(GPHOTO2_COMPAT_LIB ${SDKROOT}/libgphoto2/lib/compat.lib)
+    endif()
 elseif(BUILD_ENV_APPLE)
     find_library(GLUT_LIB GLUT)
     find_library(GL_LIB OpenGL)
@@ -439,6 +458,12 @@ elseif(BUILD_ENV_APPLE)
         endif()
     endif()
 
+    if(WITH_GPHOTO2)
+        find_library(GPHOTO2_LIB gphoto2)
+        message("**************** gphoto2 lib:" ${GPHOTO2_LIB})
+        find_library(GPHOTO2_PORT_LIB gphoto2_port)
+        message("**************** gphoto2_port lib:" ${GPHOTO2_PORT_LIB})
+    endif()
 elseif(BUILD_ENV_UNIXLIKE)
     if(BUILD_TARGET_WIN)
         find_library(GL_LIB opengl32)
@@ -495,6 +520,9 @@ elseif(BUILD_ENV_UNIXLIKE)
     find_package(LZO REQUIRED)
     message("LZO:" ${LZO_INCLUDE_DIR})
 
+    if(BUILD_TARGET_BSD OR HAIKU)
+        find_library(EXECINFO_LIBRARY execinfo)
+    endif()
     find_library(PTHREAD_LIBRARY pthread)
 
     if(NOT BUILD_TARGET_WIN)
@@ -505,6 +533,13 @@ elseif(BUILD_ENV_UNIXLIKE)
 
     find_library(TURBOJPEG_LIB turbojpeg)
     message("**************** turbojpeg lib:" ${TURBOJPEG_LIB})
+
+    if(WITH_GPHOTO2)
+        find_library(GPHOTO2_LIB gphoto2)
+        message("**************** gphoto2 lib:" ${GPHOTO2_LIB})
+        find_library(GPHOTO2_PORT_LIB gphoto2_port)
+        message("**************** gphoto2_port lib:" ${GPHOTO2_PORT_LIB})
+    endif()
 endif()
 
 
@@ -579,6 +614,9 @@ if(BUILD_ENV_MSVC)
     # place Toonz.exe and dlls in the same directory
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
+    # use secure functions by defaualt
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES=1")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /D _CRT_SECURE_CPP_OVERLOAD_STANDARD_NAMES_COUNT=1")
 elseif(BUILD_ENV_APPLE)
     # pass
 elseif(BUILD_ENV_UNIXLIKE)
@@ -603,7 +641,7 @@ endif()
 
 if(WITH_TRANSLATION)
     # generate Qt translations and messages
-    set(LANGUAGES japanese italian french spanish chinese german russian korean czech)
+    set(LANGUAGES japanese italian french spanish chinese german russian korean czech brazilian-portuguese)
 
     function(add_translation module)
         set(translation)

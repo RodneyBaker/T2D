@@ -35,6 +35,9 @@
 #include "toonz/txshlevelhandle.h"
 #include "toonz/tproject.h"
 #include "tconvert.h"
+#include "toonz/navigationtags.h"
+#include "toonz/txshlevelcolumn.h"
+#include "toonz/txshpalettecolumn.h"
 
 #include "tenv.h"
 
@@ -54,12 +57,13 @@ TEnv::IntVar FrameDisplayStyleInXsheetRowArea(
 namespace XsheetGUI {
 //-----------------------------------------------------------------------------
 
-const int ColumnWidth     = 74;
-const int RowHeight       = 20;
-const int SCROLLBAR_WIDTH = 16;
-const int TOOLBAR_HEIGHT  = 29;
-const int ZOOM_FACTOR_MAX = 100;
-const int ZOOM_FACTOR_MIN = 20;
+const int ColumnWidth       = 74;
+const int RowHeight         = 20;
+const int SCROLLBAR_WIDTH   = 16;
+const int TOOLBAR_HEIGHT    = 29;
+const int BREADCRUMB_HEIGHT = 29;
+const int ZOOM_FACTOR_MAX   = 100;
+const int ZOOM_FACTOR_MIN   = 20;
 }  // namespace XsheetGUI
 
 //=============================================================================
@@ -115,6 +119,16 @@ void XsheetViewer::getCellTypeAndColors(int &ltype, QColor &cellColor,
           (isSelected) ? getSelectedMeshColumnColor() : getMeshColumnColor();
       sideColor = getMeshColumnBorderColor();
       break;
+    case PLT_XSHLEVEL:
+      cellColor =
+          (isSelected) ? getSelectedPaletteColumnColor() : getPaletteColumnColor();
+      sideColor = getPaletteColumnBorderColor();
+      break;
+    case FOLDER_XSHLEVEL:
+      cellColor =
+          (isSelected) ? getSelectedFolderColumnColor() : getFolderColumnColor();
+      sideColor = getFolderColumnBorderColor();
+      break;
     case UNKNOWN_XSHLEVEL:
     case NO_XSHLEVEL:
     default:
@@ -142,77 +156,76 @@ void XsheetViewer::getColumnColor(QColor &color, QColor &sideColor, int index,
       int ltype;
       getCellTypeAndColors(ltype, color, sideColor, cell);
     }
+  } else if (xsh->getColumn(index)->getFolderColumn()) {
+    color     = m_folderColumnColor;
+    sideColor = m_folderColumnBorderColor;
   }
-  if (xsh->getColumn(index)->isMask()) color = QColor(255, 0, 255);
+  //  if (xsh->getColumn(index)->isMask()) color = QColor(255, 0, 255);
 }
 
 //-----------------------------------------------------------------------------
 
 void XsheetViewer::getButton(const int &btype, QColor &bgColor,
-                             QImage &iconImage, bool isTimeline) {
+                             QString &svgIconPath, bool isTimeline) {
   switch (btype) {
   case PREVIEW_ON_XSHBUTTON:
-    bgColor = (isTimeline) ? getTimelinePreviewButtonBgOnColor()
-                           : getXsheetPreviewButtonBgOnColor();
-    iconImage = (isTimeline) ? getTimelinePreviewButtonOnImage()
+    bgColor   = (isTimeline) ? getTimelinePreviewButtonBgOnColor()
+                             : getXsheetPreviewButtonBgOnColor();
+    svgIconPath = (isTimeline) ? getTimelinePreviewButtonOnImage()
                              : getXsheetPreviewButtonOnImage();
     break;
   case PREVIEW_OFF_XSHBUTTON:
-    bgColor = (isTimeline) ? getTimelinePreviewButtonBgOffColor()
-                           : getXsheetPreviewButtonBgOffColor();
-    iconImage = (isTimeline) ? getTimelinePreviewButtonOffImage()
+    bgColor   = (isTimeline) ? getTimelinePreviewButtonBgOffColor()
+                             : getXsheetPreviewButtonBgOffColor();
+    svgIconPath = (isTimeline) ? getTimelinePreviewButtonOffImage()
                              : getXsheetPreviewButtonOffImage();
     break;
   case CAMSTAND_ON_XSHBUTTON:
-    bgColor = (isTimeline) ? getTimelineCamstandButtonBgOnColor()
-                           : getXsheetCamstandButtonBgOnColor();
-    iconImage = (isTimeline) ? getTimelineCamstandButtonOnImage()
+    bgColor   = (isTimeline) ? getTimelineCamstandButtonBgOnColor()
+                             : getXsheetCamstandButtonBgOnColor();
+    svgIconPath = (isTimeline) ? getTimelineCamstandButtonOnImage()
                              : getXsheetCamstandButtonOnImage();
     break;
   case CAMSTAND_TRANSP_XSHBUTTON:
-    bgColor = (isTimeline) ? getTimelineCamstandButtonBgOnColor()
-                           : getXsheetCamstandButtonBgOnColor();
-    iconImage = (isTimeline) ? getTimelineCamstandButtonTranspImage()
+    bgColor   = (isTimeline) ? getTimelineCamstandButtonBgOnColor()
+                             : getXsheetCamstandButtonBgOnColor();
+    svgIconPath = (isTimeline) ? getTimelineCamstandButtonTranspImage()
                              : getXsheetCamstandButtonTranspImage();
     break;
   case CAMSTAND_OFF_XSHBUTTON:
-    bgColor = (isTimeline) ? getTimelineCamstandButtonBgOffColor()
-                           : getXsheetCamstandButtonBgOffColor();
-    iconImage = (isTimeline) ? getTimelineCamstandButtonOffImage()
+    bgColor   = (isTimeline) ? getTimelineCamstandButtonBgOffColor()
+                             : getXsheetCamstandButtonBgOffColor();
+    svgIconPath = (isTimeline) ? getTimelineCamstandButtonOffImage()
                              : getXsheetCamstandButtonOffImage();
     break;
   case LOCK_ON_XSHBUTTON:
-    bgColor = (isTimeline) ? getTimelineLockButtonBgOnColor()
-                           : getXsheetLockButtonBgOnColor();
-    iconImage = (isTimeline) ? getTimelineLockButtonOnImage()
+    bgColor   = (isTimeline) ? getTimelineLockButtonBgOnColor()
+                             : getXsheetLockButtonBgOnColor();
+    svgIconPath = (isTimeline) ? getTimelineLockButtonOnImage()
                              : getXsheetLockButtonOnImage();
     break;
   case LOCK_OFF_XSHBUTTON:
-    bgColor = (isTimeline) ? getTimelineLockButtonBgOffColor()
-                           : getXsheetLockButtonBgOffColor();
-    iconImage = (isTimeline) ? getTimelineLockButtonOffImage()
+    bgColor   = (isTimeline) ? getTimelineLockButtonBgOffColor()
+                             : getXsheetLockButtonBgOffColor();
+    svgIconPath = (isTimeline) ? getTimelineLockButtonOffImage()
                              : getXsheetLockButtonOffImage();
     break;
   case CONFIG_XSHBUTTON:
-    bgColor = (isTimeline) ? getTimelineConfigButtonBgColor()
-                           : getXsheetConfigButtonBgColor();
-    iconImage = (isTimeline) ? getTimelineConfigButtonImage()
+    bgColor   = (isTimeline) ? getTimelineConfigButtonBgColor()
+                             : getXsheetConfigButtonBgColor();
+    svgIconPath = (isTimeline) ? getTimelineConfigButtonImage()
                              : getXsheetConfigButtonImage();
     break;
   default:
     bgColor = grey210;
     static QImage iconignored;
-    iconImage = iconignored;
+    svgIconPath = "";
   }
 }
 
 //-----------------------------------------------------------------------------
 
-#if QT_VERSION >= 0x050500
 XsheetViewer::XsheetViewer(QWidget *parent, Qt::WindowFlags flags)
-#else
-XsheetViewer::XsheetViewer(QWidget *parent, Qt::WFlags flags)
-#endif
     : QFrame(parent)
     , m_timerId(0)
     , m_autoPanSpeed(0, 0)
@@ -227,12 +240,14 @@ XsheetViewer::XsheetViewer(QWidget *parent, Qt::WFlags flags)
     , m_isCurrentColumnSwitched(false)
     , m_isComputingSize(false)
     , m_currentNoteIndex(0)
-    , m_qtModifiers(0)
+    , m_qtModifiers(Qt::KeyboardModifiers())
     , m_frameDisplayStyle(to_enum(FrameDisplayStyleInXsheetRowArea))
     , m_orientation(nullptr)
     , m_xsheetLayout("Classic")
-    , m_frameZoomFactor(100) {
-
+    , m_frameZoomFactor(100)
+    , m_ctrlSelectRef(CellPosition(0, 0))
+    , m_xsheetBodyOffset(0)
+    , m_timelineBodyOffset(0) {
   m_xsheetLayout = Preferences::instance()->getLoadedXsheetLayout();
 
   setFocusPolicy(Qt::StrongFocus);
@@ -248,8 +263,14 @@ XsheetViewer::XsheetViewer(QWidget *parent, Qt::WFlags flags)
   m_toolbarScrollArea = new XsheetScrollArea(this);
   m_toolbarScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   m_toolbarScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  m_toolbar = new XsheetGUI::QuickToolbar(this, 0, true);
+  m_toolbar = new XsheetGUI::QuickToolbar(this, Qt::WindowFlags(), true);
   m_toolbarScrollArea->setWidget(m_toolbar);
+
+  m_breadcrumbArea = new XsheetGUI::BreadcrumbArea(this, Qt::WindowFlags());
+  m_breadcrumbScrollArea = new XsheetScrollArea(this);
+  m_breadcrumbScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_breadcrumbScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  m_breadcrumbScrollArea->setWidget(m_breadcrumbArea);
 
   m_noteArea       = new XsheetGUI::NoteArea(this);
   m_noteScrollArea = new XsheetScrollArea(this);
@@ -309,7 +330,7 @@ XsheetViewer::~XsheetViewer() {
 //-----------------------------------------------------------------------------
 
 void XsheetViewer::setDragTool(XsheetGUI::DragTool *dragTool) {
-  assert(m_dragTool == 0);
+  //assert(m_dragTool == 0);
   m_dragTool = dragTool;
 }
 
@@ -364,7 +385,10 @@ const Orientation *XsheetViewer::orientation() const {
 }
 
 void XsheetViewer::flipOrientation() {
-  m_orientation = orientation()->next();
+  if (orientation()->isVerticalTimeline())
+    m_orientation = Orientations::instance().leftToRight();
+  else
+    m_orientation = Orientations::instance().topToBottom();
 
   int factor = (m_orientation->isVerticalTimeline()) ? m_frameZoomFactor : 100;
   TApp::instance()->getCurrentXsheet()->notifyZoomScaleChanged(factor);
@@ -393,6 +417,15 @@ void XsheetViewer::positionSections() {
 
   NumberRange headerLayer = o->range(PredefinedRange::HEADER_LAYER);
   NumberRange headerFrame = o->range(PredefinedRange::HEADER_FRAME);
+
+  if (!o->isVerticalTimeline()) {
+    headerFrame = headerFrame.adjusted(0, m_timelineBodyOffset);
+    m_columnArea->setFixedWidth(headerFrame.to());
+  } else {
+    headerFrame = headerFrame.adjusted(0, m_xsheetBodyOffset);
+    m_columnArea->setFixedHeight(headerFrame.to());
+  }
+
   NumberRange bodyLayer(headerLayer.to(), allLayer.to());
   NumberRange bodyFrame(headerFrame.to(), allFrame.to());
 
@@ -412,6 +445,32 @@ void XsheetViewer::positionSections() {
     }
   } else {
     m_toolbar->showToolbar(false);
+    m_toolbarScrollArea->setGeometry(0, 0, 0, 0);
+  }
+
+  if (Preferences::instance()->isShowXsheetBreadcrumbsEnabled()) {
+    m_breadcrumbArea->showBreadcrumbs(true);
+    int w = visibleRegion().boundingRect().width();
+    if (o->isVerticalTimeline())
+      m_breadcrumbScrollArea->setGeometry(0, headerFrame.from(), w,
+                                          XsheetGUI::BREADCRUMB_HEIGHT);
+    else
+      m_breadcrumbScrollArea->setGeometry(0, headerLayer.from(), w,
+                                          XsheetGUI::BREADCRUMB_HEIGHT);
+    m_breadcrumbArea->setFixedWidth(w);
+    if (o->isVerticalTimeline()) {
+      headerFrame = headerFrame.adjusted(XsheetGUI::BREADCRUMB_HEIGHT,
+                                         XsheetGUI::BREADCRUMB_HEIGHT);
+      bodyFrame = bodyFrame.adjusted(XsheetGUI::BREADCRUMB_HEIGHT, 0);
+    } else {
+      headerLayer = headerLayer.adjusted(XsheetGUI::BREADCRUMB_HEIGHT,
+                                         XsheetGUI::BREADCRUMB_HEIGHT);
+      bodyLayer = bodyLayer.adjusted(XsheetGUI::BREADCRUMB_HEIGHT, 0);
+    }
+    m_breadcrumbArea->updateBreadcrumbs();
+  } else {
+    m_breadcrumbArea->showBreadcrumbs(false);
+    m_breadcrumbScrollArea->setGeometry(0, 0, 0, 0);
   }
 
   m_noteScrollArea->setGeometry(o->frameLayerRect(headerFrame, headerLayer));
@@ -496,10 +555,9 @@ int XsheetViewer::getCurrentColumn() const {
 
 //-----------------------------------------------------------------------------
 
-int XsheetViewer::getClickedColumn() const {
-  if (!m_columnArea) return -1;
-
-  return m_columnArea->getClickedColumn();
+int XsheetViewer::getMenuColumnTarget() const {
+  if (!m_columnArea) return -999;
+  return m_columnArea->getMenuColumnTarget();
 }
 
 //-----------------------------------------------------------------------------
@@ -519,7 +577,7 @@ TStageObjectId XsheetViewer::getObjectId(int col) const {
 
 void XsheetViewer::setCurrentColumn(int col) {
   TColumnHandle *columnHandle = TApp::instance()->getCurrentColumn();
-  if (col != columnHandle->getColumnIndex()) {
+  if (col != columnHandle->getColumnIndex() || !columnHandle->getColumn()) {
     columnHandle->setColumnIndex(col);
     // E' necessario per il caso in cui si passa da colonna di camera a altra
     // colonna
@@ -531,9 +589,22 @@ void XsheetViewer::setCurrentColumn(int col) {
       objectHandle->setObjectId(TStageObjectId::ColumnId(col));
       TXsheet *xsh       = getXsheet();
       TXshColumn *column = xsh->getColumn(col);
-      if (!column || !column->getZeraryFxColumn()) return;
-      TFx *fx = column->getZeraryFxColumn()->getZeraryColumnFx();
-      TApp::instance()->getCurrentFx()->setFx(fx);
+      if (!column) return;
+      // switching the current fx
+      TFx *fx                 = nullptr;
+      bool doSwitchFxSettings = false;
+      if (TXshLevelColumn *lc = column->getLevelColumn())
+        fx = lc->getLevelColumnFx();
+      else if (TXshPaletteColumn *pc =
+                   dynamic_cast<TXshPaletteColumn *>(column))
+        fx = pc->getPaletteColumnFx();
+      else if (TXshZeraryFxColumn *zc =
+                   dynamic_cast<TXshZeraryFxColumn *>(column)) {
+        fx                 = zc->getZeraryColumnFx();
+        doSwitchFxSettings = true;
+      }
+      if (!fx) return;
+      TApp::instance()->getCurrentFx()->setFx(fx, doSwitchFxSettings);
     }
     return;
   }
@@ -600,6 +671,12 @@ void XsheetViewer::scroll(QPoint delta) {
 
   m_cellScrollArea->horizontalScrollBar()->setValue(valueH);
   m_cellScrollArea->verticalScrollBar()->setValue(valueV);
+}
+
+//-----------------------------------------------------------------------------
+
+int XsheetViewer::getColumnScrollValue() {
+  return m_columnScrollArea->horizontalScrollBar()->value();
 }
 
 //-----------------------------------------------------------------------------
@@ -681,7 +758,7 @@ void XsheetViewer::timerEvent(QTimerEvent *) {
   scroll(m_autoPanSpeed);
   if (!m_dragTool) return;
   QMouseEvent mouseEvent(QEvent::MouseMove, m_lastAutoPanPos - m_autoPanSpeed,
-                         Qt::NoButton, 0, m_qtModifiers);
+                         Qt::NoButton, Qt::MouseButtons(), m_qtModifiers);
   m_dragTool->onDrag(&mouseEvent);
   m_lastAutoPanPos += m_autoPanSpeed;
 }
@@ -693,7 +770,7 @@ bool XsheetViewer::refreshContentSize(int dx, int dy) {
   QSize viewportSize = m_cellScrollArea->viewport()->size();
   QPoint offset      = m_cellArea->pos();
   offset             = QPoint(std::min(0, offset.x() - dx),
-                  std::min(0, offset.y() - dy));  // what?
+                              std::min(0, offset.y() - dy));  // what?
 
   TXsheet *xsh    = getXsheet();
   int frameCount  = xsh ? xsh->getFrameCount() : 0;
@@ -729,6 +806,11 @@ bool XsheetViewer::refreshContentSize(int dx, int dy) {
     NumberRange allFrame    = o->frameSide(QRect(QPoint(0, 0), actualSize));
     NumberRange headerLayer = o->range(PredefinedRange::HEADER_LAYER);
     NumberRange headerFrame = o->range(PredefinedRange::HEADER_FRAME);
+
+    if (!o->isVerticalTimeline())
+      headerFrame = headerFrame.adjusted(0, m_timelineBodyOffset);
+    else
+      headerFrame = headerFrame.adjusted(0, m_xsheetBodyOffset);
 
     m_isComputingSize = true;
     m_noteArea->setFixedSize(o->rect(PredefinedRect::NOTE_AREA).size());
@@ -777,6 +859,11 @@ void XsheetViewer::updateAreeSize() {
   NumberRange allFrame    = o->frameSide(viewArea);
   NumberRange headerLayer = o->range(PredefinedRange::HEADER_LAYER);
   NumberRange headerFrame = o->range(PredefinedRange::HEADER_FRAME);
+
+  if (!o->isVerticalTimeline())
+    headerFrame = headerFrame.adjusted(0, m_timelineBodyOffset);
+  else
+    headerFrame = headerFrame.adjusted(0, m_xsheetBodyOffset);
 
   m_cellArea->setFixedSize(viewArea.size());
   m_rowArea->setFixedSize(o->frameLayerRect(allFrame, headerLayer).size());
@@ -985,6 +1072,23 @@ bool XsheetViewer::areSoundTextCellsSelected() {
 
 //-----------------------------------------------------------------------------
 
+bool XsheetViewer::areFolderCellsSelected() {
+  int r0, c0, r1, c1;
+  getCellSelection()->getSelectedCells(r0, c0, r1, c1);
+  if (c0 < 0) return false;
+  int i, j;
+  for (j = c0; j <= c1; j++) {
+    TXshColumn *column = getXsheet()->getColumn(j);
+    if (column && (column->isEmpty() ||
+                   column->getColumnType() == TXshColumn::eFolderType))
+      continue;
+    return false;
+  }
+  return true;
+}
+
+//-----------------------------------------------------------------------------
+
 bool XsheetViewer::areCameraCellsSelected() {
   int r0, c0, r1, c1;
   getCellSelection()->getSelectedCells(r0, c0, r1, c1);
@@ -1173,12 +1277,12 @@ void XsheetViewer::wheelEvent(QWheelEvent *event) {
       return;
     }
 
-    int markerDistance = 0, markerOffset = 0;
+    int markerDistance = 0, markerOffset = 0, secDistance;
     TApp::instance()
         ->getCurrentScene()
         ->getScene()
         ->getProperties()
-        ->getMarkers(markerDistance, markerOffset);
+        ->getMarkers(markerDistance, markerOffset, secDistance);
 
     if (event->angleDelta().x() == 0) {  // vertical scroll
       if (!orientation()->isVerticalTimeline()) markerDistance = 1;
@@ -1258,11 +1362,33 @@ void XsheetViewer::keyPressEvent(QKeyEvent *event) {
     int r0, c0, r1, c1;
     cellSel->getSelectedCells(r0, c0, r1, c1);
     stride.setFrame(cellSel->getSelectedCells().getRowCount());
+    stride.setLayer(cellSel->getSelectedCells().getColCount());
 
     if (m_cellArea->isControlPressed()) {  // resize
-      if (r0 == r1 && shift.frame() < 0) return;
-      if (c0 == c1 && shift.layer() < firstCol) return;
-      cellSel->selectCells(r0, c0, r1 + shift.frame(), c1 + shift.layer());
+      // For initial press of CTRL, use current frame for reference but if there
+      // is a selection not including current frame, use upper-left corner of
+      // the active selection
+      if (m_ctrlSelectRef.frame() == CellPosition(0, 0)) {
+        if (now.frame() >= r0 && now.frame() <= r1)
+          m_ctrlSelectRef = now;
+        else
+          m_ctrlSelectRef =
+              CellPosition(r0, (orientation()->isVerticalTimeline() ? c0 : c1));
+      }
+
+      CellPosition offset(r0 - m_ctrlSelectRef.frame(),
+                          c0 - m_ctrlSelectRef.layer());
+
+      if (offset.frame())
+        r0 = std::max(0, r0 + shift.frame());
+      else
+        r1 += shift.frame();
+      if (offset.layer())
+        c0 = std::max(-1, c0 + shift.layer());
+      else
+        c1 += shift.layer();
+
+      cellSel->selectCells(r0, c0, r1, c1);
       updateCells();
       TApp::instance()->getCurrentSelection()->notifySelectionChanged();
       return;
@@ -1276,6 +1402,7 @@ void XsheetViewer::keyPressEvent(QKeyEvent *event) {
                            c1 + diffLayer);
       TApp::instance()->getCurrentSelection()->notifySelectionChanged();
     }
+    m_ctrlSelectRef = CellPosition(0, 0);
   }
 
   if (shift) {
@@ -1402,15 +1529,31 @@ void XsheetViewer::onSceneSwitched() {
 void XsheetViewer::onXsheetChanged() {
   refreshContentSize(0, 0);
   updateAllAree();
+
+  int row                 = TApp::instance()->getCurrentFrame()->getFrame();
+  TXsheet *xsh            = getXsheet();
+  NavigationTags *navTags = xsh->getNavigationTags();
+  int lastTag             = navTags->getPrevTag(INT_MAX);
+  int firstTag            = navTags->getNextTag(-1);
+  CommandManager::instance()->enable(MI_NextTaggedFrame, (row < lastTag));
+  CommandManager::instance()->enable(MI_PrevTaggedFrame,
+                                     firstTag != -1 && row > firstTag);
+  CommandManager::instance()->enable(MI_EditTaggedFrame,
+                                     navTags->isTagged(row));
+  CommandManager::instance()->enable(MI_ClearTags, (navTags->getCount() > 0));
 }
 
 //-----------------------------------------------------------------------------
 
 void XsheetViewer::onPreferenceChanged(const QString &prefName) {
-  if (prefName == "QuickToolbar") {
+  if (prefName == "QuickToolbar" || prefName == "XsheetBreadcrumbs") {
     positionSections();
     refreshContentSize(0, 0);
   } else if (prefName == "XsheetCamera") {
+    refreshContentSize(0, 0);
+  } else if (prefName == "XsheetDragBars" &&
+             !m_orientation->isVerticalTimeline()) {
+    m_orientation = Orientations::instance().leftToRight();
     refreshContentSize(0, 0);
   }
 }
@@ -1426,6 +1569,16 @@ void XsheetViewer::onCurrentFrameSwitched() {
   }
   m_isCurrentFrameSwitched = false;
   scrollToRow(row);
+
+  TXsheet *xsh            = getXsheet();
+  NavigationTags *navTags = xsh->getNavigationTags();
+  int lastTag             = navTags->getPrevTag(INT_MAX);
+  int firstTag            = navTags->getNextTag(-1);
+  CommandManager::instance()->enable(MI_NextTaggedFrame, (row < lastTag));
+  CommandManager::instance()->enable(MI_PrevTaggedFrame,
+                                     firstTag != -1 && row > firstTag);
+  CommandManager::instance()->enable(MI_EditTaggedFrame,
+                                     navTags->isTagged(row));
 }
 
 //-----------------------------------------------------------------------------
@@ -1538,12 +1691,6 @@ void XsheetViewer::scrollToVerticalRange(int y0, int y1) {
     updateCellRowAree();
   else
     updateCellColumnAree();
-}
-
-//-----------------------------------------------------------------------------
-
-int XsheetViewer::getColumnScrollValue() {
-  return m_columnScrollArea->horizontalScrollBar()->value();
 }
 
 //-----------------------------------------------------------------------------
@@ -1677,6 +1824,17 @@ void XsheetViewer::setCurrentNoteIndex(int currentNoteIndex) {
 
 //-----------------------------------------------------------------------------
 
+void XsheetViewer::toggleCurrentFolderOpenClose() {
+  int col = getCurrentColumn();
+  if (col < 0) return;
+  TXsheet *xsh       = getXsheet();
+  TXshColumn *column = xsh->getColumn(col);
+  if (!column || !column->getFolderColumn()) return;
+  m_columnArea->toggleFolderStatus(column);
+}
+
+//-----------------------------------------------------------------------------
+
 void XsheetViewer::resetXsheetNotes() {
   m_noteArea->updateButtons();
   m_layerFooterPanel->m_noteArea->updateButtons();
@@ -1687,8 +1845,7 @@ void XsheetViewer::resetXsheetNotes() {
 void XsheetViewer::updateNoteWidgets() {
   int i;
   for (i = 0; i < m_noteWidgets.size(); i++) m_noteWidgets.at(i)->update();
-  m_noteArea->updatePopup();
-  m_layerFooterPanel->m_noteArea->updatePopup();
+  if (XsheetGUI::NotePopupWidget) XsheetGUI::NotePopupWidget->update();
   updateCells();
 }
 
@@ -1804,14 +1961,18 @@ void XsheetViewer::setFrameDisplayStyle(FrameDisplayStyle style) {
 
 //-----------------------------------------------------------------------------
 
-void XsheetViewer::save(QSettings &settings) const {
+void XsheetViewer::save(QSettings &settings, bool forPopupIni) const {
   settings.setValue("orientation", orientation()->name());
   settings.setValue("frameZoomFactor", m_frameZoomFactor);
+  settings.setValue("xsheetBodyOffset", m_xsheetBodyOffset);
+  settings.setValue("timelineBodyOffset", m_timelineBodyOffset);
 }
 
 void XsheetViewer::load(QSettings &settings) {
-  QVariant zoomFactor = settings.value("frameZoomFactor");
-  QVariant name       = settings.value("orientation");
+  QVariant zoomFactor         = settings.value("frameZoomFactor");
+  QVariant name               = settings.value("orientation");
+  QVariant timelineBodyOffset = settings.value("timelineBodyOffset");
+  QVariant xsheetBodyOffset   = settings.value("xsheetBodyOffset");
 
   if (zoomFactor.canConvert(QVariant::Int)) {
     m_frameZoomFactor = zoomFactor.toInt();
@@ -1821,6 +1982,14 @@ void XsheetViewer::load(QSettings &settings) {
   if (name.canConvert(QVariant::String)) {
     m_orientation = Orientations::byName(name.toString());
     emit orientationChanged(orientation());
+  }
+
+  if (timelineBodyOffset.canConvert(QVariant::Int)) {
+    m_timelineBodyOffset = timelineBodyOffset.toInt();
+  }
+
+  if (xsheetBodyOffset.canConvert(QVariant::Int)) {
+    m_xsheetBodyOffset = xsheetBodyOffset.toInt();
   }
 }
 
@@ -1940,7 +2109,7 @@ void XsheetViewer::zoomOnFrame(int frame, int factor) {
   m_rowArea->update();
 }
 
-QColor XsheetViewer::getSelectedColumnTextColor() const {
+QColor XsheetViewer::getColumnFocusColor() const {
   // get colors
   TPixel currentColumnPixel;
   Preferences::instance()->getCurrentColumnData(currentColumnPixel);
@@ -1948,6 +2117,15 @@ QColor XsheetViewer::getSelectedColumnTextColor() const {
                             (int)currentColumnPixel.g,
                             (int)currentColumnPixel.b, 255);
   return currentColumnColor;
+}
+
+QColor XsheetViewer::getCellFocusColor() const {
+  // get colors
+  TPixel currentCellPixel;
+  Preferences::instance()->getCurrentCellData(currentCellPixel);
+  QColor currentCellColor((int)currentCellPixel.r, (int)currentCellPixel.g,
+                          (int)currentCellPixel.b, 255);
+  return currentCellColor;
 }
 
 //-----------------------------------------------------------------------------

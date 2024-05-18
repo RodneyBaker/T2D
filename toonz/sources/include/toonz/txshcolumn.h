@@ -10,6 +10,7 @@
 #include <QPair>
 #include <QString>
 #include <QMap>
+#include <QStack>
 
 #undef DVAPI
 #undef DVVAR
@@ -30,6 +31,7 @@ class TXshCellColumn;
 class TXshPaletteColumn;
 class TXshZeraryFxColumn;
 class TXshMeshColumn;
+class TXshFolderColumn;
 class TXsheet;
 class TXshCell;
 class TFx;
@@ -68,20 +70,12 @@ class DVAPI TXshColumn : public TColumnHeader, public TPersist {
   int m_colorTag;  // Usato solo in tabkids
   UCHAR m_opacity;
 
-public:
-  enum FilterColor {
-    FilterNone = 0,
-    FilterRed,
-    FilterGreen,
-    FilterBlue,
-    FilterDarkYellow,
-    FilterDarkCyan,
-    FilterDarkMagenta,
-    FilterAmount
-  };
+  QStack<int> m_folderId;
+  int m_folderSelector;
 
+public:
 private:
-  FilterColor m_filterColorId;
+  int m_colorFilterId;
 
 protected:
   enum {
@@ -89,7 +83,9 @@ protected:
     ePreviewVisible        = 0x2,
     eLocked                = 0x8,
     eMasked                = 0x10,
-    eCamstandTransparent43 = 0x20  // obsoleto, solo per retrocompatibilita'
+    eCamstandTransparent43 = 0x20,  // obsoleto, solo per retrocompatibilita'
+    eInvertedMask          = 0x80,
+    eRenderMask            = 0x100
   };
 
   TRaster32P m_icon;
@@ -114,7 +110,9 @@ Constructs a TXshColumn with default value.
       , m_xsheet(0)
       , m_colorTag(0)
       , m_opacity(255)
-      , m_filterColorId(FilterNone) {}
+      , m_colorFilterId(0)  // None
+      , m_folderSelector(-1)
+  {}
 
   enum ColumnType {
     eLevelType = 0,
@@ -122,13 +120,17 @@ Constructs a TXshColumn with default value.
     eSoundTextType,
     eZeraryFxType,
     ePaletteType,
-    eMeshType
+    eMeshType,
+    eFolderType
   };
 
   virtual ColumnType getColumnType() const = 0;
 
   //! Returns the column type used to store levels of the specified type.
   static ColumnType toColumnType(int levelType);
+
+  //! Returns true if the column can be parent of another.
+  bool canBeParent() const;
 
   //! Creates an empty TXshColumn of the specified column type.
   static TXshColumn *createEmpty(int colType);
@@ -140,8 +142,9 @@ Constructs a TXshColumn with default value.
   virtual TXshPaletteColumn *getPaletteColumn() { return 0; }
   virtual TXshZeraryFxColumn *getZeraryFxColumn() { return 0; }
   virtual TXshMeshColumn *getMeshColumn() { return 0; }
+  virtual TXshFolderColumn *getFolderColumn() { return 0; }
 
-  virtual int getMaxFrame() const = 0;
+  virtual int getMaxFrame(bool ignoreLastStop = false) const = 0;
 
   virtual TXshColumn *clone() const = 0;
 
@@ -161,7 +164,7 @@ Return true if camera stand is transparent.notice: this value is not relevant if
 camerastandVisible is off.
 \sa setCamstandTransparent()
 */
-  UCHAR getOpacity() const { return m_opacity; }
+  UCHAR getOpacity() const;
   /*!
 Set column status camera stand transparent to \b on. notice: this value is not
 relevant if camerastandVisible is off.
@@ -199,11 +202,16 @@ Return true if column is a mask.
 \sa setMask()
 */
   bool isMask() const;
+  bool isInvertedMask() const;
+  bool canRenderMask() const;
+
   /*!
 Set column status mask to \b on.
 \sa isMask()
 */
   void setIsMask(bool on);
+  void setInvertedMask(bool on);
+  void setCanRenderMask(bool on);
 
   virtual bool isEmpty() const { return true; }
 
@@ -219,7 +227,7 @@ If r0=r1=row return false.
 */
   virtual bool getLevelRange(int row, int &r0, int &r1) const = 0;
 
-  virtual int getRange(int &r0, int &r1) const {
+  virtual int getRange(int &r0, int &r1, bool ignoreLastStop = false) const {
     r0 = 0;
     r1 = -1;
     return 0;
@@ -261,13 +269,32 @@ Set column color tag to \b colorTag.
     m_colorTag = colorTag;
   }  // Usato solo in tabkids
 
-  FilterColor getFilterColorId() const { return m_filterColorId; }
-  void setFilterColorId(FilterColor id) { m_filterColorId = id; }
-  TPixel32 getFilterColor();
-  static QPair<QString, TPixel32> getFilterInfo(FilterColor key);
-  static void initColorFilters();
-
+  int getColorFilterId() const;
+  void setColorFilterId(int id) { m_colorFilterId = id; }
   void resetColumnProperties();
+
+  // Folder management
+  int setFolderId(int value);
+  void setFolderId(int value, int position);
+  int getFolderId(int position = -1) const;
+  QStack<int> getFolderIdStack() const { return m_folderId; }
+  void setFolderIdStack(QStack<int> folderIdStack);
+  void removeFolderId(int position);
+  int removeFolderId();
+  bool isInFolder();
+  bool isContainedInFolder(int folderId);
+  void removeFromAllFolders();
+  int folderDepth();
+
+  TXshColumn *getFolderColumn() const;
+  bool isFolderCamstandVisible() const;
+  bool isFolderPreviewVisible() const;
+  bool isFolderLocked() const;
+  UCHAR getFolderOpacity() const;
+  int getFolderColorFilterId() const;
+
+  bool loadFolderInfo(std::string tagName, TIStream &is);
+  void saveFolderInfo(TOStream &os);
 };
 
 #ifdef _WIN32
@@ -330,7 +357,7 @@ Return not empty cell range. Set \b r0 and \b r1 to first
 and last row with not empty cell.
 \sa isEmpty() and getRowCount()
 */
-  int getRange(int &r0, int &r1) const override;
+  int getRange(int &r0, int &r1, bool ignoreLastStop = false) const override;
   /*!
 Return row count.
 \sa isEmpty() and getRange()
@@ -348,11 +375,13 @@ Return true if cell in \b row is empty.
 */
   bool isCellEmpty(int row) const override;
 
+  bool isCellImplicit(int row) const;
+
   /*!
 Return cell in \b row.
 \sa getCells and setCell()
 */
-  virtual const TXshCell &getCell(int row) const;
+  virtual const TXshCell &getCell(int row, bool implicitLookup = true) const;
   /*!
 Set cell in \b row to \b TXshCell \b cell.
 \sa setCells() and getCell(); return false if cannot set cells.
@@ -363,7 +392,8 @@ Set cell in \b row to \b TXshCell \b cell.
 Set \b cells[] from \b row to \b row + \b rowCount to column cells.
 \sa getCell and setCells()
 */
-  virtual void getCells(int row, int rowCount, TXshCell cells[]);
+  virtual void getCells(int row, int rowCount, TXshCell cells[],
+                        bool implicitLookup = false);
   /*!
 Set column cells from \b row to \b row + \b rowCount to cells[].
 \sa setCell() and getCell(); return false if cannot set cells[].
@@ -386,7 +416,7 @@ Clear \b rowCount cells from line \b row, without shift.
   /*!
 Return last row with not empty cell.
 */
-  int getMaxFrame() const override;
+  int getMaxFrame(bool ignoreLastStop = false) const override;
 
   /*!
 Return first not empty row.

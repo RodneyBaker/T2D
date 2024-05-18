@@ -26,7 +26,7 @@ using namespace TVER;
 #include <arpa/inet.h>  // inet_ntoa
 #else
 // these were included for OSX, i'm not sure if they are required for linux or
-// not? leaving them in as linux was building sucessfully already. damies13 -
+// not? leaving them in as linux was building successfully already. damies13 -
 // 2017-04-15.
 #include <netdb.h>      // gethostbyname
 #include <arpa/inet.h>  // inet_ntoa
@@ -129,6 +129,8 @@ TFarmTask::TFarmTask(const QString &name)
     , m_shrink(-1)
     , m_chunkSize(-1)
     , m_multimedia(0)        // Full render, no multimedia
+    , m_renderKeysOnly(false)
+    , m_renderToFolders(false)
     , m_threadsIndex(2)      // All threads
     , m_maxTileSizeIndex(0)  // No tiling
     , m_overwrite()
@@ -142,9 +144,10 @@ TFarmTask::TFarmTask(const QString &id, const QString &name, bool composerTask,
                      const QString &user, const QString &host, int stepCount,
                      int priority, const TFilePath &taskFilePath,
                      const TFilePath &outputPath, int from, int to, int step,
-                     int shrink, int multimedia, int chunksize,
-                     int threadsIndex, int maxTileSizeIndex,
-                     OverwriteBehavior overwrite, bool onlyvisible)
+                     int shrink, int multimedia, bool renderKeysOnly,
+                     bool renderToFolders, int chunksize, int threadsIndex,
+                     int maxTileSizeIndex, OverwriteBehavior overwrite,
+                     bool onlyvisible)
 
     : m_isComposerTask(composerTask)
     , m_id(id)
@@ -164,6 +167,8 @@ TFarmTask::TFarmTask(const QString &id, const QString &name, bool composerTask,
     , m_step(step)
     , m_shrink(shrink)
     , m_multimedia(multimedia)
+    , m_renderKeysOnly(renderKeysOnly)
+    , m_renderToFolders(renderToFolders)
     , m_threadsIndex(threadsIndex)
     , m_maxTileSizeIndex(maxTileSizeIndex)
     , m_chunkSize(chunksize)
@@ -221,6 +226,8 @@ TFarmTask &TFarmTask::operator=(const TFarmTask &rhs) {
     m_onlyVisible      = rhs.m_onlyVisible;
     m_overwrite        = rhs.m_overwrite;
     m_multimedia       = rhs.m_multimedia;
+    m_renderKeysOnly   = rhs.m_renderKeysOnly;
+    m_renderToFolders  = rhs.m_renderToFolders;
     m_threadsIndex     = rhs.m_threadsIndex;
     m_maxTileSizeIndex = rhs.m_maxTileSizeIndex;
     m_chunkSize        = rhs.m_chunkSize;
@@ -262,6 +269,8 @@ bool TFarmTask::operator==(const TFarmTask &task) {
       task.m_from == m_from && task.m_to == m_to && task.m_step == m_step &&
       task.m_shrink == m_shrink && task.m_onlyVisible == m_onlyVisible &&
       task.m_overwrite == m_overwrite && task.m_multimedia == m_multimedia &&
+      task.m_renderKeysOnly == m_renderKeysOnly &&
+      task.m_renderToFolders == m_renderToFolders &&
       task.m_threadsIndex == m_threadsIndex &&
       task.m_maxTileSizeIndex == m_maxTileSizeIndex &&
       task.m_chunkSize == m_chunkSize && equalDependencies);
@@ -368,8 +377,8 @@ static QString getExeName(bool isComposer) {
   return name + ".exe ";
 #elif defined(MACOSX)
   TVER::ToonzVersion tver;
-  return "\"./" + QString::fromStdString(tver.getAppName()) +
-         ".app/Contents/MacOS/" + name + "\" ";
+  return QString::fromStdString(tver.getAppName()) + ".app/Contents/MacOS/" +
+         name;
 #else
   return name;
 #endif
@@ -392,8 +401,7 @@ static TFilePath getFilePath(const QStringList &l, int &i) {
   if (outStr.startsWith('"')) {
     outStr = outStr.remove(0, 1);
     if (!outStr.endsWith('"')) {
-      do
-        outStr += " " + l.at(i);
+      do outStr += " " + l.at(i);
       while (i < l.size() && !l.at(i++).endsWith('"'));
     }
     outStr.chop(1);
@@ -405,7 +413,11 @@ static TFilePath getFilePath(const QStringList &l, int &i) {
 //------------------------------------------------------------------------------
 
 void TFarmTask::parseCommandLine(QString commandLine) {
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
+  QStringList l = commandLine.split(" ", Qt::SkipEmptyParts);
+#else
   QStringList l = commandLine.split(" ", QString::SkipEmptyParts);
+#endif
   assert(l.size() >= 2);
 
   // serve per skippare il path dell'eseguibile su mac che contiene spazi
@@ -439,6 +451,12 @@ void TFarmTask::parseCommandLine(QString commandLine) {
     } else if (l.at(i) == "-multimedia") {
       m_multimedia = (l.at(i + 1).toInt());
       i += 2;
+    } else if (l.at(i) == "-renderkeysonly") {
+      m_renderKeysOnly = (l.at(i + 1).toInt());
+      i += 2;
+    } else if (l.at(i) == "-rendertofolders") {
+      m_renderToFolders = (l.at(i + 1).toInt());
+      i += 2;
     } else if (l.at(i) == "-nthreads") {
       QString str(l.at(i + 1));
 
@@ -452,11 +470,10 @@ void TFarmTask::parseCommandLine(QString commandLine) {
           QString::number(TOutputProperties::MediumVal),
           QString::number(TOutputProperties::SmallVal)};
 
-      m_maxTileSizeIndex = (str == maxTileSizeIndexes[2])
-                               ? 3
-                               : (str == maxTileSizeIndexes[1])
-                                     ? 2
-                                     : (str == maxTileSizeIndexes[0]) ? 1 : 0;
+      m_maxTileSizeIndex = (str == maxTileSizeIndexes[2])   ? 3
+                           : (str == maxTileSizeIndexes[1]) ? 2
+                           : (str == maxTileSizeIndexes[0]) ? 1
+                                                            : 0;
       i += 2;
     }
 
@@ -479,8 +496,12 @@ void TFarmTask::parseCommandLine(QString commandLine) {
 
 //------------------------------------------------------------------------------
 
-QString TFarmTask::getCommandLine(bool isFarmTask) const {
-  QString cmdline = getExeName(m_isComposerTask);
+QString TFarmTask::getCommandLinePrgName() const {
+  return getExeName(m_isComposerTask);
+}
+
+QString TFarmTask::getCommandLineArguments() const {
+  QString cmdline = "";
 
   if (!m_taskFilePath.isEmpty())
     cmdline += " \"" +
@@ -489,18 +510,10 @@ QString TFarmTask::getCommandLine(bool isFarmTask) const {
                "\"";
 
   if (m_callerMachineName != "") {
-#if QT_VERSION >= 0x050500
     struct hostent *he = gethostbyname(m_callerMachineName.toLatin1());
-#else
-    struct hostent *he = gethostbyname(m_callerMachineName.toAscii());
-#endif
     if (he) {
       char *ipAddress = inet_ntoa(*(struct in_addr *)*(he->h_addr_list));
-#if QT_VERSION >= 0x050500
       cmdline += " -tmsg " + QString::fromUtf8(ipAddress);
-#else
-      cmdline += " -tmsg " + QString::fromAscii(ipAddress);
-#endif
     }
   }
 
@@ -518,6 +531,7 @@ QString TFarmTask::getCommandLine(bool isFarmTask) const {
     try {
       outputPath = TSystem::toUNC(m_outputPath);
     } catch (TException &) {
+    } catch (...) {
     }
 
     cmdline +=
@@ -528,6 +542,8 @@ QString TFarmTask::getCommandLine(bool isFarmTask) const {
   cmdline += " -step " + QString::number(m_step);
   cmdline += " -shrink " + QString::number(m_shrink);
   cmdline += " -multimedia " + QString::number(m_multimedia);
+  cmdline += " -renderkeysonly " + QString::number(m_renderKeysOnly ? 1 : 0);
+  cmdline += " -rendertofolders " + QString::number(m_renderToFolders ? 1 : 0);
 
   const QString threadCounts[3] = {"single", "half", "all"};
   cmdline += " -nthreads " + threadCounts[m_threadsIndex];
@@ -541,6 +557,66 @@ QString TFarmTask::getCommandLine(bool isFarmTask) const {
   QString appname = QSettings().applicationName();
 
   return cmdline;
+}
+
+QStringList TFarmTask::getCommandLineArgumentsList() const {
+  QStringList ret;
+
+  if (!m_taskFilePath.isEmpty())
+    ret << QString::fromStdWString(
+        TSystem::toUNC(m_taskFilePath).getWideString());
+
+  if (m_callerMachineName != "") {
+    struct hostent *he = gethostbyname(m_callerMachineName.toLatin1());
+    if (he) {
+      char *ipAddress = inet_ntoa(*(struct in_addr *)*(he->h_addr_list));
+      ret << "-tmsg" << QString::fromUtf8(ipAddress);
+    }
+  }
+
+  if (!m_isComposerTask) {
+    if (m_overwrite == Overwrite_All)
+      ret << "-overwriteAll";
+    else if (m_overwrite == Overwrite_NoPaint)
+      ret << "-overwriteNoPaint";
+    if (m_onlyVisible) ret << "-onlyvisible";
+    return ret;
+  }
+
+  if (!m_outputPath.isEmpty()) {
+    TFilePath outputPath;
+    try {
+      outputPath = TSystem::toUNC(m_outputPath);
+    } catch (TException &) {
+    } catch (...) {
+    }
+
+    ret << "-o" << QString::fromStdWString(outputPath.getWideString());
+  }
+
+  ret << "-range" << QString::number(m_from) << QString::number(m_to);
+  ret << "-step" << QString::number(m_step);
+  ret << "-shrink" << QString::number(m_shrink);
+  ret << "-multimedia" << QString::number(m_multimedia);
+  ret << "-renderkeysonly" << QString::number(m_renderKeysOnly ? 1 : 0);
+  ret << "-rendertofolders" << QString::number(m_renderToFolders ? 1 : 0);
+
+  const QString threadCounts[3] = {"single", "half", "all"};
+  ret << "-nthreads" << threadCounts[m_threadsIndex];
+
+  const QString maxTileSizes[4] = {
+      "none", QString::number(TOutputProperties::LargeVal),
+      QString::number(TOutputProperties::MediumVal),
+      QString::number(TOutputProperties::SmallVal)};
+  ret << "-maxtilesize" << maxTileSizes[m_maxTileSizeIndex];
+
+  QString appname = QSettings().applicationName();
+
+  return ret;
+}
+
+QString TFarmTask::getCommandLine(bool) const {
+  return getCommandLinePrgName() + getCommandLineArguments();
 }
 
 //------------------------------------------------------------------------------
@@ -609,13 +685,15 @@ bool TFarmTaskGroup::changeChunkSize(int chunksize) {
         TFarmTask *subTask = new TFarmTask(
             m_id + "." + toString(i, 2, '0'), subName, true, m_user, m_hostName,
             rb - ra + 1, m_priority, m_taskFilePath, m_outputPath, ra, rb,
-            m_step, m_shrink, m_multimedia, m_chunkSize, m_threadsIndex,
-            m_maxTileSizeIndex, Overwrite_Off, false);
+            m_step, m_shrink, m_multimedia, m_renderKeysOnly, m_renderToFolders,
+            m_chunkSize, m_threadsIndex, m_maxTileSizeIndex, Overwrite_Off,
+            false);
 
         subTask->m_parentId = m_id;
         addTask(subTask);
       } catch (TException &) {
         // TMessage::error(toString(e.getMessage()));
+      } catch (...) {
       }
 
       ra = rb + 1;
@@ -627,18 +705,17 @@ bool TFarmTaskGroup::changeChunkSize(int chunksize) {
 
 //------------------------------------------------------------------------------
 
-TFarmTaskGroup::TFarmTaskGroup(const QString &id, const QString &name,
-                               const QString &user, const QString &host,
-                               int stepCount, int priority,
-                               const TFilePath &taskFilePath,
-                               const TFilePath &outputPath, int from, int to,
-                               int step, int shrink, int multimedia,
-                               int chunksize, int threadsIndex,
-                               int maxTileSizeIndex)
+TFarmTaskGroup::TFarmTaskGroup(
+    const QString &id, const QString &name, const QString &user,
+    const QString &host, int stepCount, int priority,
+    const TFilePath &taskFilePath, const TFilePath &outputPath, int from,
+    int to, int step, int shrink, int multimedia, bool renderKeysOnly,
+    bool renderToFolders, int chunksize, int threadsIndex, int maxTileSizeIndex)
 
     : TFarmTask(id, name, true, user, host, stepCount, priority, taskFilePath,
-                outputPath, from, to, step, shrink, multimedia, chunksize,
-                threadsIndex, maxTileSizeIndex, Overwrite_Off, false)
+                outputPath, from, to, step, shrink, multimedia, renderKeysOnly,
+                renderToFolders, chunksize, threadsIndex, maxTileSizeIndex,
+                Overwrite_Off, false)
     , m_imp(new Imp()) {
   int subCount = 0;
   if (chunksize > 0) subCount = tceil((to - from + 1) / (double)chunksize);
@@ -653,16 +730,17 @@ TFarmTaskGroup::TFarmTaskGroup(const QString &id, const QString &name,
             name + " " + toString(ra, 2, '0') + "-" + toString(rb, 2, '0');
         stepCount = rb - ra + 1;
 
-        TFarmTask *subTask =
-            new TFarmTask(id + "." + toString(i, 2, '0'), subName, true, user,
-                          host, stepCount, priority, taskFilePath, outputPath,
-                          ra, rb, step, shrink, multimedia, chunksize,
-                          threadsIndex, maxTileSizeIndex, Overwrite_Off, false);
+        TFarmTask *subTask = new TFarmTask(
+            id + "." + toString(i, 2, '0'), subName, true, user, host,
+            stepCount, priority, taskFilePath, outputPath, ra, rb, step, shrink,
+            multimedia, renderKeysOnly, renderToFolders, chunksize,
+            threadsIndex, maxTileSizeIndex, Overwrite_Off, false);
 
         subTask->m_parentId = id;
         addTask(subTask);
       } catch (TException &) {
         // TMessage::error(toString(e.getMessage()));
+      } catch (...) {
       }
 
       ra = rb + 1;
@@ -678,7 +756,8 @@ TFarmTaskGroup::TFarmTaskGroup(const QString &id, const QString &name,
                                const TFilePath &taskFilePath,
                                OverwriteBehavior overwrite, bool onlyvisible)
     : TFarmTask(id, name, false, user, host, stepCount, priority, taskFilePath,
-                TFilePath(), 0, 0, 0, 0, 0, 0, 0, 0, overwrite, onlyvisible)
+                TFilePath(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, overwrite,
+                onlyvisible)
     , m_imp(new Imp()) {}
 
 //------------------------------------------------------------------------------

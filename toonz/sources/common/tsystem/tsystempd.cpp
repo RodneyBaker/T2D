@@ -123,6 +123,23 @@
 
 #endif
 
+#ifdef HAIKU
+#define PLATFORM HAIKU
+#include <grp.h>
+#include <utime.h>
+#include <sys/param.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <dirent.h>
+#include <pwd.h>
+#include <dlfcn.h>
+#include <utime.h>
+#include <sys/time.h>
+
+#endif
+
 #ifndef PLATFORM
 PLATFORM_NOT_SUPPORTED
 #endif
@@ -216,6 +233,11 @@ bool TSystem::memoryShortage() {
   // to be done...
   return false;
 
+#elif defined(HAIKU)
+
+  // to be done...
+  return false;
+
 #else
 
   @ @ @ERROR : PLATFORM NOT SUPPORTED
@@ -225,7 +247,7 @@ bool TSystem::memoryShortage() {
 
 //------------------------------------------------------------
 
-TINT64 TSystem::getFreeMemorySize(bool onlyPhisicalMemory) {
+TINT64 TSystem::getFreeMemorySize(bool onlyPhysicalMemory) {
   TINT64 totalFree = 0;
 
 #ifdef _WIN32
@@ -234,7 +256,7 @@ TINT64 TSystem::getFreeMemorySize(bool onlyPhisicalMemory) {
   buff.dwLength = sizeof(MEMORYSTATUSEX);
   GlobalMemoryStatusEx(&buff);
 
-  if (onlyPhisicalMemory)
+  if (onlyPhysicalMemory)
     return buff.ullAvailPhys >> 10;
   else
     return buff.ullAvailPageFile >> 10;
@@ -269,7 +291,7 @@ TINT64 TSystem::getFreeMemorySize(bool onlyPhisicalMemory) {
   struct sysinfo *sysInfo = (struct sysinfo *)calloc(1, sizeof(struct sysinfo));
 
   if (!sysinfo(sysInfo)) {
-    if (onlyPhisicalMemory)
+    if (onlyPhysicalMemory)
       totalFree = sysInfo->freeram;
     else
       totalFree = sysInfo->freeram + sysInfo->freeswap;
@@ -308,6 +330,11 @@ TINT64 TSystem::getFreeMemorySize(bool onlyPhisicalMemory) {
   // to be done...
   totalFree = 512 * 1024;
 
+#elif defined(HAIKU)
+
+  // to be done...
+  totalFree = 512 * 1024;
+
 #else
   @ @ @ERROR : PLATFORM NOT SUPPORTED
 #endif
@@ -336,6 +363,9 @@ TINT64 TSystem::getDiskSize(const TFilePath &diskName) {
     return 0;
   }
 #ifndef _WIN32
+#ifdef HAIKU
+	size = 0;
+#else
   struct statfs buf;
 #ifdef __sgi
   statfs(::to_string(diskName).c_str(), &buf, sizeof(struct statfs), 0);
@@ -343,6 +373,7 @@ TINT64 TSystem::getDiskSize(const TFilePath &diskName) {
   statfs(::to_string(diskName).c_str(), &buf);
 #endif
   size = (TINT64)((buf.f_blocks * buf.f_bsize) >> 10);
+#endif
 #else
   DWORD sectorsPerCluster;     // sectors per cluster
   DWORD bytesPerSector;        // bytes per sector
@@ -373,6 +404,9 @@ TINT64 TSystem::getFreeDiskSize(const TFilePath &diskName) {
     return 0;
   }
 #ifndef _WIN32
+#ifdef HAIKU
+	size = 0;
+#else
   struct statfs buf;
 #ifdef __sgi
   statfs(diskName.getWideString().c_str(), &buf, sizeof(struct statfs), 0);
@@ -380,6 +414,7 @@ TINT64 TSystem::getFreeDiskSize(const TFilePath &diskName) {
   statfs(::to_string(diskName).c_str(), &buf);
 #endif
   size = (TINT64)(buf.f_bfree * buf.f_bsize) >> 10;
+#endif
 #else
   DWORD sectorsPerCluster;     // sectors per cluster
   DWORD bytesPerSector;        // bytes per sector
@@ -403,12 +438,12 @@ TINT64 TSystem::getFreeDiskSize(const TFilePath &diskName) {
 
 //------------------------------------------------------------
 
-TINT64 TSystem::getMemorySize(bool onlyPhisicalMemory) {
+TINT64 TSystem::getMemorySize(bool onlyPhysicalMemory) {
 #ifdef _WIN32
 
   MEMORYSTATUS buff;
   GlobalMemoryStatus(&buff);
-  if (onlyPhisicalMemory)
+  if (onlyPhysicalMemory)
     return buff.dwTotalPhys >> 10;
   else
     return buff.dwTotalPageFile >> 10;
@@ -461,6 +496,11 @@ TINT64 TSystem::getMemorySize(bool onlyPhisicalMemory) {
   return ret;
 
 #elif defined(MACOSX)
+
+  // to be done...
+  return 512 * 1024;
+
+#elif defined(HAIKU)
 
   // to be done...
   return 512 * 1024;

@@ -12,7 +12,6 @@
 #include "toonzqt/icongenerator.h"
 
 // TnzLib includes
-#include "toonz/strokegenerator.h"
 #include "toonz/ttilesaver.h"
 #include "toonz/txshsimplelevel.h"
 #include "toonz/observer.h"
@@ -20,7 +19,6 @@
 #include "toonz/levelproperties.h"
 #include "toonz/stage2.h"
 #include "toonz/ttileset.h"
-#include "toonz/rasterstrokegenerator.h"
 #include "toonz/txsheethandle.h"
 #include "toonz/tframehandle.h"
 #include "toonz/txshlevelhandle.h"
@@ -48,6 +46,10 @@
 #include "ttile.h"
 #include "tropcm.h"
 #include "timage_io.h"
+#include "symmetrytool.h"
+#include "cmrasterbrush.h"
+#include "vectorbrush.h"
+#include "symmetrystroke.h"
 
 // Qt includes
 #include <QCoreApplication>  // For Qt translation support
@@ -65,6 +67,12 @@ using namespace ToolUtils;
 #define POLYLINEERASE L"Polyline"
 #define SEGMENTERASE L"Segment"
 
+#define LINEAR_INTERPOLATION L"Linear"
+#define EASE_IN_INTERPOLATION L"Ease In"
+#define EASE_OUT_INTERPOLATION L"Ease Out"
+#define EASE_IN_OUT_INTERPOLATION L"Ease In/Out"
+
+TEnv::DoubleVar EraseMinSize("InknpaintEraseMinSize", 1);
 TEnv::DoubleVar EraseSize("InknpaintEraseSize", 10);
 TEnv::StringVar EraseType("InknpaintEraseType", "Normal");
 TEnv::IntVar EraseSelective("InknpaintEraseSelective", 0);
@@ -74,8 +82,17 @@ TEnv::StringVar EraseColorType("InknpaintEraseColorType", "Lines");
 TEnv::DoubleVar EraseHardness("EraseHardness", 100);
 TEnv::IntVar ErasePencil("InknpaintErasePencil", 0);
 TEnv::IntVar EraseOnlySavebox("InknpaintEraseOnlySavebox", 0);
+TEnv::IntVar ErasePressure("InknpaintErasePressure", 1);
 
 namespace {
+
+int computeThickness(double pressure, const TIntPairProperty &property) {
+  double t   = pressure * pressure * pressure;
+  int thick0 = property.getValue().first;
+  int thick1 = property.getValue().second;
+
+  return tround(thick0 + (thick1 - thick0) * t);
+}
 
 //==============================================================================
 //   Undo dei Tools
@@ -162,31 +179,46 @@ class RasterEraserUndo final : public TRasterUndo {
   bool m_isPencil;
   ColorType m_colorType;
   int m_colorSelected;
+  TPointD m_dpiScale;
+  int m_brushCount;
+  double m_rotation;
+  TPointD m_centerPoint;
+  bool m_useLineSymmetry;
 
 public:
   RasterEraserUndo(TTileSetCM32 *tileSet,
                    const std::vector<TThickPoint> &points, ColorType colorType,
                    int styleId, bool selective, int colorSelected,
                    TXshSimpleLevel *level, const TFrameId &frameId,
-                   bool isPencil)
+                   bool isPencil, TPointD dpiScale, double symmetryLines,
+                   double rotation, TPointD centerPoint, bool useLineSymmetry)
       : TRasterUndo(tileSet, level, frameId, false, false, 0)
       , m_points(points)
       , m_styleId(styleId)
       , m_selective(selective)
       , m_colorType(colorType)
       , m_colorSelected(colorSelected)
-      , m_isPencil(isPencil) {}
+      , m_isPencil(isPencil)
+      , m_dpiScale(dpiScale)
+      , m_brushCount(symmetryLines)
+      , m_rotation(rotation)
+      , m_centerPoint(centerPoint)
+      , m_useLineSymmetry(useLineSymmetry) {}
 
   void redo() const override {
     TToonzImageP image = m_level->getFrame(m_frameId, true);
     TRasterCM32P ras   = image->getRaster();
-    RasterStrokeGenerator m_rasterTrack(ras, ERASE, m_colorType, 0, m_points[0],
-                                        m_selective, m_colorSelected, false,
-                                        !m_isPencil);
-    m_rasterTrack.setPointsSequence(m_points);
-    m_rasterTrack.generateStroke(m_isPencil);
+    CMRasterBrush eraser(ras, ERASE, m_colorType, 0, m_points[0], m_selective,
+                         m_colorSelected, false, !m_isPencil);
+
+    if (m_brushCount > 1)
+      eraser.addSymmetryBrushes(m_brushCount, m_rotation, m_centerPoint,
+                                m_useLineSymmetry, m_dpiScale);
+
+    eraser.setPointsSequence(m_points);
+    eraser.generateStroke(m_isPencil);
     image->setSavebox(image->getSavebox() +
-                      m_rasterTrack.getBBox(m_rasterTrack.getPointsSequence()));
+                      eraser.getBBox(eraser.getPointsSequence()));
     ToolUtils::updateSaveBox();
     TTool::getApplication()->getCurrentXsheet()->notifyXsheetChanged();
     notifyImageChanged();
@@ -209,20 +241,32 @@ class RasterBluredEraserUndo final : public TRasterUndo {
   int m_size;
   double m_hardness;
   std::wstring m_mode;
+  TPointD m_dpiScale;
+  int m_brushCount;
+  double m_rotation;
+  TPointD m_centerPoint;
+  bool m_useLineSymmetry;
 
 public:
   RasterBluredEraserUndo(TTileSetCM32 *tileSet,
                          const std::vector<TThickPoint> &points, int styleId,
                          bool selective, TXshSimpleLevel *level,
                          const TFrameId &frameId, int size, double hardness,
-                         const std::wstring &mode)
+                         const std::wstring &mode, TPointD dpiScale,
+                         double symmetryLines, double rotation,
+                         TPointD centerPoint, bool useLineSymmetry)
       : TRasterUndo(tileSet, level, frameId, false, false, 0)
       , m_points(points)
       , m_styleId(styleId)
       , m_selective(selective)
       , m_size(size)
       , m_hardness(hardness)
-      , m_mode(mode) {}
+      , m_mode(mode)
+      , m_dpiScale(dpiScale)
+      , m_brushCount(symmetryLines)
+      , m_rotation(rotation)
+      , m_centerPoint(centerPoint)
+      , m_useLineSymmetry(useLineSymmetry) {}
 
   void redo() const override {
     if (m_points.size() == 0) return;
@@ -232,7 +276,12 @@ public:
     TRaster32P workRaster(ras->getSize());
     QRadialGradient brushPad = ToolUtils::getBrushPad(m_size, m_hardness);
     workRaster->clear();
-    BluredBrush brush(workRaster, m_size, brushPad, false);
+    RasterBlurredBrush brush(workRaster, m_size, brushPad, false);
+
+    if (m_brushCount > 1)
+      brush.addSymmetryBrushes(m_brushCount, m_rotation, m_centerPoint,
+                               m_useLineSymmetry, m_dpiScale);
+
     std::vector<TThickPoint> points;
     points.push_back(m_points[0]);
     TRect bbox = brush.getBoundFromPoints(points);
@@ -282,15 +331,27 @@ class RasterSegmentEraseUndo final : public TRasterUndo {
   int m_closeStyleIndex;
   TPoint m_point;
   TRectD m_savebox;
+  TPointD m_dpiScale;
+  int m_brushCount;
+  double m_rotation;
+  TPointD m_centerPoint;
+  bool m_useLineSymmetry;
 
 public:
   RasterSegmentEraseUndo(TTileSetCM32 *tileSet, TPoint point,
                          TXshSimpleLevel *sl, const TFrameId &fid,
-                         bool saveboxOnly, TRectD savebox)
+                         bool saveboxOnly, TRectD savebox, TPointD dpiScale,
+                         double symmetryLines, double rotation,
+                         TPointD centerPoint, bool useLineSymmetry)
       : TRasterUndo(tileSet, sl, fid, false, false, 0)
       , m_point(point)
       , m_saveboxOnly(saveboxOnly)
-      , m_savebox(savebox) {}
+      , m_savebox(savebox)
+      , m_dpiScale(dpiScale)
+      , m_brushCount(symmetryLines)
+      , m_rotation(rotation)
+      , m_centerPoint(centerPoint)
+      , m_useLineSymmetry(useLineSymmetry) {}
 
   void redo() const override {
     TToonzImageP image = getImage();
@@ -304,6 +365,24 @@ public:
       r = image->getRaster();
 
     inkSegment(r, m_point, 0, 2.51, true, 0, true);
+
+    if (m_brushCount > 1) {
+      SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+          TTool::getTool("T_Symmetry", TTool::RasterImage));
+      if (symmetryTool) {
+        SymmetryObject symmObj       = symmetryTool->getSymmetryObject();
+        std::vector<TPointD> symmPts = symmetryTool->getSymmetryPoints(
+            convert(m_point), r->getCenterD(), m_dpiScale, m_brushCount,
+            m_rotation, m_centerPoint, m_useLineSymmetry);
+
+        for (int i = 0; i < symmPts.size(); i++) {
+          TPoint pt(symmPts[i].x, symmPts[i].y);
+          if (pt == m_point) continue;
+          inkSegment(r, pt, 0, 2.51, true, 0, true);
+        }
+      }
+    }
+
     if (recomputeSavebox) ToolUtils::updateSaveBox();
 
     TTool::Application *app = TTool::getApplication();
@@ -357,7 +436,7 @@ void eraseStroke(const TToonzImageP &ti, TStroke *stroke,
 
 bool eraseSegment(const TImageP &img, const TPointD &pos, TXshSimpleLevel *sl,
                   const TFrameId &fid, bool selective, int styleId,
-                  bool eraseOnlySavebox) {
+                  bool eraseOnlySavebox, TPointD dpiScale) {
   TTool::Application *app = TTool::getApplication();
   if (!app) return false;
 
@@ -399,6 +478,19 @@ bool eraseSegment(const TImageP &img, const TPointD &pos, TXshSimpleLevel *sl,
 
     inkSegment(ras, newPoint, 0, 2.51, true, &tileSaver, true);
 
+    SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+        TTool::getTool("T_Symmetry", TTool::RasterImage));
+    if (symmetryTool && symmetryTool->isGuideEnabled()) {
+      TPointD rasCenter            = ras->getCenterD();
+      std::vector<TPointD> symmPts = symmetryTool->getSymmetryPoints(
+          convert(newPoint), rasCenter, dpiScale);
+
+      for (int i = 0; i < symmPts.size(); i++) {
+        if (symmPts[i] == convert(newPoint)) continue;
+        inkSegment(ras, convert(symmPts[i]), 0, 2.51, true, &tileSaver, true);
+      }
+    }
+
     if (tileSaver.getTileSet()->getTileCount() != 0) {
       static int count = 0;
       // TSystem::outputDebug("FILL" + std::to_string(count++) + "\n");
@@ -407,8 +499,21 @@ bool eraseSegment(const TImageP &img, const TPointD &pos, TXshSimpleLevel *sl,
           TTileSet::Tile *t = tileSet->editTile(i);
           t->m_rasterBounds = t->m_rasterBounds + offs;
         }
+      double symmetryLines = 0;
+      double rotation      = 0;
+      bool useLineSymmetry = false;
+      TPointD centerPoint(0, 0);
+      if (symmetryTool && symmetryTool->isGuideEnabled()) {
+        SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+        symmetryLines          = symmObj.getLines();
+        rotation               = symmObj.getRotation();
+        centerPoint            = symmObj.getCenterPoint();
+        useLineSymmetry        = symmObj.isUsingLineSymmetry();
+      }
+
       TUndoManager::manager()->add(new RasterSegmentEraseUndo(
-          tileSet, newPoint, sl, fid, eraseOnlySavebox, bbox));
+          tileSet, newPoint, sl, fid, eraseOnlySavebox, bbox, dpiScale,
+          symmetryLines, rotation, centerPoint, useLineSymmetry));
     }
 
     // instead of updateFrame :
@@ -585,9 +690,7 @@ class EraserTool final : public TTool {
 
 public:
   EraserTool(std::string name);
-  ~EraserTool() {
-    if (m_firstStroke) delete m_firstStroke;
-  }
+  ~EraserTool() { m_firstStrokes.clear(); }
 
   ToolType getToolType() const override { return TTool::LevelWriteTool; }
 
@@ -607,8 +710,12 @@ public:
   void leftButtonDoubleClick(const TPointD &pos, const TMouseEvent &e) override;
 
   void multiAreaEraser(const TXshSimpleLevelP &sl, TFrameId &firstFid,
-                       TFrameId &lastFid, TStroke *firstStroke,
-                       TStroke *lastStroke);
+                       TFrameId &lastFid, std::vector<TStroke *> firstStrokes,
+                       std::vector<TStroke *> lastStrokes);
+  void multiAreaEraser(const TXshSimpleLevelP &sl, int firstFidx,
+                       int lastFidx, std::vector<TStroke *> firstStrokes,
+                       std::vector<TStroke *> lastStrokes);
+
   void doMultiEraser(const TImageP &img, double t, const TXshSimpleLevelP &sl,
                      const TFrameId &fid, const TVectorImageP &firstImage,
                      const TVectorImageP &lastImage);
@@ -626,6 +733,8 @@ public:
 
   void multiUpdate(const TXshSimpleLevelP &level, TFrameId firstFrameId,
                    TFrameId lastFrameId, TRectD firstRect, TRectD lastRect);
+  void multiUpdate(const TXshSimpleLevelP &level, int firstFrameIdx,
+                   int lastFrameIdx, TRectD firstRect, TRectD lastRect);
 
   TPropertyGroup *getProperties(int targetType) override { return &m_prop; }
 
@@ -649,11 +758,12 @@ private:
   TPropertyGroup m_prop;
 
   TEnumProperty m_eraseType;
-  TIntProperty m_toolSize;
+  TIntPairProperty m_toolSize;
+  TBoolProperty m_pressure;
   TDoubleProperty m_hardness;
   TBoolProperty m_invertOption;
   TBoolProperty m_currentStyle;
-  TBoolProperty m_multi;
+  TEnumProperty m_multi;
   TBoolProperty m_pencil;
   TEnumProperty m_colorType;
   TBoolProperty m_eraseOnlySavebox;
@@ -664,30 +774,32 @@ private:
   std::pair<int, int> m_currCell;
 
   TFrameId m_firstFrameId, m_veryFirstFrameId;
+  int m_firstFrameIdx;
 
-  StrokeGenerator m_track;
+  VectorBrush m_track;
 
-  TStroke *m_firstStroke;
+  std::vector<TStroke *>m_firstStrokes;
 
   TTileSaverCM32 *m_tileSaver;
   TTileSetCM32 *m_tileSet;
 
-  RasterStrokeGenerator *m_normalEraser;
+  CMRasterBrush *m_normalEraser;
 
   TRectD m_selectingRect, m_firstRect;
 
   ColorType m_colorTypeEraser;
 
   TPointD m_mousePos, m_brushPos, m_firstPos;
+  TPointD m_windowMousePos;
 
-  std::vector<TPointD> m_polyline;
+  SymmetryStroke m_polyline;
 
   // gestione cancellino blurato
   TRasterCM32P m_backupRas;
   TRaster32P m_workRas;
   QRadialGradient m_brushPad;
   std::vector<TThickPoint> m_points;
-  BluredBrush *m_bluredBrush;
+  RasterBlurredBrush *m_blurredEraser;
 
   double m_pointSize, m_distance2, m_cleanerSize, m_thick;
 
@@ -714,17 +826,17 @@ EraserTool inkPaintEraserTool("T_Eraser");
 
 EraserTool::EraserTool(std::string name)
     : TTool(name)
-    , m_toolSize("Size:", 1, 1000, 10, false)  // W_ToolOptions_EraserToolSize
+    , m_toolSize("Size:", 1, 1000, 1, 10, false)  // W_ToolOptions_EraserToolSize
     , m_hardness("Hardness:", 0, 100, 100)
     , m_eraseType("Type:")                // W_ToolOptions_Erasetype
     , m_colorType("Mode:")                // W_ToolOptions_InkOrPaint
     , m_currentStyle("Selective", false)  // W_ToolOptions_Selective
     , m_invertOption("Invert", false)     // W_ToolOptions_Invert
-    , m_multi("Frame Range", false)       // W_ToolOptions_FrameRange
+    , m_multi("Frame Range:")       // W_ToolOptions_FrameRange
     , m_pencil("Pencil Mode", false)
     , m_currCell(-1, -1)
     , m_tileSaver(0)
-    , m_bluredBrush(0)
+    , m_blurredEraser(0)
     , m_pointSize(-1)
     , m_thick(0.5)
     , m_firstFrameSelected(false)
@@ -735,7 +847,8 @@ EraserTool::EraserTool(std::string name)
     , m_firstTime(true)
     , m_workingFrameId(TFrameId())
     , m_isLeftButtonPressed(false)
-    , m_eraseOnlySavebox("Savebox", false) {
+    , m_eraseOnlySavebox("Savebox", false)
+    , m_pressure("Pressure", true) {
   bind(TTool::ToonzImage);
 
   m_toolSize.setNonLinearSlider();
@@ -754,12 +867,19 @@ EraserTool::EraserTool(std::string name)
   m_colorType.addValue(ALL);
   m_prop.bind(m_colorType);
 
+  m_prop.bind(m_pressure);
   m_prop.bind(m_currentStyle);
   m_prop.bind(m_invertOption);
   m_prop.bind(m_multi);
+  m_multi.addValue(L"Off");
+  m_multi.addValue(LINEAR_INTERPOLATION);
+  m_multi.addValue(EASE_IN_INTERPOLATION);
+  m_multi.addValue(EASE_OUT_INTERPOLATION);
+  m_multi.addValue(EASE_IN_OUT_INTERPOLATION);
   m_prop.bind(m_pencil);
   m_prop.bind(m_eraseOnlySavebox);
 
+  m_pressure.setId("PressureSensitivity");
   m_currentStyle.setId("Selective");
   m_invertOption.setId("Invert");
   m_multi.setId("FrameRange");
@@ -787,11 +907,18 @@ void EraserTool::updateTranslation() {
   m_colorType.setItemUIName(AREAS, tr("Areas"));
   m_colorType.setItemUIName(ALL, tr("Lines & Areas"));
 
+  m_pressure.setQStringName(tr("Pressure"));
   m_currentStyle.setQStringName(tr("Selective"));
   m_invertOption.setQStringName(tr("Invert"));
-  m_multi.setQStringName(tr("Frame Range"));
   m_pencil.setQStringName(tr("Pencil Mode"));
   m_eraseOnlySavebox.setQStringName(tr("Savebox"));
+
+  m_multi.setQStringName(tr("Frame Range:"));
+  m_multi.setItemUIName(L"Off", tr("Off"));
+  m_multi.setItemUIName(LINEAR_INTERPOLATION, tr("Linear"));
+  m_multi.setItemUIName(EASE_IN_INTERPOLATION, tr("Ease In"));
+  m_multi.setItemUIName(EASE_OUT_INTERPOLATION, tr("Ease Out"));
+  m_multi.setItemUIName(EASE_IN_OUT_INTERPOLATION, tr("Ease In/Out"));
 }
 
 //-------------------------------------------------------------------------------------------------------
@@ -838,7 +965,7 @@ void EraserTool::draw() {
   }
 
   /*-- MouseLeave時に赤点が描かれるのを防ぐ --*/
-  if (m_pointSize == -1 && m_cleanerSize == 0) return;
+  if (!m_multi.getIndex() && m_pointSize == -1 && m_cleanerSize == 0) return;
 
   double pixelSize2 = getPixelSize() * getPixelSize();
   m_thick           = sqrt(pixelSize2) / 2.0;
@@ -846,13 +973,28 @@ void EraserTool::draw() {
   TImageP img = getImage(false);
   if (!img) return;
 
+//  TPixel color = ToonzCheck::instance()->getChecks() & ToonzCheck::eBlackBg
+//                     ? TPixel32::White
+//                     : TPixel32::Black;
+  TPixel color = TPixel32::Red;
   if (m_eraseType.getValue() == RECTERASE) {
-    TPixel color = TPixel32::Red;
-    if (m_multi.getValue() && m_firstFrameSelected)
-      drawRect(m_firstRect, color, 0x3F33, true);
+    if (m_multi.getIndex() && m_firstFrameSelected) {
+      if (m_firstStrokes.size()) {
+        tglColor(color);
+        for (int i = 0; i < m_firstStrokes.size(); i++)
+          drawStrokeCenterline(*m_firstStrokes[i], 1);
+      } else
+        drawRect(m_firstRect, color, 0x3F33, true);
+    }
 
-    if (m_selecting || (m_multi.getValue() && !m_firstFrameSelected))
-      drawRect(m_selectingRect, color, 0xFFFF, true);
+    if (m_selecting || (m_multi.getIndex() && !m_firstFrameSelected)) {
+      if (m_polyline.size() > 1) {
+        glPushMatrix();
+        m_polyline.drawRectangle(color);
+        glPopMatrix();
+      } else
+        drawRect(m_selectingRect, color, 0xFFFF, true);
+    }
   }
   if (m_eraseType.getValue() == NORMALERASE) {
     // If toggled off, don't draw brush outline
@@ -871,32 +1013,26 @@ void EraserTool::draw() {
       glColor3d(0.5, 0.8, 0.8);
     else
       glColor3d(1.0, 0.0, 0.0);
-    drawEmptyCircle(tround(m_cleanerSize), m_brushPos,
+    drawEmptyCircle(tround(m_toolSize.getValue().first), m_brushPos,
+                    (m_pencil.getValue() || m_colorType.getValue() == AREAS),
+                    lx % 2 == 0, ly % 2 == 0);
+    drawEmptyCircle(tround(m_toolSize.getValue().second), m_brushPos,
                     (m_pencil.getValue() || m_colorType.getValue() == AREAS),
                     lx % 2 == 0, ly % 2 == 0);
   }
   if ((m_eraseType.getValue() == FREEHANDERASE ||
        m_eraseType.getValue() == POLYLINEERASE ||
        m_eraseType.getValue() == SEGMENTERASE) &&
-      m_multi.getValue()) {
-    TPixel color = TPixel32::Red;
+      m_multi.getIndex()) {
     tglColor(color);
-    if (m_firstStroke) drawStrokeCenterline(*m_firstStroke, 1);
+    for (int i = 0; i < m_firstStrokes.size(); i++)
+      drawStrokeCenterline(*m_firstStrokes[i], 1);
   }
   if (m_eraseType.getValue() == POLYLINEERASE && !m_polyline.empty()) {
-    TPixel color = TPixel32::Red;
-    tglColor(color);
-    tglDrawCircle(m_polyline[0], 2);
-    glBegin(GL_LINE_STRIP);
-    for (UINT i = 0; i < m_polyline.size(); i++) tglVertex(m_polyline[i]);
-    tglVertex(m_mousePos);
-    glEnd();
+    m_polyline.drawPolyline(m_mousePos, color);
   } else if ((m_eraseType.getValue() == FREEHANDERASE ||
               m_eraseType.getValue() == SEGMENTERASE) &&
              !m_track.isEmpty()) {
-    TPixel color = ToonzCheck::instance()->getChecks() & ToonzCheck::eBlackBg
-                       ? TPixel32::White
-                       : TPixel32::Black;
     tglColor(color);
     glPushMatrix();
     m_track.drawAllFragments();
@@ -943,10 +1079,8 @@ void EraserTool::resetMulti() {
                 ? app->getCurrentLevel()->getSimpleLevel()
                 : 0;
   m_firstFrameId = m_veryFirstFrameId = getFrameId();
-  if (m_firstStroke) {
-    delete m_firstStroke;
-    m_firstStroke = 0;
-  }
+  m_firstFrameIdx                     = getFrame();
+  m_firstStrokes.clear();
 }
 
 //----------------------------------------------------------------------
@@ -976,6 +1110,15 @@ void EraserTool::multiUpdate(const TXshSimpleLevelP &level, TFrameId firstFid,
 
   std::wstring levelName = level->getName();
 
+  enum TInbetween::TweenAlgorithm algorithm = TInbetween::LinearInterpolation;
+  if (m_multi.getValue() == EASE_IN_INTERPOLATION) {
+    algorithm = TInbetween::EaseInInterpolation;
+  } else if (m_multi.getValue() == EASE_OUT_INTERPOLATION) {
+    algorithm = TInbetween::EaseOutInterpolation;
+  } else if (m_multi.getValue() == EASE_IN_OUT_INTERPOLATION) {
+    algorithm = TInbetween::EaseInOutInterpolation;
+  }
+
   /*-- FrameRangeの各フレームについて --*/
   TUndoManager::manager()->beginBlock();
   for (int i = 0; i < m; ++i) {
@@ -985,6 +1128,89 @@ void EraserTool::multiUpdate(const TXshSimpleLevelP &level, TFrameId firstFid,
     if (!ti) continue;
     /*--補間の係数を取得 --*/
     double t = m > 1 ? (double)i / (double)(m - 1) : 0.5;
+    t        = TInbetween::interpolation(t, algorithm);
+    /*--invertがONのとき、外側領域を4つのRectに分けてupdate--*/
+    if (m_invertOption.getValue()) {
+      TRect rect =
+          convert(interpolateRect(firstRect, lastRect, backward ? 1 - t : t));
+      TRectD rect01 = TRectD(TPointD(-100000., -100000.),
+                             TPointD((double)rect.x0, 100000.));
+      update(ti, rect01, level, true, fid);
+      TRectD rect02 =
+          TRectD(convert(rect.getP01()), TPointD((double)rect.x1, 100000.));
+      update(ti, rect02, level, true, fid);
+      TRectD rect03 =
+          TRectD(TPointD((double)rect.x0, -100000.), convert(rect.getP10()));
+      update(ti, rect03, level, true, fid);
+      TRectD rect04 =
+          TRectD(TPointD((double)rect.x1, -100000.), TPointD(100000., 100000.));
+      update(ti, rect04, level, true, fid);
+    } else
+      update(ti, interpolateRect(firstRect, lastRect, backward ? 1 - t : t),
+             level, true, fid);
+
+    TRect savebox;
+    TRop::computeBBox(ti->getRaster(), savebox);
+    ti->setSavebox(savebox);
+
+    level->getProperties()->setDirtyFlag(true);
+    notifyImageChanged(fid);
+  }
+  TUndoManager::manager()->endBlock();
+}
+
+//----------------------------------------------------------------------
+
+void EraserTool::multiUpdate(const TXshSimpleLevelP &level, int firstFidx,
+                             int lastFidx, TRectD firstRect,
+                             TRectD lastRect) {
+  bool backward = false;
+  if (firstFidx > lastFidx) {
+    std::swap(firstFidx, lastFidx);
+    backward = true;
+  }
+  assert(firstFidx <= lastFidx);
+
+  TTool::Application *app = TTool::getApplication();
+  TFrameId lastFrameId;
+  int col = app->getCurrentColumn()->getColumnIndex();
+  int row;
+
+  std::vector<std::pair<int, TXshCell>> cellList;
+
+  for (row = firstFidx; row <= lastFidx; row++) {
+    TXshCell cell = app->getCurrentXsheet()->getXsheet()->getCell(row, col);
+    if (cell.isEmpty()) continue;
+    TFrameId fid = cell.getFrameId();
+    if (lastFrameId == fid) continue;  // Skip held cells
+    cellList.push_back(std::pair<int, TXshCell>(row, cell));
+    lastFrameId = fid;
+  }
+
+  int m = cellList.size();
+
+  std::wstring levelName = level->getName();
+
+  enum TInbetween::TweenAlgorithm algorithm = TInbetween::LinearInterpolation;
+  if (m_multi.getValue() == EASE_IN_INTERPOLATION) {
+    algorithm = TInbetween::EaseInInterpolation;
+  } else if (m_multi.getValue() == EASE_OUT_INTERPOLATION) {
+    algorithm = TInbetween::EaseOutInterpolation;
+  } else if (m_multi.getValue() == EASE_IN_OUT_INTERPOLATION) {
+    algorithm = TInbetween::EaseInOutInterpolation;
+  }
+
+  /*-- FrameRangeの各フレームについて --*/
+  TUndoManager::manager()->beginBlock();
+  for (int i = 0; i < m; ++i) {
+    row             = cellList[i].first;
+    TXshCell cell   = cellList[i].second;
+    TFrameId fid    = cell.getFrameId();
+    TToonzImageP ti = (TToonzImageP)cell.getImage(true);
+    if (!ti) continue;
+    /*--補間の係数を取得 --*/
+    double t = m > 1 ? (double)i / (double)(m - 1) : 0.5;
+    t        = TInbetween::interpolation(t, algorithm);
     /*--invertがONのとき、外側領域を4つのRectに分けてupdate--*/
     if (m_invertOption.getValue()) {
       TRect rect =
@@ -1037,11 +1263,16 @@ void EraserTool::update(const TToonzImageP &ti, TRectD selArea,
   tileSet->add(raster, ToonzImageUtils::convertWorldToRaster(selArea, ti));
   TUndo *undo;
 
+  std::wstring eraseType =
+      (m_eraseType.getValue() == RECTERASE && m_polyline.hasSymmetryBrushes())
+          ? POLYLINEERASE
+          : m_eraseType.getValue();
+
   std::wstring inkPaint = m_colorType.getValue();
   undo                  = new RectRasterUndo(
-      tileSet, selArea, TStroke(), selective ? styleId : -1,
-      m_eraseType.getValue(), inkPaint, level.getPointer(), selective,
-      m_invertOption.getValue(), m_pencil.getValue(), frameId);
+      tileSet, selArea, TStroke(), selective ? styleId : -1, eraseType,
+      inkPaint, level.getPointer(), selective, m_invertOption.getValue(),
+      m_pencil.getValue(), frameId);
 
   ToonzImageUtils::eraseRect(ti, selArea, selective ? styleId : -1,
                              inkPaint == LINES || inkPaint == ALL,
@@ -1058,8 +1289,13 @@ void EraserTool::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
 
   TRectD invalidateRect;
   if (TToonzImageP ti = image) {
+    SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+        TTool::getTool("T_Symmetry", TTool::RasterImage));
+    TPointD dpiScale       = getViewer()->getDpiScale();
+    SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
     if (m_eraseType.getValue() == RECTERASE) {
-      if (m_multi.getValue() && m_firstRect.isEmpty()) {
+      if (m_multi.getIndex() && m_firstRect.isEmpty()) {
         invalidateRect = m_selectingRect;
         m_selectingRect.empty();
         invalidate(invalidateRect.enlarge(2));
@@ -1069,25 +1305,39 @@ void EraserTool::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
       m_selectingRect.x1 = pos.x + 1;
       m_selectingRect.y1 = pos.y + 1;
       invalidateRect     = m_selectingRect.enlarge(2);
+
+      if (!m_invertOption.getValue() && symmetryTool &&
+          symmetryTool->isGuideEnabled()) {
+        // We'll use polyline
+        m_polyline.reset();
+        m_polyline.addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                                      symmObj.getCenterPoint(),
+                                      symmObj.isUsingLineSymmetry(), dpiScale);
+        m_polyline.setRectangle(
+            TPointD(m_selectingRect.x0, m_selectingRect.y0),
+            TPointD(m_selectingRect.x1, m_selectingRect.y1));
+      }
     }
     if (m_eraseType.getValue() == NORMALERASE) {
       TRasterCM32P raster = ti->getRaster();
       TPointD fixedPos    = fixMousePos(pos);
+      int maxThick        = m_toolSize.getValue().second;
+      int thickness       = (m_pressure.getValue() && e.isTablet())
+                          ? computeThickness(e.m_pressure, m_toolSize)
+                          : maxThick;
+
       TThickPoint intPos;
       /*--Areasタイプの時は常にPencilと同じ消し方にする--*/
       if (m_pencil.getValue() || m_colorType.getValue() == AREAS)
-        intPos = TThickPoint(fixedPos + convert(raster->getCenter()),
-                             m_toolSize.getValue());
+        intPos = TThickPoint(fixedPos + convert(raster->getCenter()), thickness);
       else
-        intPos = TThickPoint(fixedPos + convert(raster->getCenter()),
-                             m_toolSize.getValue() - 1);
+        intPos = TThickPoint(fixedPos + convert(raster->getCenter()), thickness - 1);
       int currentStyle = 0;
       if (m_currentStyle.getValue())
         currentStyle = TTool::getApplication()->getCurrentLevelStyleIndex();
       m_tileSet      = new TTileSetCM32(raster->getSize());
       m_tileSaver    = new TTileSaverCM32(raster, m_tileSet);
-      TPointD halfThick(m_toolSize.getValue() * 0.5,
-                        m_toolSize.getValue() * 0.5);
+      TPointD halfThick(maxThick * 0.5, maxThick * 0.5);
       invalidateRect = TRectD(fixedPos - halfThick, fixedPos + halfThick);
       if (m_hardness.getValue() == 100 || m_pencil.getValue() ||
           m_colorType.getValue() == AREAS) {
@@ -1096,10 +1346,20 @@ void EraserTool::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
         }
         if (m_colorType.getValue() == AREAS) m_colorTypeEraser = PAINT;
         if (m_colorType.getValue() == ALL) m_colorTypeEraser   = INKNPAINT;
-        m_normalEraser = new RasterStrokeGenerator(
+        m_normalEraser = new CMRasterBrush(
             raster, ERASE, m_colorTypeEraser, 0, intPos,
             m_currentStyle.getValue(), currentStyle, false,
             !(m_pencil.getValue() || m_colorType.getValue() == AREAS));
+
+        if (symmetryTool && symmetryTool->isGuideEnabled()) {
+          TPointD dpiScale       = getViewer()->getDpiScale();
+          SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+          m_normalEraser->addSymmetryBrushes(
+              symmObj.getLines(), symmObj.getRotation(),
+              symmObj.getCenterPoint(), symmObj.isUsingLineSymmetry(),
+              dpiScale);
+        }
+
         m_tileSaver->save(m_normalEraser->getLastRect());
         m_normalEraser->generateLastPieceOfStroke(
             m_pencil.getValue() || m_colorType.getValue() == AREAS);
@@ -1109,15 +1369,23 @@ void EraserTool::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
         m_workRas   = TRaster32P(raster->getSize());
         m_workRas->clear();
         TPointD center = raster->getCenterD();
-        TThickPoint point(fixedPos + center, m_toolSize.getValue());
+        TThickPoint point(fixedPos + center, thickness);
         m_points.push_back(point);
-        m_bluredBrush = new BluredBrush(m_workRas, m_toolSize.getValue(),
-                                        m_brushPad, false);
+        m_blurredEraser = new RasterBlurredBrush(m_workRas, maxThick, m_brushPad, false);
 
-        TRect bbox = m_bluredBrush->getBoundFromPoints(m_points);
+        if (symmetryTool && symmetryTool->isGuideEnabled()) {
+          TPointD dpiScale       = getViewer()->getDpiScale();
+          SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+          m_blurredEraser->addSymmetryBrushes(
+              symmObj.getLines(), symmObj.getRotation(),
+              symmObj.getCenterPoint(), symmObj.isUsingLineSymmetry(),
+              dpiScale);
+        }
+
+        TRect bbox = m_blurredEraser->getBoundFromPoints(m_points);
         m_tileSaver->save(bbox);
-        m_bluredBrush->addPoint(point, 1);
-        m_bluredBrush->eraseDrawing(raster, m_backupRas, bbox,
+        m_blurredEraser->addPoint(point, 1);
+        m_blurredEraser->eraseDrawing(raster, m_backupRas, bbox,
                                     m_currentStyle.getValue(), currentStyle,
                                     m_colorType.getValue());
       }
@@ -1132,20 +1400,33 @@ void EraserTool::leftButtonDown(const TPointD &pos, const TMouseEvent &e) {
 
       if (!m_enabled) return;
 
-      if (m_multi.getValue() && m_firstStroke && !m_firstFrameSelected) {
-        invalidateRect = m_firstStroke->getBBox();
-        delete m_firstStroke;
-        m_firstStroke = 0;
-        invalidate(invalidateRect.enlarge(2));
+      if (m_multi.getIndex() && m_firstStrokes.size() && !m_firstFrameSelected) {
+        m_firstStrokes.clear();
+        invalidate();
       }
 
       m_active = true;
-      m_track.clear();
+      m_track.reset();
+      if (!m_invertOption.getValue() && symmetryTool &&
+          symmetryTool->isGuideEnabled()) {
+        m_track.addSymmetryBrushes(symmObj.getLines(), symmObj.getRotation(),
+                                   symmObj.getCenterPoint(),
+                                   symmObj.isUsingLineSymmetry(), dpiScale);
+      }
       m_firstPos        = pos;
       double pixelSize2 = getPixelSize() * getPixelSize();
       m_track.add(TThickPoint(pos, m_thick), pixelSize2);
 
       if (m_eraseType.getValue() == POLYLINEERASE) {
+        if (!m_invertOption.getValue() && symmetryTool &&
+            symmetryTool->isGuideEnabled() &&
+            !m_polyline.hasSymmetryBrushes()) {
+          m_polyline.addSymmetryBrushes(
+              symmObj.getLines(), symmObj.getRotation(),
+              symmObj.getCenterPoint(), symmObj.isUsingLineSymmetry(),
+              dpiScale);
+        }
+
         if (m_polyline.empty() || m_polyline.back() != pos)
           m_polyline.push_back(pos);
       }
@@ -1188,10 +1469,23 @@ void EraserTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
       if (invalidateRect.y0 > invalidateRect.y1)
         std::swap(invalidateRect.y1, invalidateRect.y0);
       invalidateRect += oldRect;
-      invalidate(invalidateRect.enlarge(2));
+
+      if (m_polyline.size() > 1 && m_polyline.hasSymmetryBrushes()) {
+        m_polyline.clear();
+        m_polyline.setRectangle(
+            TPointD(m_selectingRect.x0, m_selectingRect.y0),
+            TPointD(m_selectingRect.x1, m_selectingRect.y1));
+        invalidate();
+      } else
+        invalidate(invalidateRect.enlarge(2));
     }
     if (m_eraseType.getValue() == NORMALERASE) {
       TPointD fixedPos = fixMousePos(pos);
+      int maxThick     = m_toolSize.getValue().second;
+      int thickness    = (m_pressure.getValue() && e.isTablet())
+                          ? computeThickness(e.m_pressure, m_toolSize)
+                          : maxThick;
+
       if (m_normalEraser &&
           (m_hardness.getValue() == 100 || m_pencil.getValue() ||
            m_colorType.getValue() == AREAS)) {
@@ -1199,10 +1493,10 @@ void EraserTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
         TThickPoint intPos;
         if (m_pencil.getValue() || m_colorType.getValue() == AREAS)
           intPos = TThickPoint(pp + convert(ti->getRaster()->getCenter()),
-                               m_toolSize.getValue());
+                               thickness);
         else
           intPos = TThickPoint(pp + convert(ti->getRaster()->getCenter()),
-                               m_toolSize.getValue() - 1);
+                               thickness - 1);
 
         m_normalEraser->add(intPos);
         if (ti) {
@@ -1213,15 +1507,19 @@ void EraserTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
               m_normalEraser->getPointsSequence();
           int m = (int)brushPoints.size();
           std::vector<TThickPoint> points;
-          if (m == 3) {
-            points.push_back(brushPoints[0]);
-            points.push_back(brushPoints[1]);
-          } else {
-            points.push_back(brushPoints[m - 4]);
-            points.push_back(brushPoints[m - 3]);
-            points.push_back(brushPoints[m - 2]);
+          if (m_normalEraser->hasSymmetryBrushes())
+            points = brushPoints;
+          else {
+            if (m == 3) {
+              points.push_back(brushPoints[0]);
+              points.push_back(brushPoints[1]);
+            } else {
+              points.push_back(brushPoints[m - 4]);
+              points.push_back(brushPoints[m - 3]);
+              points.push_back(brushPoints[m - 2]);
+            }
           }
-          invalidateRect = ToolUtils::getBounds(points, m_toolSize.getValue());
+          invalidateRect = ToolUtils::getBounds(points, maxThick);
         }
       } else {
         assert(m_workRas.getPointer() && m_backupRas.getPointer());
@@ -1229,7 +1527,6 @@ void EraserTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
         TThickPoint old = m_points.back();
         if (norm2(fixedPos - old) < 4) return;
 
-        int thickness = m_toolSize.getValue();
         TThickPoint point(fixedPos + rasCenter, thickness);
         TThickPoint mid((old + point) * 0.5, (point.thick + old.thick) * 0.5);
         m_points.push_back(mid);
@@ -1241,28 +1538,30 @@ void EraserTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
 
         TRect bbox;
         int m = (int)m_points.size();
+        std::vector<TThickPoint> points;
         if (m == 3) {
           // ho appena cominciato. devo disegnare un segmento
           TThickPoint pa = m_points.front();
-          std::vector<TThickPoint> points;
           points.push_back(pa);
           points.push_back(mid);
-          invalidateRect = ToolUtils::getBounds(points, thickness);
-          bbox           = m_bluredBrush->getBoundFromPoints(points);
-          m_bluredBrush->addArc(pa, (mid + pa) * 0.5, mid, 1, 1);
+          bbox           = m_blurredEraser->getBoundFromPoints(points);
+          m_blurredEraser->addArc(pa, (mid + pa) * 0.5, mid, 1, 1);
         } else {
-          std::vector<TThickPoint> points;
           points.push_back(m_points[m - 4]);
           points.push_back(old);
           points.push_back(mid);
-          invalidateRect = ToolUtils::getBounds(points, thickness);
-          bbox           = m_bluredBrush->getBoundFromPoints(points);
-          m_bluredBrush->addArc(m_points[m - 4], old, mid, 1, 1);
+          bbox           = m_blurredEraser->getBoundFromPoints(points);
+          m_blurredEraser->addArc(m_points[m - 4], old, mid, 1, 1);
         }
         m_tileSaver->save(bbox);
-        m_bluredBrush->eraseDrawing(ti->getRaster(), m_backupRas, bbox,
+        m_blurredEraser->eraseDrawing(ti->getRaster(), m_backupRas, bbox,
                                     m_currentStyle.getValue(), currentStyle,
                                     m_colorType.getValue());
+
+        std::vector<TThickPoint> symmPts =
+            m_blurredEraser->getSymmetryPoints(points);
+        points.insert(points.end(), symmPts.begin(), symmPts.end());
+        invalidateRect = ToolUtils::getBounds(points, maxThick);
       }
       invalidate(invalidateRect.enlarge(2) - rasCenter);
     }
@@ -1278,16 +1577,17 @@ void EraserTool::leftButtonDrag(const TPointD &pos, const TMouseEvent &e) {
 //----------------------------------------------------------------------
 
 void EraserTool::onImageChanged() {
-  if (!m_multi.getValue()) return;
+  if (!m_multi.getIndex()) return;
   TTool::Application *app = TTool::getApplication();
   TXshSimpleLevel *xshl   = 0;
   if (app->getCurrentLevel()->getLevel())
     xshl = app->getCurrentLevel()->getSimpleLevel();
 
   if (!xshl || m_level.getPointer() != xshl ||
-      (m_selectingRect.isEmpty() && !m_firstStroke))
+      (m_selectingRect.isEmpty() && !m_firstStrokes.size()))
     resetMulti();
-  else if (m_firstFrameId == getFrameId())
+  else if ((!m_isXsheetCell && m_firstFrameId == getFrameId()) ||
+           (m_isXsheetCell && m_firstFrameIdx == getFrame()))
     m_firstFrameSelected = false;  // nel caso sono passato allo stato 1 e torno
                                    // all'immagine iniziale, torno allo stato
                                    // iniziale
@@ -1319,14 +1619,50 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
       if (m_selectingRect.y0 > m_selectingRect.y1)
         std::swap(m_selectingRect.y1, m_selectingRect.y0);
 
-      if (m_multi.getValue()) {
+      if (m_polyline.size() > 1 && m_polyline.hasSymmetryBrushes()) {
+        // We'll use polyline
+        m_polyline.clear();
+        m_polyline.setRectangle(
+            TPointD(m_selectingRect.x0, m_selectingRect.y0),
+            TPointD(m_selectingRect.x1, m_selectingRect.y1));
+      }
+
+      if (m_multi.getIndex()) {
         TTool::Application *app = TTool::getApplication();
         if (m_firstFrameSelected) {
-          multiUpdate(m_level, m_firstFrameId, getFrameId(), m_firstRect,
-                      m_selectingRect);
+          m_selecting = false;
+
+          if (m_polyline.size() > 1 && m_polyline.hasSymmetryBrushes()) {
+            // We'll use polyline
+            TFrameId tmp = getCurrentFid();
+            int tmpx     = getFrame();
+            std::vector<TStroke *> lastStrokes;
+            for (int i = 0; i < m_polyline.getBrushCount(); i++)
+              lastStrokes.push_back(m_polyline.makeRectangleStroke(i));
+            if (m_isXsheetCell)
+              multiAreaEraser(m_level, m_firstFrameIdx, tmpx, m_firstStrokes,
+                              lastStrokes);
+            else
+              multiAreaEraser(m_level, m_firstFrameId, tmp, m_firstStrokes,
+                              lastStrokes);
+          } else {
+            if (m_isXsheetCell)
+              multiUpdate(m_level, m_firstFrameIdx, getFrame(), m_firstRect,
+                          m_selectingRect);
+            else
+              multiUpdate(m_level, m_firstFrameId, getFrameId(), m_firstRect,
+                          m_selectingRect);
+          }
+
           if (e.isShiftPressed()) {
-            m_firstRect    = m_selectingRect;
-            m_firstFrameId = getFrameId();
+            m_firstRect     = m_selectingRect;
+            m_firstFrameId  = getFrameId();
+            m_firstFrameIdx = getFrame();
+            m_firstStrokes.clear();
+            if (m_polyline.size() > 1) {
+              for (int i = 0; i < m_polyline.getBrushCount(); i++)
+                m_firstStrokes.push_back(m_polyline.makeRectangleStroke(i));
+            }
             invalidate();
           } else {
             if (m_isXsheetCell) {
@@ -1335,10 +1671,17 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
             } else
               app->getCurrentFrame()->setFid(m_veryFirstFrameId);
             resetMulti();
+            m_polyline.reset();
           }
         } else {
+          m_firstStrokes.clear();
+          if (m_polyline.size() > 1) {
+            for (int i = 0; i < m_polyline.getBrushCount(); i++)
+              m_firstStrokes.push_back(m_polyline.makeRectangleStroke(i));
+          }
           m_isXsheetCell = app->getCurrentFrame()->isEditingScene();
           m_currCell     = std::pair<int, int>(getColumnIndex(), getFrame());
+          invalidate();
         }
       } else {
         TTool::Application *app   = TTool::getApplication();
@@ -1371,11 +1714,33 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
             update(ti, rect04, simLevel, false, frameId);
           TUndoManager::manager()->endBlock();
           invalidate();
+        } else if (m_polyline.size() > 1 && m_polyline.hasSymmetryBrushes()) {
+          TUndoManager::manager()->beginBlock();
+
+          int styleId     = app->getCurrentLevelStyleIndex();
+          TStroke *stroke = m_polyline.makeRectangleStroke();
+          eraseStroke(image, stroke, POLYLINEERASE, m_colorType.getValue(),
+                      m_invertOption.getValue(), m_currentStyle.getValue(),
+                      m_pencil.getValue(), styleId, simLevel, frameId);
+
+          for (int i = 1; i < m_polyline.getBrushCount(); i++) {
+            TStroke *symmStroke = m_polyline.makeRectangleStroke(i);
+            symmStroke->setStyle(stroke->getStyle());
+            eraseStroke(image, symmStroke, POLYLINEERASE,
+                        m_colorType.getValue(), m_invertOption.getValue(),
+                        m_currentStyle.getValue(), m_pencil.getValue(), styleId,
+                        simLevel, frameId);
+          }
+
+          TUndoManager::manager()->endBlock();
+          invalidate();
         } else {
           update(ti, m_selectingRect, simLevel, false, frameId);
           invalidate(m_selectingRect.enlarge(2));
         }
+
         m_selectingRect.empty();
+        m_polyline.reset();
 
         TTool::getApplication()->getCurrentXsheet()->notifyXsheetChanged();
         notifyImageChanged();
@@ -1392,14 +1757,37 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
       TFrameId frameId =
           m_workingFrameId.isEmptyFrame() ? getCurrentFid() : m_workingFrameId;
 
+      SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+          TTool::getTool("T_Symmetry", TTool::RasterImage));
+
+      int maxThick  = m_toolSize.getValue().second;
+      int thickness = (m_pressure.getValue() && e.isTablet())
+                          ? computeThickness(e.m_pressure, m_toolSize)
+                          : maxThick;
+
       if (m_normalEraser &&
           (m_hardness.getValue() == 100 || m_pencil.getValue() ||
            m_colorType.getValue() == AREAS)) {
+        double symmetryLines = 0;
+        double rotation      = 0;
+        bool useLineSymmetry = false;
+        TPointD centerPoint(0, 0);
+        if (symmetryTool && symmetryTool->isGuideEnabled()) {
+          SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+          symmetryLines          = symmObj.getLines();
+          rotation               = symmObj.getRotation();
+          centerPoint            = symmObj.getCenterPoint();
+          useLineSymmetry        = symmObj.isUsingLineSymmetry();
+        }
+
+        TPointD dpiScale = getViewer()->getDpiScale();
+
         TUndoManager::manager()->add(new RasterEraserUndo(
-            m_tileSet, m_normalEraser->getPointsSequence(), m_colorTypeEraser,
-            0, m_normalEraser->isSelective(), currentStyle,
+            m_tileSet, m_normalEraser->getPointsSequence(true),
+            m_colorTypeEraser, 0, m_normalEraser->isSelective(), currentStyle,
             simLevel.getPointer(), frameId,
-            (m_pencil.getValue() || m_colorType.getValue() == AREAS)));
+            (m_pencil.getValue() || m_colorType.getValue() == AREAS), dpiScale,
+            symmetryLines, rotation, centerPoint, useLineSymmetry));
         app->getCurrentTool()->getTool()->notifyImageChanged(frameId);
         app->getCurrentXsheet()->notifyXsheetChanged();
         delete m_normalEraser;
@@ -1407,32 +1795,54 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
       } else {
         if (m_points.size() != 1) {
           TPointD rasCenter = ti->getRaster()->getCenterD();
-          TThickPoint point(fixedPos + rasCenter, m_toolSize.getValue());
+          TThickPoint point(fixedPos + rasCenter, thickness);
           m_points.push_back(point);
           int m = m_points.size();
           std::vector<TThickPoint> points;
           points.push_back(m_points[m - 3]);
           points.push_back(m_points[m - 2]);
           points.push_back(m_points[m - 1]);
-          TRect bbox = m_bluredBrush->getBoundFromPoints(points);
+          TRect bbox = m_blurredEraser->getBoundFromPoints(points);
           m_tileSaver->save(bbox);
-          m_bluredBrush->addArc(points[0], points[1], points[2], 1, 1);
-          m_bluredBrush->eraseDrawing(ti->getRaster(), m_backupRas, bbox,
-                                      m_currentStyle.getValue(), currentStyle,
-                                      m_colorType.getValue());
-          TRectD invalidateRect =
-              ToolUtils::getBounds(points, m_toolSize.getValue());
+          m_blurredEraser->addArc(points[0], points[1], points[2], 1, 1);
+          m_blurredEraser->eraseDrawing(ti->getRaster(), m_backupRas, bbox,
+                                        m_currentStyle.getValue(), currentStyle,
+                                        m_colorType.getValue());
+
+          std::vector<TThickPoint> allPts = points;
+          std::vector<TThickPoint> symmPts =
+              m_blurredEraser->getSymmetryPoints(points);
+          allPts.insert(allPts.end(), symmPts.begin(), symmPts.end());
+
+          TRectD invalidateRect = ToolUtils::getBounds(allPts, maxThick);
+
           invalidate(invalidateRect.enlarge(2) - rasCenter);
         }
 
         m_backupRas = TRasterCM32P();
         m_workRas   = TRaster32P();
-        delete m_bluredBrush;
-        m_bluredBrush = 0;
+        delete m_blurredEraser;
+        m_blurredEraser = 0;
+
+        double symmetryLines = 0;
+        double rotation      = 0;
+        bool useLineSymmetry = false;
+        TPointD centerPoint(0, 0);
+        if (symmetryTool && symmetryTool->isGuideEnabled()) {
+          SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+          symmetryLines          = symmObj.getLines();
+          rotation               = symmObj.getRotation();
+          centerPoint            = symmObj.getCenterPoint();
+          useLineSymmetry        = symmObj.isUsingLineSymmetry();
+        }
+
+        TPointD dpiScale = getViewer()->getDpiScale();
+
         TUndoManager::manager()->add(new RasterBluredEraserUndo(
             m_tileSet, m_points, currentStyle, m_currentStyle.getValue(),
-            simLevel.getPointer(), frameId, m_toolSize.getValue(),
-            m_hardness.getValue() * 0.01, m_colorType.getValue()));
+            simLevel.getPointer(), frameId, maxThick,
+            m_hardness.getValue() * 0.01, m_colorType.getValue(), dpiScale,
+            symmetryLines, rotation, centerPoint, useLineSymmetry));
       }
       delete m_tileSaver;
       m_tileSaver = 0;
@@ -1453,27 +1863,33 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
       TStroke *stroke = m_track.makeStroke(error);
 
       stroke->setStyle(1);
-      m_track.clear();
 
       TTool::Application *app = TTool::getApplication();
       int styleId             = app->getCurrentLevelStyleIndex();
-      if (m_multi.getValue())  // stroke multi
+      if (m_multi.getIndex())  // stroke multi
       {
         if (m_firstFrameSelected) {
           TFrameId tmp = getFrameId();
-          if (m_firstStroke && stroke)
-            multiAreaEraser(m_level, m_firstFrameId, tmp, m_firstStroke,
-                            stroke);
+          int tmpx     = getFrame();
+          if (m_firstStrokes.size() && stroke) {
+            std::vector<TStroke *> lastStrokes;
+            for (int i = 0; i < m_track.getBrushCount(); i++)
+              lastStrokes.push_back(m_track.makeStroke(error, i));
+            if (m_isXsheetCell)
+              multiAreaEraser(m_level, m_firstFrameIdx, tmpx, m_firstStrokes,
+                              lastStrokes);
+            else
+              multiAreaEraser(m_level, m_firstFrameId, tmp, m_firstStrokes,
+                              lastStrokes);
+          }
           notifyImageChanged();
           if (e.isShiftPressed()) {
-            TRectD invalidateRect = m_firstStroke->getBBox();
-            delete m_firstStroke;
-            m_firstStroke = 0;
-            invalidate(invalidateRect.enlarge(2));
-            m_firstStroke  = stroke;
-            invalidateRect = m_firstStroke->getBBox();
-            invalidate(invalidateRect.enlarge(2));
-            m_firstFrameId = getFrameId();
+            m_firstStrokes.clear();
+            for (int i = 0; i < m_track.getBrushCount(); i++)
+              m_firstStrokes.push_back(m_track.makeStroke(error, i));
+            invalidate();
+            m_firstFrameId  = getFrameId();
+            m_firstFrameIdx = getFrame();
           } else {
             if (m_isXsheetCell) {
               app->getCurrentColumn()->setColumnIndex(m_currCell.first);
@@ -1485,10 +1901,12 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
           }
         } else  // primo frame
         {
-          m_firstStroke  = stroke;
+          m_firstStrokes.clear();
+          for (int i = 0; i < m_track.getBrushCount(); i++)
+            m_firstStrokes.push_back(m_track.makeStroke(error, i));
           m_isXsheetCell = app->getCurrentFrame()->isEditingScene();
           m_currCell     = std::pair<int, int>(getColumnIndex(), getFrame());
-          invalidate(m_firstStroke->getBBox().enlarge(2));
+          invalidate();
         }
       } else  // stroke non multi
       {
@@ -1496,16 +1914,35 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
         TXshLevel *level          = app->getCurrentLevel()->getLevel();
         TXshSimpleLevelP simLevel = level->getSimpleLevel();
         TFrameId frameId          = getFrameId();
+
+        if (m_track.hasSymmetryBrushes()) TUndoManager::manager()->beginBlock();
+
         eraseStroke(image, stroke, m_eraseType.getValue(),
                     m_colorType.getValue(), m_invertOption.getValue(),
                     m_currentStyle.getValue(), m_pencil.getValue(), styleId,
                     simLevel, frameId);
+
+        if (m_track.hasSymmetryBrushes()) {
+          std::vector<TStroke *> symmStrokes =
+              m_track.makeSymmetryStrokes(error);
+          for (int i = 0; i < symmStrokes.size(); i++) {
+            symmStrokes[i]->setStyle(stroke->getStyle());
+            eraseStroke(image, symmStrokes[i], m_eraseType.getValue(),
+                        m_colorType.getValue(), m_invertOption.getValue(),
+                        m_currentStyle.getValue(), m_pencil.getValue(), styleId,
+                        simLevel, frameId);
+          }
+
+          TUndoManager::manager()->endBlock();
+        }
+
         notifyImageChanged();
-        if (m_invertOption.getValue())
+        if (m_invertOption.getValue() || m_track.hasSymmetryBrushes())
           invalidate();
         else
           invalidate(stroke->getBBox().enlarge(2));
       }
+      m_track.reset();
     }
     if (m_eraseType.getValue() == SEGMENTERASE) {
       bool isValid = m_enabled && m_active;
@@ -1519,28 +1956,34 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
       TStroke *stroke = m_track.makeStroke(error);
 
       stroke->setStyle(1);
-      m_track.clear();
 
       bool selective          = m_currentStyle.getValue();
       TTool::Application *app = TTool::getApplication();
       int styleId             = app->getCurrentLevelStyleIndex();
-      if (m_multi.getValue())  // stroke multi
+      if (m_multi.getIndex())  // stroke multi
       {
         if (m_firstFrameSelected) {
           TFrameId tmp = getFrameId();
-          if (m_firstStroke && stroke)
-            multiAreaEraser(m_level, m_firstFrameId, tmp, m_firstStroke,
-                            stroke);
+          int tmpx     = getFrame();
+          if (m_firstStrokes.size() && stroke) {
+            std::vector<TStroke *> lastStrokes;
+            for (int i = 0; i < m_track.getBrushCount(); i++)
+              lastStrokes.push_back(m_track.makeStroke(error, i));
+            if (m_isXsheetCell)
+              multiAreaEraser(m_level, m_firstFrameIdx, tmpx, m_firstStrokes,
+                              lastStrokes);
+            else
+              multiAreaEraser(m_level, m_firstFrameId, tmp, m_firstStrokes,
+                              lastStrokes);
+          }
           notifyImageChanged();
           if (e.isShiftPressed()) {
-            TRectD invalidateRect = m_firstStroke->getBBox();
-            delete m_firstStroke;
-            m_firstStroke = 0;
-            invalidate(invalidateRect.enlarge(2));
-            m_firstStroke  = stroke;
-            invalidateRect = m_firstStroke->getBBox();
-            invalidate(invalidateRect.enlarge(2));
-            m_firstFrameId = getFrameId();
+            m_firstStrokes.clear();
+            for (int i = 0; i < m_track.getBrushCount(); i++)
+              m_firstStrokes.push_back(m_track.makeStroke(error, i));
+            invalidate();
+            m_firstFrameId  = getFrameId();
+            m_firstFrameIdx = getFrame();
           } else {
             if (m_isXsheetCell) {
               app->getCurrentColumn()->setColumnIndex(m_currCell.first);
@@ -1552,10 +1995,12 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
           }
         } else  // primo frame
         {
-          m_firstStroke  = stroke;
+          m_firstStrokes.clear();
+          for (int i = 0; i < m_track.getBrushCount(); i++)
+            m_firstStrokes.push_back(m_track.makeStroke(error, i));
           m_isXsheetCell = app->getCurrentFrame()->isEditingScene();
           m_currCell     = std::pair<int, int>(getColumnIndex(), getFrame());
-          invalidate(m_firstStroke->getBBox().enlarge(2));
+          invalidate();
         }
       } else  // stroke non multi
       {
@@ -1582,9 +2027,10 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
           TPixelCM32 pix = ras->pixels(ipos.y)[ipos.x];
           if ((selective && pix.getInk() != styleId) || pix.isPurePaint())
             continue;
-          updateSavebox |=
-              eraseSegment(getImage(true), tmpPos, sl, getCurrentFid(),
-                           selective, styleId, m_eraseOnlySavebox.getValue());
+          TPointD dpiScale = getViewer()->getDpiScale();
+          updateSavebox |= eraseSegment(
+              getImage(true), tmpPos, sl, getCurrentFid(), selective, styleId,
+              m_eraseOnlySavebox.getValue(), dpiScale);
         }
 
         TPointD mousePos = pos;
@@ -1592,6 +2038,7 @@ void EraserTool::leftButtonUp(const TPointD &pos, const TMouseEvent &e) {
         TUndoManager::manager()->endBlock();
         invalidate();
       }
+      m_track.clear();
     }
     if (updateSavebox) ToolUtils::updateSaveBox();
   }
@@ -1612,33 +2059,33 @@ void EraserTool::leftButtonDoubleClick(const TPointD &pos,
   if (m_polyline.back() != pos) m_polyline.push_back(pos);
   if (m_polyline.back() != m_polyline.front())
     m_polyline.push_back(m_polyline.front());
-  std::vector<TThickPoint> strokePoints;
-  for (UINT i = 0; i < m_polyline.size() - 1; i++) {
-    strokePoints.push_back(TThickPoint(m_polyline[i], 1));
-    strokePoints.push_back(
-        TThickPoint(0.5 * (m_polyline[i] + m_polyline[i + 1]), 1));
-  }
-  strokePoints.push_back(TThickPoint(m_polyline.back(), 1));
-  m_polyline.clear();
-  stroke = new TStroke(strokePoints);
+  stroke = m_polyline.makePolylineStroke();
   assert(stroke->getPoint(0) == stroke->getPoint(1));
 
   int styleId = app->getCurrentLevelStyleIndex();
-  if (m_multi.getValue())  // stroke multi
+  if (m_multi.getIndex())  // stroke multi
   {
     if (m_firstFrameSelected) {
       TFrameId tmp = getFrameId();
-      if (m_firstStroke && stroke)
-        multiAreaEraser(m_level, m_firstFrameId, tmp, m_firstStroke, stroke);
+      int tmpx     = getFrame();
+      if (m_firstStrokes.size() && stroke) {
+        std::vector<TStroke *> lastStrokes;
+        for (int i = 0; i < m_polyline.getBrushCount(); i++)
+          lastStrokes.push_back(m_polyline.makePolylineStroke(i));
+        if (m_isXsheetCell)
+          multiAreaEraser(m_level, m_firstFrameIdx, tmpx, m_firstStrokes,
+                          lastStrokes);
+        else
+          multiAreaEraser(m_level, m_firstFrameId, tmp, m_firstStrokes,
+                          lastStrokes);
+      }
       if (e.isShiftPressed()) {
-        TRectD invalidateRect = m_firstStroke->getBBox();
-        delete m_firstStroke;
-        m_firstStroke = 0;
-        invalidate(invalidateRect.enlarge(2));
-        m_firstStroke  = stroke;
-        invalidateRect = m_firstStroke->getBBox();
-        invalidate(invalidateRect.enlarge(2));
-        m_firstFrameId = getFrameId();
+        m_firstStrokes.clear();
+        for (int i = 0; i < m_polyline.getBrushCount(); i++)
+          m_firstStrokes.push_back(m_polyline.makePolylineStroke(i));
+        invalidate();
+        m_firstFrameId  = getFrameId();
+        m_firstFrameIdx = getFrame();
       } else {
         if (m_isXsheetCell) {
           app->getCurrentColumn()->setColumnIndex(m_currCell.first);
@@ -1650,10 +2097,12 @@ void EraserTool::leftButtonDoubleClick(const TPointD &pos,
       }
     } else  // primo frame
     {
-      m_firstStroke  = stroke;
+      m_firstStrokes.clear();
+      for (int i = 0; i < m_track.getBrushCount(); i++)
+        m_firstStrokes.push_back(m_polyline.makePolylineStroke(i));
       m_isXsheetCell = app->getCurrentFrame()->isEditingScene();
       m_currCell     = std::pair<int, int>(getColumnIndex(), getFrame());
-      invalidate(m_firstStroke->getBBox().enlarge(2));
+      invalidate();
     }
   } else {
     if (!getImage(true)) return;
@@ -1661,15 +2110,33 @@ void EraserTool::leftButtonDoubleClick(const TPointD &pos,
     TXshSimpleLevelP simLevel = level->getSimpleLevel();
     TFrameId frameId          = getFrameId();
     TToonzImageP ti           = (TToonzImageP)getImage(true);
+
+    if (m_polyline.hasSymmetryBrushes()) TUndoManager::manager()->beginBlock();
+
     eraseStroke(ti, stroke, m_eraseType.getValue(), m_colorType.getValue(),
                 m_invertOption.getValue(), m_currentStyle.getValue(),
                 m_pencil.getValue(), styleId, simLevel, frameId);
+
+    if (m_polyline.hasSymmetryBrushes()) {
+      for (int i = 1; i < m_polyline.getBrushCount(); i++) {
+        TStroke *symmStroke = m_polyline.makePolylineStroke(i);
+        symmStroke->setStyle(stroke->getStyle());
+        eraseStroke(ti, symmStroke, m_eraseType.getValue(),
+                    m_colorType.getValue(), m_invertOption.getValue(),
+                    m_currentStyle.getValue(), m_pencil.getValue(), styleId,
+                    simLevel, frameId);
+      }
+
+      TUndoManager::manager()->endBlock();
+    }
+
     notifyImageChanged();
-    if (m_invertOption.getValue())
+    if (m_invertOption.getValue() || m_polyline.hasSymmetryBrushes())
       invalidate();
     else
       invalidate(stroke->getBBox().enlarge(2));
   }
+  m_polyline.reset();
 }
 
 //----------------------------------------------------------------------
@@ -1678,18 +2145,21 @@ bool EraserTool::onPropertyChanged(std::string propertyName) {
   /*--- 変更されたPropertyに合わせて処理を分ける ---*/
   if (propertyName == m_eraseType.getName()) {
     /*--- polylineにした時、前回のpolyline選択をクリアする ---*/
-    if (m_eraseType.getValue() == POLYLINEERASE && !m_polyline.empty())
-      m_polyline.clear();
+    if (m_eraseType.getValue() == POLYLINEERASE) m_polyline.reset();
     EraseType = ::to_string(m_eraseType.getValue());
   }
 
   else if (propertyName == m_toolSize.getName()) {
-    EraseSize     = m_toolSize.getValue();
-    m_cleanerSize = m_toolSize.getValue();
+    EraseMinSize  = m_toolSize.getValue().first;
+    EraseSize     = m_toolSize.getValue().second;
+    m_cleanerSize = m_toolSize.getValue().second;
 
-    m_brushPad = ToolUtils::getBrushPad(m_toolSize.getValue(),
+    m_brushPad = ToolUtils::getBrushPad(m_toolSize.getValue().second,
                                         m_hardness.getValue() * 0.01);
   }
+
+  else if (propertyName == m_pressure.getName())
+    ErasePressure = m_pressure.getValue();
 
   else if (propertyName == m_invertOption.getName())
     EraseInvert = m_invertOption.getValue();
@@ -1698,8 +2168,8 @@ bool EraserTool::onPropertyChanged(std::string propertyName) {
     EraseSelective = m_currentStyle.getValue();
 
   else if (propertyName == m_multi.getName()) {
-    if (m_multi.getValue()) resetMulti();
-    EraseRange = m_multi.getValue();
+    if (m_multi.getIndex()) resetMulti();
+    EraseRange = m_multi.getIndex();
   }
 
   else if (propertyName == m_pencil.getName()) {
@@ -1714,7 +2184,7 @@ bool EraserTool::onPropertyChanged(std::string propertyName) {
 
   else if (propertyName == m_hardness.getName()) {
     EraseHardness = m_hardness.getValue();
-    m_brushPad    = ToolUtils::getBrushPad(m_toolSize.getValue(),
+    m_brushPad    = ToolUtils::getBrushPad(m_toolSize.getValue().second,
                                         m_hardness.getValue() * 0.01);
   } else if (propertyName == m_eraseOnlySavebox.getName()) {
     EraseOnlySavebox = (int)(m_eraseOnlySavebox.getValue());
@@ -1722,7 +2192,7 @@ bool EraserTool::onPropertyChanged(std::string propertyName) {
 
   if (propertyName == m_hardness.getName() ||
       propertyName == m_toolSize.getName()) {
-    m_brushPad = ToolUtils::getBrushPad(m_toolSize.getValue(),
+    m_brushPad = ToolUtils::getBrushPad(m_toolSize.getValue().second,
                                         m_hardness.getValue() * 0.01);
     TRectD rect(m_brushPos - TPointD(EraseSize + 2, EraseSize + 2),
                 m_brushPos + TPointD(EraseSize + 2, EraseSize + 2));
@@ -1740,22 +2210,44 @@ bool EraserTool::onPropertyChanged(std::string propertyName) {
 //----------------------------------------------------------------------
 
 void EraserTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
+#if (!defined(LINUX) && !defined(FREEBSD)) || QT_VERSION < QT_VERSION_CHECK(5, 15, 0)
   qApp->processEvents(QEventLoop::ExcludeUserInputEvents);
+#endif
 
   struct Locals {
     EraserTool *m_this;
 
-    void setValue(TIntProperty &prop, int value) {
+    void setValue(TIntPairProperty &prop,
+                  const TIntPairProperty::Value &value) {
       prop.setValue(value);
 
       m_this->onPropertyChanged(prop.getName());
       TTool::getApplication()->getCurrentTool()->notifyToolChanged();
     }
 
-    void addValue(TIntProperty &prop, double add) {
-      const TIntProperty::Range &range = prop.getRange();
-      setValue(prop,
-               tcrop<double>(prop.getValue() + add, range.first, range.second));
+    void addMinMax(TIntPairProperty &prop, double add) {
+      const TIntPairProperty::Range &range = prop.getRange();
+
+      TIntPairProperty::Value value = prop.getValue();
+      value.second =
+          tcrop<double>(value.second + add, range.first, range.second);
+      value.first = tcrop<double>(value.first + add, range.first, range.second);
+
+      setValue(prop, value);
+    }
+
+    void addMinMaxSeparate(TIntPairProperty &prop, double min, double max) {
+      if (min == 0.0 && max == 0.0) return;
+      const TIntPairProperty::Range &range = prop.getRange();
+
+      TIntPairProperty::Value value = prop.getValue();
+      value.first += min;
+      value.second += max;
+      if (value.first > value.second) value.first = value.second;
+      value.first  = tcrop<double>(value.first, range.first, range.second);
+      value.second = tcrop<double>(value.second, range.first, range.second);
+
+      setValue(prop, value);
     }
 
   } locals = {this};
@@ -1763,10 +2255,11 @@ void EraserTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
   switch (e.getModifiersMask()) {
   case TMouseEvent::ALT_KEY: {
     // User wants to alter the maximum brush size
-    const TPointD &diff = pos - m_mousePos;
-    double add          = (fabs(diff.x) > fabs(diff.y)) ? diff.x : diff.y;
+    const TPointD &diff = m_windowMousePos - -e.m_pos;
+    double max          = diff.x / 2;
+    double min          = diff.y / 2;
 
-    locals.addValue(m_toolSize, add);
+    locals.addMinMaxSeparate(m_toolSize, min, max);
     break;
   }
 
@@ -1776,6 +2269,7 @@ void EraserTool::mouseMove(const TPointD &pos, const TMouseEvent &e) {
   }
 
   m_mousePos = pos;
+  m_windowMousePos = -e.m_pos;
   invalidate();
 }
 
@@ -1785,18 +2279,19 @@ void EraserTool::onEnter() {
   TToonzImageP ti(getImage(false));
   if (!ti) return;
   if (m_firstTime) {
-    m_toolSize.setValue(EraseSize);
+    m_toolSize.setValue(TIntPairProperty::Value(EraseMinSize, EraseSize));
     m_eraseType.setValue(::to_wstring(EraseType.getValue()));
+    m_pressure.setValue(ErasePressure ? 1 : 0);
     m_currentStyle.setValue(EraseSelective ? 1 : 0);
     m_invertOption.setValue(EraseInvert ? 1 : 0);
     m_colorType.setValue(::to_wstring(EraseColorType.getValue()));
-    m_multi.setValue(EraseRange ? 1 : 0);
+    m_multi.setIndex(EraseRange);
     m_hardness.setValue(EraseHardness);
     m_pencil.setValue(ErasePencil);
     m_eraseOnlySavebox.setValue(EraseOnlySavebox ? 1 : 0);
     m_firstTime = false;
   }
-  double x = m_toolSize.getValue();
+  double x = m_toolSize.getValue().second;
 
   double minRange = 1;
   double maxRange = 100;
@@ -1808,7 +2303,7 @@ void EraserTool::onEnter() {
       (x - minRange) / (maxRange - minRange) * (maxSize - minSize) + minSize;
 
   //  getApplication()->editImage();
-  m_cleanerSize           = m_toolSize.getValue();
+  m_cleanerSize           = m_toolSize.getValue().second;
   TTool::Application *app = TTool::getApplication();
   m_level                 = app->getCurrentLevel()->getLevel()
                 ? app->getCurrentLevel()->getSimpleLevel()
@@ -1825,30 +2320,31 @@ void EraserTool::onLeave() {
 //----------------------------------------------------------------------
 
 void EraserTool::onActivate() {
-  if (m_multi.getValue()) resetMulti();
+  if (m_multi.getIndex()) resetMulti();
 
   /*-- 他のツールからpolylineに入った時、前回のpolyline選択をクリアする --*/
-  if (m_eraseType.getValue() == POLYLINEERASE && !m_polyline.empty())
-    m_polyline.clear();
+  if (m_eraseType.getValue() == POLYLINEERASE) m_polyline.reset();
 
   onEnter();
-  m_brushPad = ToolUtils::getBrushPad(m_toolSize.getValue(),
+  m_brushPad = ToolUtils::getBrushPad(m_toolSize.getValue().second,
                                       m_hardness.getValue() * 0.01);
 }
 
 //------------------------------------------------------------------------------------------------------------
 
 void EraserTool::multiAreaEraser(const TXshSimpleLevelP &sl, TFrameId &firstFid,
-                                 TFrameId &lastFid, TStroke *firstStroke,
-                                 TStroke *lastStroke) {
-  TStroke *first           = new TStroke();
-  TStroke *last            = new TStroke();
-  *first                   = *firstStroke;
-  *last                    = *lastStroke;
+                                 TFrameId &lastFid, std::vector<TStroke *>firstStrokes,
+                                 std::vector<TStroke *>lastStrokes) {
+//  TStroke *first           = new TStroke();
+//  TStroke *last            = new TStroke();
+//  *first                   = *firstStroke;
+//  *last                    = *lastStroke;
   TVectorImageP firstImage = new TVectorImage();
   TVectorImageP lastImage  = new TVectorImage();
-  firstImage->addStroke(first);
-  lastImage->addStroke(last);
+  for (int i = 0; i < firstStrokes.size(); i++)
+    firstImage->addStroke(firstStrokes[i]);
+  for (int i = 0; i < lastStrokes.size(); i++)
+    lastImage->addStroke(lastStrokes[i]);
 
   bool backward = false;
   if (firstFid > lastFid) {
@@ -1868,12 +2364,90 @@ void EraserTool::multiAreaEraser(const TXshSimpleLevelP &sl, TFrameId &firstFid,
   std::vector<TFrameId> fids(i0, i1);
   int m = fids.size();
   assert(m > 0);
+
+  enum TInbetween::TweenAlgorithm algorithm = TInbetween::LinearInterpolation;
+  if (m_multi.getValue() == EASE_IN_INTERPOLATION) {
+    algorithm = TInbetween::EaseInInterpolation;
+  } else if (m_multi.getValue() == EASE_OUT_INTERPOLATION) {
+    algorithm = TInbetween::EaseOutInterpolation;
+  } else if (m_multi.getValue() == EASE_IN_OUT_INTERPOLATION) {
+    algorithm = TInbetween::EaseInOutInterpolation;
+  }
+
   TUndoManager::manager()->beginBlock();
   for (int i = 0; i < m; ++i) {
     TFrameId fid = fids[i];
     assert(firstFid <= fid && fid <= lastFid);
     TImageP img = sl->getFrame(fid, true);
     double t    = m > 1 ? (double)i / (double)(m - 1) : 0.5;
+    t           = TInbetween::interpolation(t, algorithm);
+    if (m_eraseType.getValue() == SEGMENTERASE)
+      doMultiSegmentEraser(img, backward ? 1 - t : t, sl, fid, firstImage,
+                           lastImage);
+    else
+      doMultiEraser(img, backward ? 1 - t : t, sl, fid, firstImage, lastImage);
+    sl->getProperties()->setDirtyFlag(true);
+    notifyImageChanged(fid);
+  }
+  TUndoManager::manager()->endBlock();
+}
+
+//------------------------------------------------------------------------------------------------------------
+
+void EraserTool::multiAreaEraser(const TXshSimpleLevelP &sl, int firstFidx,
+                                 int lastFidx,
+                                 std::vector<TStroke *> firstStrokes,
+                                 std::vector<TStroke *> lastStrokes) {
+  TVectorImageP firstImage = new TVectorImage();
+  TVectorImageP lastImage  = new TVectorImage();
+  for (int i = 0; i < firstStrokes.size(); i++)
+    firstImage->addStroke(firstStrokes[i]);
+  for (int i = 0; i < lastStrokes.size(); i++)
+    lastImage->addStroke(lastStrokes[i]);
+
+  bool backward = false;
+  if (firstFidx > lastFidx) {
+    std::swap(firstFidx, lastFidx);
+    backward = true;
+  }
+  assert(firstFidx <= lastFidx);
+
+  TTool::Application *app = TTool::getApplication();
+  TFrameId lastFrameId;
+  int col = app->getCurrentColumn()->getColumnIndex();
+  int row;
+
+  std::vector<std::pair<int, TXshCell>> cellList;
+
+  for (row = firstFidx; row <= lastFidx; row++) {
+    TXshCell cell = app->getCurrentXsheet()->getXsheet()->getCell(row, col);
+    if (cell.isEmpty()) continue;
+    TFrameId fid = cell.getFrameId();
+    if (lastFrameId == fid) continue;  // Skip held cells
+    cellList.push_back(std::pair<int, TXshCell>(row, cell));
+    lastFrameId = fid;
+  }
+
+  int m = cellList.size();
+
+  enum TInbetween::TweenAlgorithm algorithm = TInbetween::LinearInterpolation;
+  if (m_multi.getValue() == EASE_IN_INTERPOLATION) {
+    algorithm = TInbetween::EaseInInterpolation;
+  } else if (m_multi.getValue() == EASE_OUT_INTERPOLATION) {
+    algorithm = TInbetween::EaseOutInterpolation;
+  } else if (m_multi.getValue() == EASE_IN_OUT_INTERPOLATION) {
+    algorithm = TInbetween::EaseInOutInterpolation;
+  }
+
+  TUndoManager::manager()->beginBlock();
+  for (int i = 0; i < m; ++i) {
+    row           = cellList[i].first;
+    TXshCell cell = cellList[i].second;
+    TFrameId fid  = cell.getFrameId();
+    TImageP img   = (TImageP)cell.getImage(true);
+    if (!img) continue;
+    double t = m > 1 ? (double)i / (double)(m - 1) : 0.5;
+    t        = TInbetween::interpolation(t, algorithm);
     if (m_eraseType.getValue() == SEGMENTERASE)
       doMultiSegmentEraser(img, backward ? 1 - t : t, sl, fid, firstImage,
                            lastImage);
@@ -1896,6 +2470,7 @@ void EraserTool::doMultiSegmentEraser(const TImageP &img, double t,
   int styleId    = TTool::getApplication()->getCurrentLevelStyleIndex();
   bool selective = m_currentStyle.getValue();
   bool updateSavebox = false;
+  TPointD dpiScale   = getViewer()->getDpiScale();
   if (t == 0) {
     TStroke *stroke = firstImage->getStroke(0);
     int length      = (int)stroke->getLength();
@@ -1915,7 +2490,7 @@ void EraserTool::doMultiSegmentEraser(const TImageP &img, double t,
       if ((selective && pix.getInk() != styleId) || pix.isPurePaint()) continue;
       updateSavebox |=
           eraseSegment(img, tmpPos, sl.getPointer(), fid, selective, styleId,
-                       m_eraseOnlySavebox.getValue());
+                       m_eraseOnlySavebox.getValue(), dpiScale);
     }
   }
 
@@ -1938,7 +2513,7 @@ void EraserTool::doMultiSegmentEraser(const TImageP &img, double t,
       if ((selective && pix.getInk() != styleId) || pix.isPurePaint()) continue;
       updateSavebox |=
           eraseSegment(img, tmpPos, sl.getPointer(), fid, selective, styleId,
-                       m_eraseOnlySavebox.getValue());
+                       m_eraseOnlySavebox.getValue(), dpiScale);
     }
   } else {
     assert(firstImage->getStrokeCount() == 1);
@@ -1963,7 +2538,7 @@ void EraserTool::doMultiSegmentEraser(const TImageP &img, double t,
       if ((selective && pix.getInk() != styleId) || pix.isPurePaint()) continue;
       updateSavebox |=
           eraseSegment(img, tmpPos, sl.getPointer(), fid, selective, styleId,
-                       m_eraseOnlySavebox.getValue());
+                       m_eraseOnlySavebox.getValue(), dpiScale);
     }
   }
   if (updateSavebox) ToolUtils::updateSaveBox();
@@ -1980,25 +2555,30 @@ void EraserTool::doMultiEraser(const TImageP &img, double t,
                                const TVectorImageP &lastImage) {
   //  ColorController::instance()->switchToLevelPalette();
   int styleId = TTool::getApplication()->getCurrentLevelStyleIndex();
+  std::wstring eraseType = m_eraseType.getValue() == RECTERASE
+                               ? POLYLINEERASE
+                               : m_eraseType.getValue();
   if (t == 0)
-    eraseStroke(img, firstImage->getStroke(0), m_eraseType.getValue(),
-                m_colorType.getValue(), m_invertOption.getValue(),
-                m_currentStyle.getValue(), m_pencil.getValue(), styleId, sl,
-                fid);
+    for (int i = 0; i < firstImage->getStrokeCount(); i++)
+      eraseStroke(img, firstImage->getStroke(i), eraseType,
+                  m_colorType.getValue(), m_invertOption.getValue(),
+                  m_currentStyle.getValue(), m_pencil.getValue(), styleId, sl,
+                  fid);
   else if (t == 1)
-    eraseStroke(img, lastImage->getStroke(0), m_eraseType.getValue(),
-                m_colorType.getValue(), m_invertOption.getValue(),
-                m_currentStyle.getValue(), m_pencil.getValue(), styleId, sl,
-                fid);
+    for (int i = 0; i < lastImage->getStrokeCount(); i++)
+      eraseStroke(img, lastImage->getStroke(i), eraseType,
+                  m_colorType.getValue(), m_invertOption.getValue(),
+                  m_currentStyle.getValue(), m_pencil.getValue(), styleId, sl,
+                  fid);
   else {
-    assert(firstImage->getStrokeCount() == 1);
-    assert(lastImage->getStrokeCount() == 1);
+//    assert(firstImage->getStrokeCount() == 1);
+//    assert(lastImage->getStrokeCount() == 1);
     TVectorImageP vi = TInbetween(firstImage, lastImage).tween(t);
-    assert(vi->getStrokeCount() == 1);
-    eraseStroke(img, vi->getStroke(0), m_eraseType.getValue(),
-                m_colorType.getValue(), m_invertOption.getValue(),
-                m_currentStyle.getValue(), m_pencil.getValue(), styleId, sl,
-                fid);
+//    assert(vi->getStrokeCount() == 1);
+    for (int i = 0; i < vi->getStrokeCount(); i++)
+      eraseStroke(img, vi->getStroke(i), eraseType, m_colorType.getValue(),
+                  m_invertOption.getValue(), m_currentStyle.getValue(),
+                  m_pencil.getValue(), styleId, sl, fid);
   }
 }
 
@@ -2018,29 +2598,43 @@ void EraserTool::storeUndoAndRefresh() {
   m_isLeftButtonPressed = false;
 
   /*-- 各データのリフレッシュ --*/
-  if (m_firstStroke) {
-    delete m_firstStroke;
-    m_firstStroke = 0;
+  m_firstStrokes.clear();
+  double symmetryLines = 0;
+  double rotation      = 0;
+  bool useLineSymmetry = false;
+  TPointD centerPoint(0, 0);
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  if (symmetryTool && symmetryTool->isGuideEnabled()) {
+    SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+    symmetryLines          = symmObj.getLines();
+    rotation               = symmObj.getRotation();
+    centerPoint            = symmObj.getCenterPoint();
+    useLineSymmetry        = symmObj.isUsingLineSymmetry();
   }
+
+  TPointD dpiScale = getViewer()->getDpiScale();
+
   if (m_normalEraser) {
     TUndoManager::manager()->add(new RasterEraserUndo(
-        m_tileSet, m_normalEraser->getPointsSequence(), m_colorTypeEraser, 0,
-        m_normalEraser->isSelective(),
+        m_tileSet, m_normalEraser->getPointsSequence(true), m_colorTypeEraser,
+        0, m_normalEraser->isSelective(),
         TTool::getApplication()->getCurrentLevelStyleIndex(),
         TTool::getApplication()
             ->getCurrentLevel()
             ->getLevel()
             ->getSimpleLevel(),
         m_workingFrameId.isEmptyFrame() ? getCurrentFid() : m_workingFrameId,
-        (m_pencil.getValue() || m_colorType.getValue() == AREAS)));
+        (m_pencil.getValue() || m_colorType.getValue() == AREAS), dpiScale,
+        symmetryLines, rotation, centerPoint, useLineSymmetry));
     delete m_normalEraser;
     m_normalEraser = 0;
   }
-  if (m_bluredBrush) {
+  if (m_blurredEraser) {
     m_backupRas = TRasterCM32P();
     m_workRas   = TRaster32P();
-    delete m_bluredBrush;
-    m_bluredBrush = 0;
+    delete m_blurredEraser;
+    m_blurredEraser = 0;
     TUndoManager::manager()->add(new RasterBluredEraserUndo(
         m_tileSet, m_points,
         TTool::getApplication()->getCurrentLevelStyleIndex(),
@@ -2049,8 +2643,9 @@ void EraserTool::storeUndoAndRefresh() {
                                        ->getLevel()
                                        ->getSimpleLevel(),
         m_workingFrameId.isEmptyFrame() ? getCurrentFid() : m_workingFrameId,
-        m_toolSize.getValue(), m_hardness.getValue() * 0.01,
-        m_colorType.getValue()));
+        m_toolSize.getValue().second, m_hardness.getValue() * 0.01,
+        m_colorType.getValue(), dpiScale, symmetryLines, rotation, centerPoint,
+        useLineSymmetry));
   }
   if (m_tileSaver) {
     delete m_tileSaver;

@@ -1,16 +1,16 @@
 
 
 #include "tcurves.h"
-//#include "tpalette.h"
+// #include "tpalette.h"
 #include "tvectorimage.h"
 #include "tvectorimageP.h"
 #include "tstroke.h"
-//#include "tgl.h"
+// #include "tgl.h"
 #include "tvectorrenderdata.h"
 #include "tmathutil.h"
-//#include "tdebugmessage.h"
+// #include "tdebugmessage.h"
 #include "tofflinegl.h"
-//#include "tcolorstyles.h"
+// #include "tcolorstyles.h"
 #include "tpaletteutil.h"
 #include "tthreadmessage.h"
 #include "tsimplecolorstyles.h"
@@ -591,16 +591,14 @@ TRectD TVectorImage::getBBox() const {
   TRectD bbox;
 
   for (UINT i = 0; i < strokeCount; ++i) {
-    TRectD r           = m_imp->m_strokes[i]->m_s->getBBox();
+    TStroke *stroke    = m_imp->m_strokes[i]->m_s;
     TColorStyle *style = 0;
     if (plt) style     = plt->getStyle(m_imp->m_strokes[i]->m_s->getStyle());
-    if (dynamic_cast<TRasterImagePatternStrokeStyle *>(style) ||
-        dynamic_cast<TVectorImagePatternStrokeStyle *>(
-            style))  // con i pattern style, il render a volte taglia sulla bbox
-                     // dello stroke....
-      // aumento la bbox della meta' delle sue dimensioni:pezzaccia.
-      r  = r.enlarge(std::max(r.getLx() * 0.25, r.getLy() * 0.25));
-    bbox = ((i == 0) ? r : bbox + r);
+    if (!style) continue;
+    // reimplemented in TRasterImagePatternStrokeStyle,
+    // TVectorImagePatternStrokeStyle and FlowLineStrokeStyle
+    TRectD r = style->getStrokeBBox(stroke);
+    bbox     = ((i == 0) ? r : bbox + r);
   }
 
   return bbox;
@@ -643,7 +641,7 @@ void TVectorImage::render(const TVectorRenderData &rd, TRaster32P &ras) {
 #endif
 
 //-----------------------------------------------------------------------------
-//#include "timage_io.h"
+// #include "timage_io.h"
 
 TRaster32P TVectorImage::render(bool onlyStrokes) {
   TRect bBox = convert(getBBox());
@@ -845,8 +843,7 @@ bool TVectorImage::Imp::selectFill(const TRectD &selArea, TStroke *s,
     for (UINT i = 0; i < m_regions.size(); i++) {
       int index, j = 0;
 
-      do
-        index = m_regions[i]->getEdge(j++)->m_index;
+      do index = m_regions[i]->getEdge(j++)->m_index;
       while (index < 0 && j < (int)m_regions[i]->getEdgeCount());
       // if index<0, means that the region is purely of autoclose strokes!
       if (m_insideGroup != TGroupId() && index >= 0 &&
@@ -2011,7 +2008,7 @@ static void computeEdgeList(TStroke *newS, const std::list<TEdge *> &edgeList1,
 //-----------------------------------------------------------------------------
 #ifdef _DEBUG
 
-//#include "tpalette.h"
+// #include "tpalette.h"
 #include "tcolorstyles.h"
 
 void printEdges(std::ofstream &os, char *str, TPalette *plt,
@@ -2047,12 +2044,12 @@ void TVectorImage::Imp::printStrokes(std::ofstream &os) {
 
 //-----------------------------------------------------------------------------
 
-TStroke *TVectorImage::removeEndpoints(int strokeIndex) {
-  return m_imp->removeEndpoints(strokeIndex);
+TStroke *TVectorImage::removeEndpoints(int strokeIndex, double *offset) {
+  return m_imp->removeEndpoints(strokeIndex, offset);
 }
 
-void TVectorImage::restoreEndpoints(int index, TStroke *oldStroke) {
-  m_imp->restoreEndpoints(index, oldStroke);
+void TVectorImage::restoreEndpoints(int index, TStroke *oldStroke, double offset) {
+  m_imp->restoreEndpoints(index, oldStroke, offset);
 }
 
 //-----------------------------------------------------------------------------
@@ -2479,17 +2476,21 @@ int TVectorImage::getCommonGroupDepth(int index0, int index1) const {
 //-------------------------------------------------------------------
 
 int TVectorImage::ungroup(int fromIndex) {
-  m_imp->m_insideGroup = TGroupId();
-
   assert(m_imp->m_strokes[fromIndex]->m_groupId.isGrouped() != 0);
   std::vector<int> changedStrokes;
 
+  std::vector<int> outerGroups = m_imp->m_insideGroup.m_id;
+  std::vector<int> groupIds    = m_imp->m_strokes[fromIndex]->m_groupId.m_id;
+  for (int x        = 0; x < outerGroups.size(); x++) groupIds.pop_back();
+  int removeGroupId = groupIds.back();
+
   int toIndex = fromIndex + 1;
 
-  while (toIndex < (int)m_imp->m_strokes.size() &&
-         m_imp->m_strokes[fromIndex]->m_groupId.getCommonParentDepth(
-             m_imp->m_strokes[toIndex]->m_groupId) >= 1)
+  while (toIndex < (int)m_imp->m_strokes.size()) {
+    std::vector<int> ids = m_imp->m_strokes[toIndex]->m_groupId.m_id;
+    if (std::find(ids.begin(), ids.end(), removeGroupId) == ids.end()) break;
     toIndex++;
+  }
 
   toIndex--;
 
@@ -2508,7 +2509,20 @@ int TVectorImage::ungroup(int fromIndex) {
        i <= toIndex || (i < (int)m_imp->m_strokes.size() &&
                         m_imp->m_strokes[i]->m_groupId.isGrouped(true) != 0);
        i++) {
-    m_imp->m_strokes[i]->m_groupId.ungroup(groupId);
+    // Popup outer groups
+    for (int x = 0; x < outerGroups.size(); x++)
+      m_imp->m_strokes[i]->m_groupId.m_id.pop_back();
+
+    // Pop top most group
+    m_imp->m_strokes[i]->m_groupId.m_id.pop_back();
+
+    // Push back outer groups
+    for (int x = 0; x < outerGroups.size(); x++)
+      m_imp->m_strokes[i]->m_groupId.m_id.push_back(outerGroups[x]);
+
+    if (m_imp->m_strokes[i]->m_groupId.m_id.empty())
+      m_imp->m_strokes[i]->m_groupId.m_id.push_back(groupId.m_id[0]);
+
     changedStrokes.push_back(i);
   }
 
@@ -2569,11 +2583,23 @@ void TVectorImage::group(int fromIndex, int count) {
   assert(count >= 0);
   std::vector<int> changedStroke;
 
+  std::vector<int> outerGroups = m_imp->m_insideGroup.m_id;
+
   TGroupId parent = TGroupId(this, false);
 
   for (i = 0; i < count; i++) {
+    // Popup outer groups
+    for (int x = 0; x < outerGroups.size(); x++)
+      m_imp->m_strokes[fromIndex + i]->m_groupId.m_id.pop_back();
+
+    // Push the new group
     m_imp->m_strokes[fromIndex + i]->m_groupId =
         TGroupId(parent, m_imp->m_strokes[fromIndex + i]->m_groupId);
+
+    // Push back outer groups
+    for (int x = 0; x < outerGroups.size(); x++)
+      m_imp->m_strokes[fromIndex + i]->m_groupId.m_id.push_back(outerGroups[x]);
+
     changedStroke.push_back(fromIndex + i);
   }
 
@@ -2605,7 +2631,7 @@ int TVectorImage::areDifferentGroup(UINT index1, bool isRegion1, UINT index2,
 
 //-------------------------------------------------------------------
 /*this method is tricky.
-it is not allow to have not-adiacent strokes  of same group.
+it is not allow to have not-adjacent strokes  of same group.
 but it can happen when you group  some already-grouped strokes creating
 sub-groups.
 
@@ -2623,7 +2649,7 @@ after grouping became:
 2
 not allowed!
 
-this method moves strokes, so that  adiacent strokes have same group.
+this method moves strokes, so that adjacent strokes have same group.
 so after calling rearrangeMultiGroup the vi became:
 2
 2
@@ -3109,6 +3135,23 @@ int TVectorImage::pickGroup(const TPointD &pos) const {
   if ((index = pickGroup(pos, true)) == -1) return pickGroup(pos, false);
 
   return index;
+}
+
+//--------------------------------------------------------------------------------------------------
+
+int TVectorImage::getStrokeIndexAtPos(TPointD pos, double maxDistance) {
+  int i, strokeNumber = getStrokeCount();
+
+  TStroke *stroke;
+  double distance, outW;
+
+  for (i = 0; i < strokeNumber; i++) {
+    stroke = getStroke(i);
+    if (stroke->getNearestW(pos, outW, distance) && distance <= maxDistance)
+      return i;
+  }
+
+  return -1;
 }
 
 //--------------------------------------------------------------------------------------------------

@@ -12,6 +12,7 @@
 //#include <fstream.h>
 #include "../compatibility/tfile_io.h"
 #include "tenv.h"
+#include "toonz/preferences.h"
 
 /*=====================================================================*/
 
@@ -184,6 +185,8 @@ void MyIfstream::open(const TFilePath &filename) {
     m_fp = fopen(filename, "rb");
   } catch (TException &) {
     throw TImageException(filename, "File not found");
+  } catch (...) {
+    throw TImageException(filename, "Unhandled exception encountered");
   }
 }
 
@@ -435,7 +438,7 @@ void ParsedPli::setMaxThickness(double maxThickness) {
 };
 
 /* indirect inclusion of <math.h> causes 'abs' to return double on Linux */
-#if defined(LINUX) || defined(FREEBSD) || (defined(_WIN32) && defined(__GNUC__))
+#if defined(LINUX) || defined(FREEBSD) || (defined(_WIN32) && defined(__GNUC__)) || defined(HAIKU)
 template <typename T>
 T abs_workaround(T a) {
   return (a > 0) ? a : -a;
@@ -700,7 +703,11 @@ void ParsedPliImp::loadInfo(bool readPlt, TPalette *&palette,
       m_iChan.seekg(pos, ios::beg);
       TagElem *tagElem = readTag();
       TextTag *textTag = (TextTag *)tagElem->m_tag;
-      history          = new TContentHistory(true);
+      QString altUsername =
+          Preferences::instance()->getStringValue(recordAsUsername);
+      bool recordEdit =
+          Preferences::instance()->getBoolValue(recordFileHistory);
+      history = new TContentHistory(true, altUsername, recordEdit);
       history->deserialize(QString::fromStdString(textTag->m_text));
       delete tagElem;
     }

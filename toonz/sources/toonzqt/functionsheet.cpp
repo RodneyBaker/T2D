@@ -196,8 +196,7 @@ FunctionSheetButtonArea::FunctionSheetButtonArea(QWidget *parent)
   m_syncSizeBtn = new QPushButton("", this);
   m_syncSizeBtn->setCheckable(true);
   m_syncSizeBtn->setFixedSize(20, 20);
-  static QPixmap syncScaleImg =
-      recolorPixmap(svgToPixmap(getIconThemePath("actions/17/syncscale.svg")));
+  static QPixmap syncScaleImg = generateIconPixmap("syncscale");
   QPixmap offPm(17, 17);
   offPm.fill(Qt::transparent);
   {
@@ -343,6 +342,8 @@ void FunctionSheetColumnHeadViewer::paintEvent(QPaintEvent *e) {
     painter.fillRect(x0, y0, width, y3 - y0, getViewer()->getBGColor());
   }
 
+  int groupChannelCount = 0;
+  int firstX0           = 0;
   for (int c = c0; c <= c1; ++c) {
     FunctionTreeModel::Channel *channel = m_sheet->getChannel(c);
     if (!channel) {
@@ -363,14 +364,21 @@ void FunctionSheetColumnHeadViewer::paintEvent(QPaintEvent *e) {
 
     /*---- If the group is different from the before and after, flags are set
      * respectively ---*/
-    bool firstGroupColumn = prevGroup != group;
-    bool lastGroupColumn  = nextGroup != group;
+    bool firstGroupColumn = prevGroup != group || c == 0;
+    bool lastGroupColumn  = nextGroup != group || c == c1;
 
     /*--- The left and right coordinates of the current column ---*/
     int x0 = getViewer()->columnToX(c);
     int x1 = getViewer()->columnToX(c + 1) - 1;
     // Column width
     int width = x1 - x0 + 1;
+
+    if (firstGroupColumn) {
+      groupChannelCount = 0;
+      firstX0           = x0;
+    }
+
+    groupChannelCount++;
 
     QRect selectedRect = m_sheet->getSelectedCells();
     bool isSelected =
@@ -414,13 +422,13 @@ void FunctionSheetColumnHeadViewer::paintEvent(QPaintEvent *e) {
     }
 
     // group name
-    if (firstGroupColumn) {
-      int tmpwidth = (lastGroupColumn) ? width : width * 2;
+    if (lastGroupColumn) {
+      int tmpwidth = width * groupChannelCount;
       painter.setPen(getViewer()->getTextColor());
       if (group == currentGroup)
         painter.setPen(m_sheet->getViewer()->getCurrentTextColor());
-      text = group->getShortName();
-      painter.drawText(x0 + d, y0, tmpwidth - d, y1 - y0 + 1,
+      text = group->getLongName();
+      painter.drawText(firstX0 + d, y0, tmpwidth - d, y1 - y0 + 1,
                        Qt::AlignLeft | Qt::AlignVCenter, text);
     }
   }
@@ -430,7 +438,7 @@ void FunctionSheetColumnHeadViewer::paintEvent(QPaintEvent *e) {
 /*! update tooltips
  */
 void FunctionSheetColumnHeadViewer::mouseMoveEvent(QMouseEvent *e) {
-  if ((e->buttons() & Qt::MidButton) && m_draggingChannel &&
+  if ((e->buttons() & Qt::MiddleButton) && m_draggingChannel &&
       (e->pos() - m_dragStartPosition).manhattanLength() >=
           QApplication::startDragDistance()) {
     QDrag *drag         = new QDrag(this);
@@ -490,7 +498,7 @@ void FunctionSheetColumnHeadViewer::mousePressEvent(QMouseEvent *e) {
     return;
   }
 
-  if (e->button() == Qt::MidButton) {
+  if (e->button() == Qt::MiddleButton) {
     m_draggingChannel   = channel;
     m_dragStartPosition = e->pos();
     return;
@@ -636,7 +644,7 @@ FunctionSheetCellViewer::FunctionSheetCellViewer(FunctionSheet *parent)
   bool ret = connect(m_lineEdit, SIGNAL(editingFinished()), this,
                      SLOT(onCellEditorEditingFinished()));
   ret      = ret && connect(m_lineEdit, SIGNAL(mouseMoved(QMouseEvent *)), this,
-                       SLOT(onMouseMovedInLineEdit(QMouseEvent *)));
+                            SLOT(onMouseMovedInLineEdit(QMouseEvent *)));
   assert(ret);
   setMouseTracking(true);
 
@@ -799,8 +807,9 @@ void FunctionSheetCellViewer::drawCells(QPainter &painter, int r0, int c0,
           }
         }
 
-        drawValue =
-            (curve->isKeyframe(row)) ? Key : (showIbtwn) ? Inbetween : None;
+        drawValue = (curve->isKeyframe(row)) ? Key
+                    : (showIbtwn)            ? Inbetween
+                                             : None;
 
       }
       // empty cells
@@ -987,7 +996,7 @@ void FunctionSheetCellViewer::mousePressEvent(QMouseEvent *e) {
     if (curve) {
       KeyframeSetter::removeKeyframeAt(curve, row);
     }
-  } else if (e->button() == Qt::LeftButton || e->button() == Qt::MidButton)
+  } else if (e->button() == Qt::LeftButton || e->button() == Qt::MiddleButton)
     Spreadsheet::CellPanel::mousePressEvent(e);
   else if (e->button() == Qt::RightButton) {
     update();

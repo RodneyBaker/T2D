@@ -20,6 +20,7 @@
 #include "rulertool.h"
 #include "shifttracetool.h"
 #include "perspectivetool.h"
+#include "symmetrytool.h"
 
 // TnzQt includes
 #include "toonzqt/dvdialog.h"
@@ -63,8 +64,6 @@
 #include <QStackedWidget>
 
 using namespace ToolOptionsControls;
-
-TEnv::IntVar ArrowGlobalKeyFrame("EditToolGlobalKeyFrame", 0);
 
 //=============================================================================
 // ToolOptionToolBar
@@ -413,6 +412,8 @@ ArrowToolOptionsBox::ArrowToolOptionsBox(
 
   // enable to choose target pegbar with combobox
   m_currentStageObjectCombo = new QComboBox(this);
+  m_currentStageObjectCombo->setSizeAdjustPolicy(
+      QComboBox::SizeAdjustPolicy::AdjustToContents);
 
   TEnumProperty *activeAxisProp =
       dynamic_cast<TEnumProperty *>(m_pg->getProperty("Active Axis"));
@@ -984,12 +985,13 @@ void ArrowToolOptionsBox::updateStageObjectComboItems() {
     if (id == xsh->getStageObjectTree()->getMotionPathViewerId()) continue;
     if (id.isColumn()) {
       int columnIndex = id.getIndex();
-      if (xsh->isColumnEmpty(columnIndex)) continue;
+      if (xsh->isColumnEmpty(columnIndex) || xsh->isFolderColumn(columnIndex))
+        continue;
     }
     TStageObject *pegbar = xsh->getStageObject(id);
     QString itemName     = (id.isTable())
                            ? tr("Table")
-                           : QString::fromStdString(pegbar->getName());
+                           : QString::fromStdString(pegbar->getFullName());
     // store the item with ObjectId data
     m_currentStageObjectCombo->addItem(itemName, (int)id.getCode());
   }
@@ -1016,7 +1018,7 @@ void ArrowToolOptionsBox::syncCurrentStageObjectComboItem() {
   // column.)
   else {
     TStageObject *pegbar = m_xshHandle->getXsheet()->getStageObject(curObjId);
-    QString itemName     = QString::fromStdString(pegbar->getName());
+    QString itemName     = QString::fromStdString(pegbar->getFullName());
     std::string itemNameString = itemName.toStdString();
     // store the item with ObjectId data
     if (itemName == "Peg10000") itemName = "Path";
@@ -1042,12 +1044,12 @@ void ArrowToolOptionsBox::onCurrentStageObjectComboActivated(int index) {
     return;
   }
   // switch the current object
-  m_objHandle->setObjectId(id);
   if (id.isCamera()) {
     TXsheet *xsh = m_xshHandle->getXsheet();
     if (xsh->getCameraColumnIndex() != id.getIndex())
       m_xshHandle->changeXsheetCamera(id.getIndex());
   }
+  m_objHandle->setObjectId(id);
 }
 
 //------------------------------------------------------------------------------
@@ -1559,7 +1561,7 @@ void GeometricToolOptionsBox::filterControls() {
                (it.key() == "Opacity:") || (it.key() == "Shape:") ||
                (it.key() == "Polygon Sides:") || (it.key() == "rotate") ||
                (it.key() == "Snap") || (it.key() == "Draw Under") ||
-               (it.key() == "Smooth"));
+               (it.key() == "Smooth" || (it.key() == "Range:")));
     it.value()->setVisible(visible);
   }
 
@@ -1572,7 +1574,7 @@ void GeometricToolOptionsBox::filterControls() {
                (it.key() == "Opacity:") || (it.key() == "Shape:") ||
                (it.key() == "Polygon Sides:") || (it.key() == "rotate") ||
                (it.key() == "Snap") || (it.key() == "Draw Under") ||
-               (it.key() == "Smooth"));
+               (it.key() == "Smooth" || (it.key() == "Range:")));
     if (QWidget *widget = dynamic_cast<QWidget *>(it.value()))
       widget->setVisible(visible);
   }
@@ -1746,7 +1748,65 @@ FullColorFillToolOptionsBox::FullColorFillToolOptionsBox(
   ToolOptionControlBuilder builder(this, tool, pltHandle, toolHandle);
   if (tool && tool->getProperties(0)) tool->getProperties(0)->accept(builder);
 
+  m_rasterGapSettings =
+      dynamic_cast<ToolOptionCombo *>(m_controls.value("Gaps:"));
+  m_rasterGapSlider =
+      dynamic_cast<ToolOptionSlider *>(m_controls.value("Distance:"));
+  m_styleIndex =
+      dynamic_cast<StyleIndexFieldAndChip *>(m_controls.value("Style Index:"));
+  m_rasterGapLabel  = m_labels.value(m_rasterGapSettings->propertyName());
+  m_styleIndexLabel = m_labels.value(m_styleIndex->propertyName());
+  m_gapSliderLabel  = m_labels.value(m_rasterGapSlider->propertyName());
+
+  bool ret = connect(m_rasterGapSettings, SIGNAL(currentIndexChanged(int)),
+                     this, SLOT(onGapSettingChanged(int)));
+
+  checkGapSettingsVisibility();
+
   m_layout->addStretch(0);
+}
+
+//-----------------------------------------------------------------------------
+
+void FullColorFillToolOptionsBox::checkGapSettingsVisibility() {
+  if (m_rasterGapSettings->getProperty()->getValue() == L"Ignore Gaps") {
+    m_styleIndex->hide();
+    m_styleIndexLabel->hide();
+    m_rasterGapSlider->hide();
+    m_gapSliderLabel->hide();
+  } else if (m_rasterGapSettings->getProperty()->getValue() == L"Fill Gaps") {
+    m_styleIndex->hide();
+    m_styleIndexLabel->hide();
+    m_rasterGapSlider->show();
+    m_gapSliderLabel->show();
+  } else if (m_rasterGapSettings->getProperty()->getValue() ==
+             L"Close and Fill") {
+    m_styleIndex->show();
+    m_styleIndexLabel->show();
+    m_rasterGapSlider->show();
+    m_gapSliderLabel->show();
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+void FullColorFillToolOptionsBox::onGapSettingChanged(int index) {
+  if (index == 0) {
+    m_styleIndex->hide();
+    m_styleIndexLabel->hide();
+    m_rasterGapSlider->hide();
+    m_gapSliderLabel->hide();
+  } else if (index == 1) {
+    m_styleIndex->hide();
+    m_styleIndexLabel->hide();
+    m_rasterGapSlider->show();
+    m_gapSliderLabel->show();
+  } else if (index == 2) {
+    m_styleIndex->show();
+    m_styleIndexLabel->show();
+    m_rasterGapSlider->show();
+    m_gapSliderLabel->show();
+  }
 }
 
 //=============================================================================
@@ -1789,7 +1849,7 @@ FillToolOptionsBox::FillToolOptionsBox(QWidget *parent, TTool *tool,
   m_referenced =
       dynamic_cast<ToolOptionCheckbox *>(m_controls.value("Refer Visible"));
   m_multiFrameMode =
-      dynamic_cast<ToolOptionCheckbox *>(m_controls.value("Frame Range"));
+      dynamic_cast<ToolOptionCombo *>(m_controls.value("Frame Range:"));
   m_autopaintMode =
       dynamic_cast<ToolOptionCheckbox *>(m_controls.value("Autopaint Lines"));
   m_rasterGapSettings =
@@ -1811,8 +1871,8 @@ FillToolOptionsBox::FillToolOptionsBox(QWidget *parent, TTool *tool,
                        SLOT(onToolTypeChanged(int)));
   ret = ret && connect(m_onionMode, SIGNAL(toggled(bool)), this,
                        SLOT(onOnionModeToggled(bool)));
-  ret = ret && connect(m_multiFrameMode, SIGNAL(toggled(bool)), this,
-                       SLOT(onMultiFrameModeToggled(bool)));
+  ret = ret && connect(m_multiFrameMode, SIGNAL(currentIndexChanged(int)), this,
+                       SLOT(onMultiFrameModeChanged(int)));
   if (m_targetType == TTool::ToonzImage) {
     ret = ret && connect(m_rasterGapSettings, SIGNAL(currentIndexChanged(int)),
                          this, SLOT(onGapSettingChanged(int)));
@@ -1828,7 +1888,7 @@ FillToolOptionsBox::FillToolOptionsBox(QWidget *parent, TTool *tool,
       m_fillDepthField->setEnabled(false);
     }
     if (m_toolType->getProperty()->getValue() == L"Normal" ||
-        m_multiFrameMode->isChecked())
+        m_multiFrameMode->getProperty()->getIndex())
       m_onionMode->setEnabled(false);
     if (m_autopaintMode) m_autopaintMode->setEnabled(false);
     if (m_referenced) m_referenced->setEnabled(false);
@@ -1836,7 +1896,7 @@ FillToolOptionsBox::FillToolOptionsBox(QWidget *parent, TTool *tool,
   if (m_toolType->getProperty()->getValue() != L"Normal") {
     if (m_segmentMode) m_segmentMode->setEnabled(false);
     if (m_colorMode->getProperty()->getValue() == L"Lines" ||
-        m_multiFrameMode->isChecked())
+        m_multiFrameMode->getProperty()->getIndex())
       m_onionMode->setEnabled(false);
   }
   if (m_onionMode->isChecked()) m_multiFrameMode->setEnabled(false);
@@ -1866,7 +1926,8 @@ void FillToolOptionsBox::onColorModeChanged(int index) {
     m_segmentMode->setEnabled(
         enabled ? m_toolType->getProperty()->getValue() == L"Normal" : false);
   }
-  enabled = range[index] != L"Lines" && !m_multiFrameMode->isChecked();
+  enabled =
+      range[index] != L"Lines" && !m_multiFrameMode->getProperty()->getIndex();
   m_onionMode->setEnabled(enabled);
   if (m_referenced) m_referenced->setEnabled(enabled);
   checkGapSettingsVisibility();
@@ -1931,7 +1992,7 @@ void FillToolOptionsBox::onToolTypeChanged(int index) {
     m_segmentMode->setEnabled(
         enabled ? m_colorMode->getProperty()->getValue() != L"Areas" : false);
   enabled = enabled || (m_colorMode->getProperty()->getValue() != L"Lines" &&
-                        !m_multiFrameMode->isChecked());
+                        !m_multiFrameMode->getProperty()->getIndex());
   m_onionMode->setEnabled(enabled);
 }
 
@@ -1976,7 +2037,7 @@ void FillToolOptionsBox::onOnionModeToggled(bool value) {
 
 //-----------------------------------------------------------------------------
 
-void FillToolOptionsBox::onMultiFrameModeToggled(bool value) {
+void FillToolOptionsBox::onMultiFrameModeChanged(int value) {
   m_onionMode->setEnabled(!value);
 }
 
@@ -2237,9 +2298,10 @@ EraserToolOptionsBox::EraserToolOptionsBox(QWidget *parent, TTool *tool,
   m_colorMode = dynamic_cast<ToolOptionCombo *>(m_controls.value("Mode:"));
   if (m_colorMode)
     m_colorModeLabel = m_labels.value(m_colorMode->propertyName());
+  m_pressure = dynamic_cast<ToolOptionCheckbox *>(m_controls.value("Pressure"));
   m_invertMode = dynamic_cast<ToolOptionCheckbox *>(m_controls.value("Invert"));
   m_multiFrameMode =
-      dynamic_cast<ToolOptionCheckbox *>(m_controls.value("Frame Range"));
+      dynamic_cast<ToolOptionCombo *>(m_controls.value("Frame Range:"));
   m_pencilMode =
       dynamic_cast<ToolOptionCheckbox *>(m_controls.value("Pencil Mode"));
   m_eraseOnlySavebox =
@@ -2265,6 +2327,7 @@ EraserToolOptionsBox::EraserToolOptionsBox(QWidget *parent, TTool *tool,
   if (m_toolType && m_toolType->getProperty()->getValue() == L"Normal") {
     m_invertMode->setEnabled(false);
     m_multiFrameMode->setEnabled(false);
+    m_pressure->setEnabled(true);
   }
 
   if (m_toolType && m_toolType->getProperty()->getValue() == L"Segment") {
@@ -2273,6 +2336,7 @@ EraserToolOptionsBox::EraserToolOptionsBox(QWidget *parent, TTool *tool,
       m_colorModeLabel->setEnabled(false);
     }
     m_invertMode->setEnabled(false);
+    m_pressure->setEnabled(false);
   }
 
   if (m_eraseOnlySavebox) {
@@ -2318,6 +2382,7 @@ void EraserToolOptionsBox::onToolTypeChanged(int index) {
     m_colorMode->setDisabled(isSegment);
     m_colorModeLabel->setDisabled(isSegment);
   }
+  m_pressure->setEnabled(!value);
   m_invertMode->setEnabled(!isSegment && value);
   if (m_eraseOnlySavebox) m_eraseOnlySavebox->setEnabled(isSegment);
 }
@@ -2523,11 +2588,13 @@ TapeToolOptionsBox::TapeToolOptionsBox(QWidget *parent, TTool *tool,
       dynamic_cast<ToolOptionSlider *>(m_controls.value("Distance"));
   if (m_autocloseField)
     m_autocloseLabel = m_labels.value(m_autocloseField->propertyName());
+  m_multiFrameMode   = dynamic_cast<ToolOptionCombo *>(m_controls.value("Frame Range:"));
 
   bool isNormalType = m_typeMode->getProperty()->getValue() == L"Normal";
   m_toolMode->setEnabled(isNormalType);
   m_autocloseField->setEnabled(!isNormalType);
   m_autocloseLabel->setEnabled(!isNormalType);
+  m_multiFrameMode->setEnabled(!isNormalType);
 
   bool isLineToLineMode =
       m_toolMode->getProperty()->getValue() == L"Line to Line";
@@ -2561,6 +2628,7 @@ void TapeToolOptionsBox::onToolTypeChanged(int index) {
   m_toolMode->setEnabled(isNormalType);
   m_autocloseField->setEnabled(!isNormalType);
   m_autocloseLabel->setEnabled(!isNormalType);
+  m_multiFrameMode->setEnabled(!isNormalType);
 }
 
 //-----------------------------------------------------------------------------
@@ -3250,6 +3318,242 @@ void PerspectiveGridToolOptionBox::onRotateRight() {
 }
 
 //=============================================================================
+// SymmetryToolOptionBox
+//-----------------------------------------------------------------------------
+
+class SymmetryToolOptionBox::PresetNamePopup final : public DVGui::Dialog {
+  DVGui::LineEdit *m_nameFld;
+
+public:
+  PresetNamePopup() : Dialog(0, true) {
+    setWindowTitle(tr("Preset Name"));
+    m_nameFld = new DVGui::LineEdit();
+    addWidget(m_nameFld);
+
+    QPushButton *okBtn = new QPushButton(tr("OK"), this);
+    okBtn->setDefault(true);
+    QPushButton *cancelBtn = new QPushButton(tr("Cancel"), this);
+    connect(okBtn, SIGNAL(clicked()), this, SLOT(accept()));
+    connect(cancelBtn, SIGNAL(clicked()), this, SLOT(reject()));
+
+    addButtonBarWidget(okBtn, cancelBtn);
+  }
+
+  QString getName() { return m_nameFld->text(); }
+  void removeName() { m_nameFld->setText(QString("")); }
+};
+
+SymmetryToolOptionBox::SymmetryToolOptionBox(QWidget *parent, TTool *tool,
+                                             TPaletteHandle *pltHandle,
+                                             ToolHandle *toolHandle)
+    : ToolOptionsBox(parent), m_tool(tool), m_presetNamePopup(0) {
+  setFrameStyle(QFrame::StyledPanel);
+  setFixedHeight(26);
+
+  TPropertyGroup *props = tool->getProperties(0);
+  assert(props->getPropertyCount() > 0);
+
+  TIntProperty *lines =
+      dynamic_cast<TIntProperty *>(props->getProperty("Lines:"));
+  m_lines = new ToolOptionIntSlider(tool, lines, toolHandle);
+
+  TDoubleProperty *opacity =
+      dynamic_cast<TDoubleProperty *>(props->getProperty("Opacity:"));
+  m_opacity = new ToolOptionSlider(tool, opacity, toolHandle);
+
+  m_rotationLabel = new ClickableLabel(tr("Rotation:"), this);
+  m_rotation      = new MeasuredValueField(this);
+  m_rotation->setMeasure("angle");
+  m_rotation->setMaximumWidth(getMaximumWidthForMeasuredValueField(m_rotation));
+
+  m_leftRotateButton  = new QPushButton(this);
+  m_rightRotateButton = new QPushButton(this);
+
+  m_leftRotateButton->setFixedSize(QSize(20, 20));
+  m_rightRotateButton->setFixedSize(QSize(20, 20));
+
+  m_leftRotateButton->setIcon(createQIcon("rotateleft"));
+  m_leftRotateButton->setIconSize(QSize(20, 20));
+  m_rightRotateButton->setIcon(createQIcon("rotateright"));
+  m_rightRotateButton->setIconSize(QSize(20, 20));
+
+  m_leftRotateButton->setToolTip(tr("Rotate Perspective Left"));
+  m_rightRotateButton->setToolTip(tr("Rotate Perspective Right"));
+
+  TColorChipProperty *color =
+      dynamic_cast<TColorChipProperty *>(props->getProperty("Color:"));
+  m_color = new ColorChipCombo(tool, color);
+
+  TBoolProperty *lineSymmetry =
+      dynamic_cast<TBoolProperty *>(props->getProperty("Line Symmetry"));
+  m_useLineSymmetry = new ToolOptionCheckbox(tool, lineSymmetry, toolHandle);
+
+  QPushButton *resetButton = new QPushButton(tr("Reset Position"));
+  int buttonWidth          = fontMetrics().width(resetButton->text()) + 10;
+  resetButton->setFixedWidth(buttonWidth);
+  resetButton->setFixedHeight(20);
+
+  TEnumProperty *preset =
+      dynamic_cast<TEnumProperty *>(props->getProperty("Preset:"));
+  m_presetCombo = new ToolOptionCombo(tool, preset, toolHandle);
+
+  // Preset +/- buttons
+  m_addPresetButton    = new QPushButton(QString("+"));
+  m_removePresetButton = new QPushButton(QString("-"));
+
+  m_addPresetButton->setFixedSize(QSize(20, 20));
+  m_removePresetButton->setFixedSize(QSize(20, 20));
+
+  /* --- Layout --- */
+  QHBoxLayout *mainLay = m_layout;
+  {
+    mainLay->addWidget(new QLabel(tr("Lines:"), this), 0);
+    mainLay->addWidget(m_lines, 16);
+
+    mainLay->addSpacing(5);
+
+    mainLay->addWidget(new QLabel(tr("Opacity:"), this), 0);
+    mainLay->addWidget(m_opacity, 100);
+
+    mainLay->addSpacing(5);
+
+    mainLay->addWidget(m_rotationLabel, 0);
+    mainLay->addWidget(m_rotation, 10);
+    mainLay->addWidget(m_leftRotateButton, 0);
+    mainLay->addWidget(m_rightRotateButton, 0);
+
+    mainLay->addSpacing(5);
+
+    mainLay->addWidget(new QLabel(tr("Color:"), this), 0);
+    mainLay->addWidget(m_color, 0);
+
+    mainLay->addSpacing(5);
+
+    mainLay->addWidget(m_useLineSymmetry, 0);
+
+    mainLay->addSpacing(5);
+
+    mainLay->addWidget(new QLabel(tr("Preset:"), this), 0);
+    mainLay->addWidget(m_presetCombo, 0);
+    mainLay->addWidget(m_addPresetButton);
+    mainLay->addWidget(m_removePresetButton);
+  }
+
+  m_layout->addStretch(1);
+  m_layout->addWidget(resetButton, 0);
+  m_layout->addSpacing(5);
+
+  connect(m_rotation, SIGNAL(measuredValueChanged(TMeasuredValue *, bool)),
+          SLOT(onRotationChange(TMeasuredValue *)));
+  connect(m_rotationLabel, SIGNAL(onMousePress(QMouseEvent *)), m_rotation,
+          SLOT(receiveMousePress(QMouseEvent *)));
+  connect(m_rotationLabel, SIGNAL(onMouseMove(QMouseEvent *)), m_rotation,
+          SLOT(receiveMouseMove(QMouseEvent *)));
+  connect(m_rotationLabel, SIGNAL(onMouseRelease(QMouseEvent *)), m_rotation,
+          SLOT(receiveMouseRelease(QMouseEvent *)));
+  connect(m_leftRotateButton, SIGNAL(clicked()), SLOT(onRotateLeft()));
+  connect(m_rightRotateButton, SIGNAL(clicked()), SLOT(onRotateRight()));
+  connect(resetButton, SIGNAL(clicked()), SLOT(onResetPosition()));
+  connect(m_addPresetButton, SIGNAL(clicked()), this, SLOT(onAddPreset()));
+  connect(m_removePresetButton, SIGNAL(clicked()), this,
+          SLOT(onRemovePreset()));
+
+  filterControls();
+}
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::filterControls() {
+  bool hasEvenLines = (m_lines->getValue() % 2) == 0;
+
+  m_useLineSymmetry->setEnabled(hasEvenLines);
+}
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::updateStatus() {
+  m_lines->updateStatus();
+  m_opacity->updateStatus();
+  m_color->updateStatus();
+  m_useLineSymmetry->updateStatus();
+  m_presetCombo->updateStatus();
+
+  filterControls();
+}
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::updateMeasuredValues(double rotation) {
+  m_rotation->setValue(rotation);
+  repaint();
+}
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::onLinesChanged() { filterControls(); }
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::onRotationChange(TMeasuredValue *fld) {
+  double value = fld->getValue(TMeasuredValue::CurrentUnit);
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(m_tool);
+
+  symmetryTool->updateRotation(value);
+  symmetryTool->onPropertyChanged("Rotation");
+}
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::onRotateLeft() {
+  m_rotation->setValue(m_rotation->getValue() + 90);
+  emit m_rotation->measuredValueChanged(m_rotation->getMeasuredValue());
+}
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::onRotateRight() {
+  m_rotation->setValue(m_rotation->getValue() - 90);
+  emit m_rotation->measuredValueChanged(m_rotation->getMeasuredValue());
+}
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::onResetPosition() {
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(m_tool);
+
+  symmetryTool->resetPosition();
+}
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::onAddPreset() {
+  // Initialize preset name popup
+  if (!m_presetNamePopup) m_presetNamePopup = new PresetNamePopup;
+
+  if (!m_presetNamePopup->getName().isEmpty()) m_presetNamePopup->removeName();
+
+  // Retrieve the preset name
+  bool ret = m_presetNamePopup->exec();
+  if (!ret) return;
+
+  QString name(m_presetNamePopup->getName());
+  m_presetNamePopup->removeName();
+
+  static_cast<SymmetryTool *>(m_tool)->addPreset(name);
+
+  m_presetCombo->loadEntries();
+}
+
+//-----------------------------------------------------------------------------
+
+void SymmetryToolOptionBox::onRemovePreset() {
+  static_cast<SymmetryTool *>(m_tool)->removePreset();
+
+  m_presetCombo->loadEntries();
+}
+
+//=============================================================================
 // ZoomToolOptionBox
 //-----------------------------------------------------------------------------
 
@@ -3445,6 +3749,12 @@ void ToolOptions::onToolSwitched() {
         panel               = p;
         PerspectiveTool *pt = dynamic_cast<PerspectiveTool *>(tool);
         if (pt) pt->setToolOptionsBox(p);
+      } else if (tool->getName() == T_Symmetry) {
+        SymmetryToolOptionBox *p =
+            new SymmetryToolOptionBox(this, tool, currPalette, currTool);
+        panel            = p;
+        SymmetryTool *st = dynamic_cast<SymmetryTool *>(tool);
+        if (st) st->setToolOptionsBox(p);
       } else if (tool->getName() == T_StylePicker)
         panel = new StylePickerToolOptionsBox(0, tool, currPalette, currTool,
                                               app->getPaletteController());

@@ -30,6 +30,7 @@
 // TnzQt includes
 #include "toonzqt/selection.h"
 #include "toonzqt/selectioncommandids.h"
+#include "toonzqt/gutil.h"
 
 // TnzTools includes
 #include "tools/tool.h"
@@ -305,7 +306,8 @@ bool SkeletonTool::doesApply() const {
   TStageObjectId objId = app->getCurrentObject()->getObjectId();
   if (objId.isColumn()) {
     TXshColumn *column = xsh->getColumn(objId.getIndex());
-    if (column && column->getSoundColumn()) return false;
+    if (column && (column->getSoundColumn() || column->getFolderColumn()))
+      return false;
   }
   return true;
 }
@@ -413,21 +415,24 @@ void SkeletonTool::leftButtonDown(const TPointD &ppos, const TMouseEvent &e) {
 
   // lock/unlock: modalita IK
   if (TD_LockStageObject <= m_device && m_device < TD_LockStageObject + 1000) {
-      Skeleton* skeleton = new Skeleton();
-      buildSkeleton(*skeleton, currentColumnIndex);
     int columnIndex = m_device - TD_LockStageObject;
-    int frame = app->getCurrentFrame()->getFrame();
-    if (skeleton->getBoneByColumnIndex(columnIndex) == skeleton->getRootBone()) {
-        app->getCurrentColumn()->setColumnIndex(columnIndex);
-        m_device = TD_Translation;
+    int frame       = app->getCurrentFrame()->getFrame();
+    if (e.isCtrlPressed() || e.isShiftPressed()) {
+      // ctrl + click : toggle pinned center
+      // shift + click : toggle temporary pin
+      togglePinnedStatus(columnIndex, frame, e.isShiftPressed());
+      invalidate();
+      m_dragTool = 0;
+      return;
     }
-    else if (e.isShiftPressed()) {
-        togglePinnedStatus(columnIndex, frame, e.isShiftPressed());
-        invalidate();
-        m_dragTool = 0;
-        return;
-    }
-    else return;
+    Skeleton *skeleton = new Skeleton();
+    buildSkeleton(*skeleton, currentColumnIndex);
+    if (skeleton->getBoneByColumnIndex(columnIndex) ==
+        skeleton->getRootBone()) {
+      app->getCurrentColumn()->setColumnIndex(columnIndex);
+      m_device = TD_Translation;
+    } else
+      return;
   }
 
   switch (m_device) {
@@ -1233,11 +1238,12 @@ glPopMatrix();
   for (int i = 0; i < (int)m_magicLinks.size(); i++) {
     const MagicLink &magicLink = m_magicLinks[i];
     const HookData &h1         = magicLink.m_h1;
+    TStageObjectId id          = TStageObjectId::ColumnId(h1.m_columnIndex);
+    TStageObject *obj          = xsh->getStageObject(id);
     std::string name;
     name = (m_parentProbeEnabled ? "Linking " : "Link ") +
-           removeTrailingH(magicLink.m_h0.getHandle()) + " to Col " +
-           std::to_string(h1.m_columnIndex + 1) + "/" +
-           removeTrailingH(h1.getHandle());
+           removeTrailingH(magicLink.m_h0.getHandle()) + " to " +
+           obj->getFullName() + "/" + removeTrailingH(h1.getHandle());
 
     int code = TD_MagicLink + i;
     glPushName(code);
@@ -1260,7 +1266,8 @@ void SkeletonTool::drawDrawingBrowser(const TXshCell &cell,
                      std::to_string(cell.m_frameId.getNumber());
 
   QString qText = QString::fromStdString(name);
-  QFont font("Arial", 10);  // ,QFont::Bold);
+  int devPixRatio = getDevicePixelRatio(getViewer()->viewerWidget());
+  QFont font("Arial", 10 * devPixRatio);  // ,QFont::Bold);
   QFontMetrics fm(font);
   QSize textSize   = fm.boundingRect(qText).size();
   int arrowHeight  = 10;

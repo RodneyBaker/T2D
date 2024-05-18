@@ -21,6 +21,7 @@
 #define MI_ClearFrames "MI_ClearFrames"
 #define MI_SelectAll "MI_SelectAll"
 #define MI_InvertSelection "MI_InvertSelection"
+#define MI_RemoveCells "MI_RemoveCells"
 
 #define MI_BlendColors "MI_BlendColors"
 #define MI_EraseUnusedStyles "MI_EraseUnusedStyles"
@@ -41,5 +42,18 @@
 #define MI_ExplodeChild "MI_ExplodeChild"
 #define MI_ToggleEditInPlace "MI_ToggleEditInPlace"
 #define MI_PasteNumbers "MI_PasteNumbers"
+#define MI_PasteCellContent "MI_PasteCellContent"
+
+#define MI_AlignLeft "MI_AlignLeft"
+#define MI_AlignRight "MI_AlignRight"
+#define MI_AlignTop "MI_AlignTop"
+#define MI_AlignBottom "MI_AlignBottom"
+#define MI_AlignCenterHorizontal "MI_AlignCenterHorizontal"
+#define MI_AlignCenterVertical "MI_AlignCenterVertical"
+#define MI_DistributeHorizontal "MI_DistributeHorizontal"
+#define MI_DistributeVertical "MI_DistributeVertical"
+
+#define MI_SetLinearControlPoint "MI_SetLinearControlPoint"
+#define MI_SetNonLinearControlPoint "MI_SetNonLinearControlPoint"
 
 #endif

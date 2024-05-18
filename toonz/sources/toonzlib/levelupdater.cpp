@@ -25,6 +25,9 @@ namespace {
 
 inline bool supportsRandomAccess(const TFilePath &fp) {
   const std::string &type = fp.getType();
+
+  if (type == "pli") return false;
+
   return type == "tlv" ||  // TLVs do support random access
          fp.getDots() == "..";  // Multi-file levels of course do
 }
@@ -94,14 +97,15 @@ LevelUpdater::LevelUpdater(TXshSimpleLevel *sl)
 
 //-----------------------------------------------------------------------------
 
-LevelUpdater::LevelUpdater(const TFilePath &fp, TPropertyGroup *lwProperties)
+LevelUpdater::LevelUpdater(const TFilePath &fp, TPropertyGroup *lwProperties,
+                           const TFrameId &tmplFId)
     : m_pg(0)
     , m_inputLevel(0)
     , m_imageInfo(0)
     , m_currIdx(0)
     , m_opened(false)
     , m_usingTemporaryFile(false) {
-  open(fp, lwProperties);
+  open(fp, lwProperties, tmplFId);
 }
 
 //-----------------------------------------------------------------------------
@@ -203,7 +207,8 @@ void LevelUpdater::buildProperties(const TFilePath &fp) {
 
 //-----------------------------------------------------------------------------
 
-void LevelUpdater::open(const TFilePath &fp, TPropertyGroup *pg) {
+void LevelUpdater::open(const TFilePath &fp, TPropertyGroup *pg,
+                        const TFrameId &tmplFId) {
   assert(!m_lw);
 
   // Find out if a corresponding level already exists on disk - in that case,
@@ -239,7 +244,7 @@ void LevelUpdater::open(const TFilePath &fp, TPropertyGroup *pg) {
           TLevelReaderP();  // Release the reader. This is necessary since the
       m_lw = TLevelWriterP(
           fp, m_pg->clone());  // original file itself will be MODIFIED.
-      m_lwPath = fp;
+      m_lwPath = m_lw->getFilePath();
     }
   } catch (...) {
     // In this case, TLevelWriterP(..) failed, that object was never
@@ -256,6 +261,10 @@ void LevelUpdater::open(const TFilePath &fp, TPropertyGroup *pg) {
   TDimension iconSize = Preferences::instance()->getIconSize();
   assert(iconSize.lx > 0 && iconSize.ly > 0);
   m_lw->setIconSize(iconSize);
+
+  // set the frame format template (to be used in
+  // TLevelWriter::getFrameWriter())
+  if (!tmplFId.isNoFrame()) m_lw->setFrameFormatTemplateFId(tmplFId);
 
   m_opened = true;
 }

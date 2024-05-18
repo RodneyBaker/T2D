@@ -12,6 +12,7 @@
 #include "toonzqt/gutil.h"
 #include "toonzqt/filefield.h"
 #include "toonzqt/colorfield.h"
+#include "toonzqt/intfield.h"
 
 // TnzLib includes
 #include "toonz/tscenehandle.h"
@@ -58,6 +59,7 @@
 #include <QDesktopServices>
 #include <QGroupBox>
 #include <QSettings>
+#include <QLocale>
 
 // Template
 TEnv::StringVar XShPdfExportTemplate("XShPdfExportTemplate", "B4_6sec");
@@ -377,22 +379,42 @@ QComboBox* createTickMarkCombo(QWidget* parent) {
   return combo;
 }
 
+void doDrawText(QPainter& p, const QString& str, const QRect rect) {
+  QFontMetrics fm(p.font());
+  int spaceWidth = fm.boundingRect('A').width();
+  // check if spaces can be iserted between letters
+  int textWidth = fm.boundingRect(str).width() + spaceWidth * (str.count() - 1);
+  if (rect.width() - spaceWidth * 2 <= textWidth) {
+    p.drawText(rect, Qt::AlignCenter, str);
+    return;
+  }
+  // check if spaces can be doubled
+  int textWidth_s2 =
+      fm.boundingRect(str).width() + spaceWidth * 2 * (str.count() - 1);
+  if (rect.width() - spaceWidth * 4 > textWidth_s2) textWidth = textWidth_s2;
+  QRect textRect(rect.center().x() - textWidth / 2, rect.y(), textWidth,
+                 rect.height());
+  p.drawText(textRect,
+             Qt::TextJustificationForced | Qt::AlignJustify | Qt::AlignVCenter,
+             str);
+}
+
+void setFontFittingRectWidth(QPainter& p, const QString& str, const QRect rect,
+                             double vmargin = 0.5, double hmargin = 1.0) {
+  QFont font    = p.font();
+  int pixelSize = rect.height() - mm2px(vmargin);
+  while (1) {
+    font.setPixelSize(pixelSize);
+    if (pixelSize <= mm2px(2) || QFontMetrics(font).boundingRect(str).width() <=
+                                     rect.width() - mm2px(hmargin))
+      break;
+    pixelSize -= mm2px(0.1);
+  }
+  p.setFont(font);
+}
+
 }  // namespace
 //---------------------------------------------------------
-
-void XSheetPDFTemplate::adjustSpacing(QPainter& painter, const int width,
-                                      const QString& label,
-                                      const double ratio) {
-  QFont font     = painter.font();
-  int thresWidth = (int)((double)width * ratio);
-  int spacing    = 300;
-  while (spacing > 0) {
-    font.setLetterSpacing(QFont::PercentageSpacing, spacing);
-    if (QFontMetrics(font).boundingRect(label).width() <= thresWidth) break;
-    spacing -= 50;
-  }
-  painter.setFont(font);
-}
 
 void XSheetPDFTemplate::drawGrid(QPainter& painter, int colAmount, int colWidth,
                                  int blockWidth) {
@@ -577,7 +599,6 @@ void XSheetPDFTemplate::drawKeyBlock(QPainter& painter, int framePage,
                                      const int bodyId) {
   QFont font = painter.font();
   font.setPixelSize(m_p.bodylabelTextSize_Small);
-  font.setLetterSpacing(QFont::PercentageSpacing, 200);
   painter.setFont(font);
 
   painter.save();
@@ -600,7 +621,7 @@ void XSheetPDFTemplate::drawKeyBlock(QPainter& painter, int framePage,
     QString actionLabel = (param(TranslateBodyLabel, 1) == 1)
                               ? QObject::tr("ACTION", "XSheetPDF")
                               : "ACTION";
-    painter.drawText(labelRect, Qt::AlignCenter, actionLabel);
+    doDrawText(painter, actionLabel, labelRect);
 
     painter.save();
     {
@@ -676,7 +697,7 @@ void XSheetPDFTemplate::drawKeyBlock(QPainter& painter, int framePage,
     painter.restore();
 
     painter.translate(m_p.keyBlockWidth, 0);
-    painter.setPen(thinPen);
+    painter.setPen(blockBorderPen);
     painter.drawLine(0, 0, 0, param(BodyHeight));
   }
   painter.restore();
@@ -749,7 +770,7 @@ void XSheetPDFTemplate::drawDialogBlock(QPainter& painter, const int framePage,
 
   painter.save();
   {
-    painter.setPen(thinPen);
+    painter.setPen(blockBorderPen);
     painter.translate(param(DialogColWidth), 0);
     painter.drawLine(0, 0, 0, param(BodyHeight));
   }
@@ -759,7 +780,6 @@ void XSheetPDFTemplate::drawDialogBlock(QPainter& painter, const int framePage,
 void XSheetPDFTemplate::drawCellsBlock(QPainter& painter, int bodyId) {
   QFont font = painter.font();
   font.setPixelSize(m_p.bodylabelTextSize_Small);
-  font.setLetterSpacing(QFont::PercentageSpacing, 200);
   painter.setFont(font);
 
   painter.save();
@@ -783,7 +803,7 @@ void XSheetPDFTemplate::drawCellsBlock(QPainter& painter, int bodyId) {
       QString cellsLabel = (param(TranslateBodyLabel, 1) == 1)
                                ? QObject::tr("CELL", "XSheetPDF")
                                : "CELL";
-      painter.drawText(labelRect, Qt::AlignCenter, cellsLabel);
+      doDrawText(painter, cellsLabel, labelRect);
     }
 
     painter.save();
@@ -800,7 +820,7 @@ void XSheetPDFTemplate::drawCellsBlock(QPainter& painter, int bodyId) {
     }
     painter.restore();
 
-    painter.setPen(thinPen);
+    painter.setPen(blockBorderPen);
     painter.translate(m_p.cellsBlockWidth, 0);
     painter.drawLine(0, 0, 0, param(BodyHeight));
   }
@@ -810,7 +830,6 @@ void XSheetPDFTemplate::drawCellsBlock(QPainter& painter, int bodyId) {
 void XSheetPDFTemplate::drawCameraBlock(QPainter& painter) {
   QFont font = painter.font();
   font.setPixelSize(m_p.bodylabelTextSize_Large);
-  font.setLetterSpacing(QFont::PercentageSpacing, 150);
   painter.setFont(font);
 
   painter.save();
@@ -828,7 +847,7 @@ void XSheetPDFTemplate::drawCameraBlock(QPainter& painter) {
           font.setPixelSize(m_p.bodylabelTextSize_Small);
           painter.setFont(font);
           QRect labelRect(0, 0, m_p.cameraBlockWidth, param(HeaderHeight) / 2);
-          painter.drawText(labelRect, Qt::AlignCenter, cameraLabel);
+          doDrawText(painter, cameraLabel, labelRect);
         }
       } else {
         // horizontal lines
@@ -840,7 +859,7 @@ void XSheetPDFTemplate::drawCameraBlock(QPainter& painter) {
           font.setPixelSize(m_p.bodylabelTextSize_Large);
           painter.setFont(font);
           QRect labelRect(0, 0, m_p.cameraBlockWidth, param(HeaderHeight));
-          painter.drawText(labelRect, Qt::AlignCenter, cameraLabel);
+          doDrawText(painter, cameraLabel, labelRect);
         }
       }
     }
@@ -865,7 +884,7 @@ void XSheetPDFTemplate::drawXsheetBody(QPainter& painter, int framePage,
   // Body
   painter.save();
   {
-    painter.setPen(thickPen);
+    painter.setPen(bodyOutlinePen);
     painter.drawRect(QRect(0, 0, param(BodyWidth), param(BodyHeight)));
 
     drawKeyBlock(painter, framePage, bodyId);
@@ -883,26 +902,29 @@ void XSheetPDFTemplate::drawInfoHeader(QPainter& painter) {
   painter.save();
   {
     painter.translate(param(InfoOriginLeft), param(InfoOriginTop));
-    painter.setPen(thinPen);
     QFont font = painter.font();
     font.setPixelSize(param(InfoTitleHeight) - mm2px(2));
-    font.setLetterSpacing(QFont::PercentageSpacing, 200);
     painter.setFont(font);
+    bool isLeftMost = true;
     // draw each info
     for (auto info : m_p.array_Infos) {
+      painter.setPen((isLeftMost) ? bodyOutlinePen : thinPen);
+      isLeftMost = false;
       // vertical line
       painter.drawLine(0, 0, 0, m_p.infoHeaderHeight);
       // 3 horizontal lines
-      painter.drawLine(0, 0, info.width, 0);
+      painter.setPen(thinPen);
       painter.drawLine(0, param(InfoTitleHeight), info.width,
                        param(InfoTitleHeight));
+      painter.setPen(bodyOutlinePen);
+      painter.drawLine(0, 0, info.width, 0);
       painter.drawLine(0, m_p.infoHeaderHeight, info.width,
                        m_p.infoHeaderHeight);
 
+      painter.setPen(thinPen);
       // label
       QRect labelRect(0, 0, info.width, param(InfoTitleHeight));
-      adjustSpacing(painter, labelRect.width(), info.label);
-      painter.drawText(labelRect, Qt::AlignCenter, info.label);
+      doDrawText(painter, info.label, labelRect);
 
       if (info.decoFunc) {
         painter.save();
@@ -919,6 +941,7 @@ void XSheetPDFTemplate::drawInfoHeader(QPainter& painter) {
       painter.translate(info.width, 0);
     }
     // vertical line at the rightmost edge
+    painter.setPen(bodyOutlinePen);
     painter.drawLine(0, 0, 0, m_p.infoHeaderHeight);
   }
   painter.restore();
@@ -974,7 +997,7 @@ void XSheetPDFTemplate::drawCellNumber(QPainter& painter, QRect rect,
       circlePen.setWidth(mm2px(0.3));
       painter.setPen(circlePen);
       QFontMetrics fm(font);
-#if QT_VERSION >= 0x051100
+#if QT_VERSION >= QT_VERSION_CHECK(5, 11, 0)
       int keyR_width =
         std::max(param(RowHeight), fm.horizontalAdvance(str) + mm2px(1));
 #else
@@ -1292,11 +1315,14 @@ XSheetPDFTemplate::XSheetPDFTemplate(
     : m_columns(columns), m_duration(duration), m_useExtraColumns(false) {}
 
 void XSheetPDFTemplate::setInfo(const XSheetPDFFormatInfo& info) {
-  m_info   = info;
-  thinPen  = QPen(info.lineColor, mm2px(0.25), Qt::SolidLine, Qt::FlatCap,
-                 Qt::MiterJoin);
-  thickPen = QPen(info.lineColor, mm2px(0.5), Qt::SolidLine, Qt::FlatCap,
-                  Qt::MiterJoin);
+  m_info         = info;
+  thinPen        = QPen(info.lineColor, param(ThinLineWidth, mm2px(0.25)),
+                        Qt::SolidLine, Qt::FlatCap, Qt::MiterJoin);
+  thickPen       = QPen(info.lineColor, param(ThickLineWidth, mm2px(0.5)),
+                        Qt::SolidLine, Qt::FlatCap, Qt::MiterJoin);
+  bodyOutlinePen = QPen(info.lineColor, param(BodyOutlineWidth, mm2px(0.5)),
+                        Qt::SolidLine, Qt::FlatCap, Qt::MiterJoin);
+  blockBorderPen = (param(IsBlockBorderThick, 0) > 0) ? thickPen : thinPen;
   // check if it should use extra columns
   if (info.exportArea == Area_Cells && param(ExtraCellsColAmount, 0) > 0) {
     int colsInScene   = m_columns.size();
@@ -1347,6 +1373,10 @@ void XSheetPDFTemplate::drawXsheetTemplate(QPainter& painter, int framePage,
 void XSheetPDFTemplate::drawXsheetContents(QPainter& painter, int framePage,
                                            int parallelPage, bool isPreview) {
   auto checkContinuous = [&](const TXshLevelColumn* column, int f, int r) {
+    if (m_info.continuousLineMode == Line_Always)
+      return true;
+    else if (m_info.continuousLineMode == Line_None)
+      return false;
     TXshCell cell = column->getCell(f);
     // check subsequent cells and see if more than 3 cells continue.
     int tmp_r = r + 1;
@@ -1354,6 +1384,11 @@ void XSheetPDFTemplate::drawXsheetContents(QPainter& painter, int framePage,
       if (tmp_f == m_duration) return false;
       if (tmp_r % 72 == 0) return false;  // step over to the next body
       if (column->getCell(tmp_f) != cell) return false;
+      // tickmark breaks continuous line
+      int markId = column->getCellMark(tmp_f);
+      if (markId >= 0 &&
+          (m_info.tick1MarkId == markId || m_info.tick2MarkId == markId))
+        return false;
     }
     return true;
   };
@@ -1399,31 +1434,32 @@ void XSheetPDFTemplate::drawXsheetContents(QPainter& painter, int framePage,
         drawLevelName(painter, m_colLabelRects_bottom[c][r / 72], columnName,
                       true);
 
+      if (m_duration == 0) break;
+
       TXshCell cell = column->getCell(f);
       if (cell.m_level != level) cell.m_level = nullptr;
 
-      int markId = column->getCellMark(r);
+      int markId = column->getCellMark(f);
 
-      // cotinuous line
-      if (r != 0 && r != 72 && prevCell == cell) {
-        // draw tick mark
-        if (markId >= 0 && m_info.tick1MarkId == markId)
+      // draw tick mark
+      if ((prevCell == cell || cell.isEmpty()) && markId >= 0 &&
+          (m_info.tick1MarkId == markId || m_info.tick2MarkId == markId)) {
+        if (m_info.tick1MarkId == markId)
           drawTickMark(painter, m_cellRects[c][r], m_info.tick1MarkType);
-        else if (markId >= 0 && m_info.tick2MarkId == markId)
+        else
           drawTickMark(painter, m_cellRects[c][r], m_info.tick2MarkType);
-
-        else if (drawCLFlag)
+        drawCLFlag = checkContinuous(column, f, r);
+      }
+      // cotinuous line
+      else if (r != 0 && r != 72 && prevCell == cell) {
+        if (drawCLFlag)
           drawContinuousLine(painter, m_cellRects[c][r], cell.isEmpty());
       }
       // draw cell
       else {
         bool drawKeyMark = (markId >= 0 && m_info.keyMarkId == markId);
         drawCellNumber(painter, m_cellRects[c][r], cell, drawKeyMark);
-        drawCLFlag = (m_info.continuousLineMode == Line_Always)
-                         ? true
-                         : (m_info.continuousLineMode == Line_None)
-                               ? false
-                               : checkContinuous(column, f, r);
+        drawCLFlag = checkContinuous(column, f, r);
       }
       prevCell = cell;
 
@@ -1481,48 +1517,38 @@ void XSheetPDFTemplate::drawXsheetContents(QPainter& painter, int framePage,
   painter.restore();
 
   if (m_dataRects.contains(Data_Second) && m_duration >= 24) {
-    font.setPixelSize(m_dataRects.value(Data_Second).height() - mm2px(1));
-    painter.setFont(font);
-    painter.drawText(m_dataRects.value(Data_Second), Qt::AlignCenter,
-                     QString::number(m_duration / 24));
+    QString str = QString::number(m_duration / 24);
+    setFontFittingRectWidth(painter, str, m_dataRects.value(Data_Second));
+    painter.drawText(m_dataRects.value(Data_Second), Qt::AlignCenter, str);
   }
   if (m_dataRects.contains(Data_Frame) && m_duration > 0) {
-    font.setPixelSize(m_dataRects.value(Data_Frame).height() - mm2px(1));
-    painter.setFont(font);
-    painter.drawText(m_dataRects.value(Data_Frame), Qt::AlignCenter,
-                     QString::number(m_duration % 24));
+    QString str = QString::number(m_duration % 24);
+    setFontFittingRectWidth(painter, str, m_dataRects.value(Data_Frame));
+    painter.drawText(m_dataRects.value(Data_Frame), Qt::AlignCenter, str);
   }
 
   if (m_dataRects.contains(Data_TotalPages)) {
     QString totStr = QString::number(framePageCount());
     if (parallelPageCount() > 1)
       totStr += "x" + QString::number(parallelPageCount());
-    font.setPixelSize(m_dataRects.value(Data_TotalPages).height() - mm2px(0.5));
-    painter.setFont(font);
+
+    setFontFittingRectWidth(painter, totStr,
+                            m_dataRects.value(Data_TotalPages));
     painter.drawText(m_dataRects.value(Data_TotalPages), Qt::AlignCenter,
                      totStr);
   }
   if (m_dataRects.contains(Data_CurrentPage)) {
     QString curStr = QString::number(framePage + 1);
     if (parallelPageCount() > 1) curStr += QChar('A' + parallelPage);
-    font.setPixelSize(m_dataRects.value(Data_CurrentPage).height() -
-                      mm2px(0.5));
-    painter.setFont(font);
+
+    setFontFittingRectWidth(painter, curStr,
+                            m_dataRects.value(Data_CurrentPage));
     painter.drawText(m_dataRects.value(Data_CurrentPage),
                      Qt::AlignLeft | Qt::AlignVCenter, curStr);
   }
   if (m_dataRects.contains(Data_SceneName) && !m_info.sceneNameText.isEmpty()) {
-    int pixelSize = m_dataRects.value(Data_SceneName).height() - mm2px(1);
-    QRect rect    = m_dataRects.value(Data_SceneName);
-    while (1) {
-      font.setPixelSize(pixelSize);
-      if (pixelSize <= mm2px(2) ||
-          QFontMetrics(font).boundingRect(m_info.sceneNameText).width() <
-              rect.width() - mm2px(1))
-        break;
-      pixelSize -= mm2px(0.2);
-    }
-    painter.setFont(font);
+    QRect rect = m_dataRects.value(Data_SceneName);
+    setFontFittingRectWidth(painter, m_info.sceneNameText, rect);
     painter.drawText(rect, Qt::AlignCenter, m_info.sceneNameText);
   }
 }
@@ -1562,8 +1588,8 @@ QPixmap XSheetPDFTemplate::initializePreview() {
 }
 
 int XSheetPDFTemplate::framePageCount() {
-  int ret = m_duration / param(FrameLength);
-  if (m_duration % param(FrameLength) != 0 || m_duration == 0) ret += 1;
+  int ret = m_duration / param(FrameLength, 1);
+  if (m_duration % param(FrameLength, 1) != 0 || m_duration == 0) ret += 1;
   return ret;
 }
 
@@ -1865,6 +1891,7 @@ ExportXsheetPdfPopup::ExportXsheetPdfPopup()
   m_templateCombo       = new QComboBox(this);
   m_exportAreaCombo     = new QComboBox(this);
   m_continuousLineCombo = new QComboBox(this);
+  m_durationFld         = new DVGui::IntLineEdit(this, 0, 0);
 
   m_pageInfoLbl  = new QLabel(this);
   m_lineColorFld = new DVGui::ColorField(this, false, TPixel32(128, 128, 128));
@@ -1910,7 +1937,7 @@ ExportXsheetPdfPopup::ExportXsheetPdfPopup()
   //------
   QStringList pdfFileTypes = {"pdf"};
   m_pathFld->setFilters(pdfFileTypes);
-  m_pathFld->setFileMode(QFileDialog::DirectoryOnly);
+  m_pathFld->setFileMode(QFileDialog::Directory);  // implies ShowDirOnly
   m_fileNameFld->setFixedWidth(100);
   m_previewArea->setWidget(m_previewPane);
   m_previewArea->setAlignment(Qt::AlignCenter);
@@ -2020,19 +2047,23 @@ ExportXsheetPdfPopup::ExportXsheetPdfPopup()
         exportLay->setHorizontalSpacing(5);
         exportLay->setVerticalSpacing(10);
         {
-          exportLay->addWidget(new QLabel(tr("Output area:"), this), 0, 0,
+          exportLay->addWidget(new QLabel(tr("Frame length:"), this), 0, 0,
                                Qt::AlignRight | Qt::AlignVCenter);
-          exportLay->addWidget(m_exportAreaCombo, 0, 1);
-          exportLay->addWidget(m_pageInfoLbl, 0, 2);
+          exportLay->addWidget(m_durationFld, 0, 1);
 
-          exportLay->addWidget(new QLabel(tr("Output font:"), this), 1, 0,
+          exportLay->addWidget(new QLabel(tr("Output area:"), this), 1, 0,
                                Qt::AlignRight | Qt::AlignVCenter);
-          exportLay->addWidget(m_contentsFontCB, 1, 1, 1, 2,
+          exportLay->addWidget(m_exportAreaCombo, 1, 1);
+          exportLay->addWidget(m_pageInfoLbl, 1, 2);
+
+          exportLay->addWidget(new QLabel(tr("Output font:"), this), 2, 0,
+                               Qt::AlignRight | Qt::AlignVCenter);
+          exportLay->addWidget(m_contentsFontCB, 2, 1, 1, 2,
                                Qt::AlignLeft | Qt::AlignVCenter);
 
-          exportLay->addWidget(new QLabel(tr("Continuous line:"), this), 2, 0,
+          exportLay->addWidget(new QLabel(tr("Continuous line:"), this), 3, 0,
                                Qt::AlignRight | Qt::AlignVCenter);
-          exportLay->addWidget(m_continuousLineCombo, 2, 1, 1, 2,
+          exportLay->addWidget(m_continuousLineCombo, 3, 1, 1, 2,
                                Qt::AlignLeft | Qt::AlignVCenter);
 
           QGridLayout* checksLay = new QGridLayout();
@@ -2054,25 +2085,25 @@ ExportXsheetPdfPopup::ExportXsheetPdfPopup()
           checksLay->setColumnStretch(0, 2);
           checksLay->setColumnStretch(1, 1);
           checksLay->setColumnStretch(2, 1);
-          exportLay->addLayout(checksLay, 3, 0, 1, 3);
+          exportLay->addLayout(checksLay, 4, 0, 1, 3);
 
-          exportLay->addWidget(new QLabel(tr("Inbetween mark:"), this), 4, 0,
+          exportLay->addWidget(new QLabel(tr("Inbetween mark 1:"), this), 5, 0,
                                Qt::AlignRight | Qt::AlignVCenter);
-          exportLay->addWidget(m_tick1IdCombo, 4, 1);
-          exportLay->addWidget(m_tick1MarkCombo, 4, 2,
+          exportLay->addWidget(m_tick1IdCombo, 5, 1);
+          exportLay->addWidget(m_tick1MarkCombo, 5, 2,
                                Qt::AlignLeft | Qt::AlignVCenter);
-          exportLay->addWidget(new QLabel(tr("Reverse sheet mark:"), this), 5,
-                               0, Qt::AlignRight | Qt::AlignVCenter);
-          exportLay->addWidget(m_tick2IdCombo, 5, 1);
-          exportLay->addWidget(m_tick2MarkCombo, 5, 2,
-                               Qt::AlignLeft | Qt::AlignVCenter);
-          exportLay->addWidget(new QLabel(tr("Keyframe mark:"), this), 6, 0,
+          exportLay->addWidget(new QLabel(tr("Inbetween mark 2:"), this), 6, 0,
                                Qt::AlignRight | Qt::AlignVCenter);
-          exportLay->addWidget(m_keyIdCombo, 6, 1);
+          exportLay->addWidget(m_tick2IdCombo, 6, 1);
+          exportLay->addWidget(m_tick2MarkCombo, 6, 2,
+                               Qt::AlignLeft | Qt::AlignVCenter);
+          exportLay->addWidget(new QLabel(tr("Keyframe mark:"), this), 7, 0,
+                               Qt::AlignRight | Qt::AlignVCenter);
+          exportLay->addWidget(m_keyIdCombo, 7, 1);
 
-          exportLay->addWidget(new QLabel(tr("Memo:"), this), 7, 0,
+          exportLay->addWidget(new QLabel(tr("Memo:"), this), 8, 0,
                                Qt::AlignRight | Qt::AlignTop);
-          exportLay->addWidget(m_memoEdit, 7, 1, 1, 2);
+          exportLay->addWidget(m_memoEdit, 8, 1, 1, 2);
         }
         exportLay->setColumnStretch(2, 1);
         exportGBox->setLayout(exportLay);
@@ -2122,6 +2153,8 @@ ExportXsheetPdfPopup::ExportXsheetPdfPopup()
   connect(exportPngBtn, SIGNAL(clicked()), this, SLOT(onExportPNG()));
   connect(cancelBtn, SIGNAL(clicked()), this, SLOT(close()));
 
+  connect(m_durationFld, SIGNAL(editingFinished()), this,
+          SLOT(onDurationEdited()));
   connect(m_templateCombo, SIGNAL(activated(int)), this, SLOT(initTemplate()));
 
   connect(m_exportAreaCombo, SIGNAL(activated(int)), this,
@@ -2255,6 +2288,8 @@ void ExportXsheetPdfPopup::initialize() {
   else
     m_duration = xsheet->getFrameCount();
 
+  m_durationFld->setValue(m_duration);
+
   m_columns.clear();
   m_soundColumns.clear();
   m_noteColumns.clear();
@@ -2337,8 +2372,9 @@ void ExportXsheetPdfPopup::saveSettings() {
 
   ContinuousLineMode clMode =
       (ContinuousLineMode)(m_continuousLineCombo->currentData().toInt());
-  XShPdfExportContinuousLineThres =
-      (clMode == Line_Always) ? 0 : (clMode == Line_None) ? -1 : 3;
+  XShPdfExportContinuousLineThres = (clMode == Line_Always) ? 0
+                                    : (clMode == Line_None) ? -1
+                                                            : 3;
 
   XShPdfExportTick1Id   = m_tick1IdCombo->currentData().toInt();
   XShPdfExportTick2Id   = m_tick2IdCombo->currentData().toInt();
@@ -2375,11 +2411,10 @@ void ExportXsheetPdfPopup::loadSettings() {
   m_logoTextEdit->setText(QString::fromStdString(XShPdfExportLogoText));
   m_logoImgPathField->setPath(QString::fromStdString(XShPdfExportImgPath));
 
-  ContinuousLineMode clMode = (XShPdfExportContinuousLineThres == 0)
-                                  ? Line_Always
-                                  : (XShPdfExportContinuousLineThres == -1)
-                                        ? Line_None
-                                        : Line_MoreThan3s;
+  ContinuousLineMode clMode =
+      (XShPdfExportContinuousLineThres == 0)    ? Line_Always
+      : (XShPdfExportContinuousLineThres == -1) ? Line_None
+                                                : Line_MoreThan3s;
   m_continuousLineCombo->setCurrentIndex(
       m_continuousLineCombo->findData(clMode));
 
@@ -2439,7 +2474,7 @@ void ExportXsheetPdfPopup::setInfo() {
   info.lineColor = QColor(col.r, col.g, col.b);
   info.dateTimeText =
       (m_addDateTimeCB->isChecked())
-          ? QDateTime::currentDateTime().toString(Qt::DefaultLocaleLongDate)
+          ? QLocale::system().toString(QDateTime::currentDateTime())
           : "";
   ToonzScene* scene = TApp::instance()->getCurrentScene()->getScene();
   info.scenePathText =
@@ -2560,8 +2595,8 @@ void ExportXsheetPdfPopup::onExport() {
     QString question =
         tr("The file %1 already exists.\nDo you want to overwrite it?")
             .arg(fp.getQString());
-    int ret =
-        DVGui::MsgBox(question, QObject::tr("Ovewrite"), QObject::tr("Cancel"));
+    int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
+                            QObject::tr("Cancel"));
     if (ret == 0 || ret == 2) {
       return;
     }
@@ -2630,8 +2665,8 @@ void ExportXsheetPdfPopup::onExportPNG() {
     QString question =
         tr("The file %1 already exists.\nDo you want to overwrite it?")
             .arg(fp.getQString());
-    int ret =
-        DVGui::MsgBox(question, QObject::tr("Ovewrite"), QObject::tr("Cancel"));
+    int ret = DVGui::MsgBox(question, QObject::tr("Overwrite"),
+                            QObject::tr("Cancel"));
     if (ret == 0 || ret == 2) {
       return;
     }
@@ -2749,6 +2784,13 @@ void ExportXsheetPdfPopup::onTickIdComboActivated() {
   else if (combo == m_tick2IdCombo)
     m_tick2MarkCombo->setEnabled(m_tick2IdCombo->currentData().toInt() != -1);
   updatePreview();
+}
+
+void ExportXsheetPdfPopup::onDurationEdited() {
+  int newDuration = m_durationFld->getValue();
+  if (m_duration == newDuration) return;
+  m_duration = newDuration;
+  initTemplate();
 }
 
 //-----------------------------------------------------------------------------

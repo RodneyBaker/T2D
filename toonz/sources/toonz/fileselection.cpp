@@ -239,6 +239,11 @@ void FileSelection::enableCommands() {
 //------------------------------------------------------------------------
 
 void FileSelection::addToBatchRenderList() {
+  if (!BatchesController::instance()->getTasksTree()) {
+    QAction *taskPopup = CommandManager::instance()->getAction(MI_OpenTasks);
+    taskPopup->trigger();
+  }
+
   std::vector<TFilePath> files;
   getSelectedFiles(files);
   int i;
@@ -251,6 +256,11 @@ void FileSelection::addToBatchRenderList() {
 //------------------------------------------------------------------------
 
 void FileSelection::addToBatchCleanupList() {
+  if (!BatchesController::instance()->getTasksTree()) {
+    QAction *taskPopup = CommandManager::instance()->getAction(MI_OpenTasks);
+    taskPopup->trigger();
+  }
+
   std::vector<TFilePath> files;
   getSelectedFiles(files);
   int i;
@@ -383,7 +393,8 @@ void FileSelection::viewFile() {
       continue;
 
     if (Preferences::instance()->isDefaultViewerEnabled() &&
-        (files[i].getType() == "avi"))
+        (files[i].getType() == "mov" || files[i].getType() == "avi" ||
+         files[i].getType() == "3gp"))
       QDesktopServices::openUrl(QUrl("file:///" + toQString(files[i])));
     else if (files[i].getType() == "tpl") {
       viewedPalette = StudioPalette::instance()->getPalette(files[i], false);
@@ -522,6 +533,7 @@ void FileSelection::separateFilesByColors() {
   popup->setFiles(files);
   popup->show();
   popup->raise();
+  popup->activateWindow();
   // popup->exec();
 }
 
@@ -547,6 +559,10 @@ static int importScene(TFilePath scenePath) {
   try {
     scene.save(scene.getScenePath());
   } catch (TException &) {
+    DVGui::error(QObject::tr("There was an error saving the %1 scene.")
+                     .arg(toQString(scenePath)));
+    return 0;
+  } catch (...) {
     DVGui::error(QObject::tr("There was an error saving the %1 scene.")
                      .arg(toQString(scenePath)));
     return 0;

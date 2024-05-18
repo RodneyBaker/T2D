@@ -1,6 +1,6 @@
 #!/bin/bash
-pushd thirdparty/tiff-4.0.3
-./configure --disable-lzma --without-x && make
+pushd thirdparty/tiff-4.2.0
+./configure --disable-lzma --disable-webp --disable-zstd --without-x && make
 popd
 
 cd toonz
@@ -27,11 +27,12 @@ then
    export CANON_FLAG=-DWITH_CANON=ON
 fi
 
-export MACOSX_DEPLOYMENT_TARGET=10.13
 export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/local/opt/jpeg-turbo/lib/pkgconfig"
 cmake ../sources  $CANON_FLAG \
+      -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DWITH_GPHOTO2=ON \
       -DQT_PATH=$USEQTLIB \
-      -DTIFF_INCLUDE_DIR=../../thirdparty/tiff-4.0.3/libtiff/ \
+      -DTIFF_INCLUDE_DIR=../../thirdparty/tiff-4.2.0/libtiff/ \
       -DSUPERLU_INCLUDE_DIR=../../thirdparty/superlu/SuperLU_4.1/include/
 
 make -j7 # runs 7 jobs in parallel

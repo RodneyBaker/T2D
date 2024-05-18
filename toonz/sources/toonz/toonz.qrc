@@ -1,9 +1,5 @@
 <RCC>
 	<qresource prefix="/">
-		<!-- Themes =============================================== -->
-		<file>icons/dark/index.theme</file>
-		<file>icons/light/index.theme</file>
-
 		<!-- Tools -->
 		<file>icons/dark/tools/20/animate.svg</file>
 		<file>icons/dark/tools/20/brush.svg</file>
@@ -27,6 +23,7 @@
 		<file>icons/dark/tools/20/pump.svg</file>
 		<file>icons/dark/tools/20/ruler.svg</file>
 		<file>icons/dark/tools/20/perspective_grid.svg</file>
+		<file>icons/dark/tools/20/symmetry.svg</file>
 		<file>icons/dark/tools/20/selection.svg</file>
 		<file>icons/dark/tools/20/skeleton.svg</file>
 		<file>icons/dark/tools/20/type.svg</file>
@@ -63,8 +60,8 @@
 		<file>icons/dark/actions/16/export.svg</file>
 		<file>icons/dark/actions/16/import.svg</file>
 		<file>icons/dark/actions/16/load.svg</file>
-		<file>icons/dark/actions/18/lock.svg</file>
-		<file>icons/dark/actions/18/lock_on.svg</file>
+		<file>icons/dark/actions/16/lock.svg</file>
+		<file>icons/dark/actions/16/lock_on.svg</file>
 		<file>icons/dark/actions/16/file_copy.svg</file>
 		<file>icons/dark/actions/16/content_copy.svg</file>
 		<file>icons/dark/actions/16/cut.svg</file>
@@ -87,16 +84,17 @@
 		<file>icons/dark/actions/16/redo.svg</file>
 		<file>icons/dark/actions/16/delete.svg</file>
 		<file>icons/dark/actions/16/new_scene.svg</file>
-		<file>icons/dark/actions/16/load_scene.svg</file>
 		<file>icons/dark/actions/16/revert_scene.svg</file>
 		<file>icons/dark/actions/16/save_scene.svg</file>
 		<file>icons/dark/actions/16/save_scene_as.svg</file>
-		<file>icons/dark/actions/16/convert.svg</file>
+    <file>icons/dark/actions/16/load_scene.svg</file>
+    <file>icons/dark/actions/16/convert.svg</file>
 		<file>icons/dark/actions/16/orientation_h.svg</file>
 		<file>icons/dark/actions/16/orientation_v.svg</file>
 		<file>icons/dark/actions/16/load_as_sub_xsheet.svg</file>
-		<file>icons/dark/actions/16/scene_export.svg</file>
+		<file>icons/dark/actions/16/export_scene.svg</file>
 		<file>icons/dark/actions/16/stylesets.svg</file>
+		<file>icons/dark/actions/16/remove.svg</file>
 
     <!-- Arrange -->
 		<file>icons/dark/actions/16/move_back_one.svg</file>
@@ -104,6 +102,16 @@
 		<file>icons/dark/actions/16/move_to_back.svg</file>
 		<file>icons/dark/actions/16/move_to_front.svg</file>
 
+    <!-- Alignment -->
+		<file>icons/dark/actions/16/select_align_left.svg</file>
+		<file>icons/dark/actions/16/select_align_right.svg</file>
+		<file>icons/dark/actions/16/select_align_top.svg</file>
+		<file>icons/dark/actions/16/select_align_bottom.svg</file>
+		<file>icons/dark/actions/16/select_align_center_h.svg</file>
+		<file>icons/dark/actions/16/select_align_center_v.svg</file>
+		<file>icons/dark/actions/16/select_distribute_h.svg</file>
+		<file>icons/dark/actions/16/select_distribute_v.svg</file>
+    
 		<!-- Group -->
 		<file>icons/dark/actions/16/group.svg</file>
 		<file>icons/dark/actions/16/ungroup.svg</file>
@@ -138,6 +146,8 @@
 		<file>icons/dark/actions/16/fb_down.svg</file>
 		<file>icons/dark/actions/16/viewlist.svg</file>
 		<file>icons/dark/actions/16/viewicon.svg</file>
+		<file>icons/dark/actions/16/collect_assets.svg</file>
+		<file>icons/dark/actions/16/projects_folder.svg</file>
     <file>icons/dark/actions/16/favorites.svg</file>
 
     <file>icons/dark/actions/18/folder_project_root.svg</file>
@@ -165,24 +175,22 @@
 		<file>icons/dark/actions/35/task_render_failed.svg</file>
 
 		<!-- Mimetypes -->
-		<file>icons/dark/mimetypes/60/tasklist_icon.svg</file>
-		<file>icons/dark/mimetypes/60/xdts_icon.svg</file>
-		<file>icons/dark/mimetypes/60/missing_icon.svg</file>
-		<file>icons/dark/mimetypes/60/motionpath_icon.svg</file>
-		<file>icons/dark/mimetypes/60/curve_icon.svg</file>
-		<file>icons/dark/mimetypes/60/unknown_icon.svg</file>
-		<file>icons/dark/mimetypes/60/cleanup_icon.svg</file>
-		<file>icons/dark/mimetypes/60/psd_icon.svg</file>
-		<file>icons/dark/mimetypes/60/svg_icon.svg</file>
-		<file>icons/dark/mimetypes/60/audio_icon.svg</file>
-		<file>icons/dark/mimetypes/60/script_icon.svg</file>
-    <file>icons/dark/mimetypes/60/broken_icon.svg</file>
-    <file>icons/dark/mimetypes/60/json_icon.svg</file>
+		<file>icons/dark/mimetypes/tasklist_icon.svg</file>
+		<file>icons/dark/mimetypes/xdts_icon.svg</file>
+		<file>icons/dark/mimetypes/missing_icon.svg</file>
+		<file>icons/dark/mimetypes/motionpath_icon.svg</file>
+		<file>icons/dark/mimetypes/curve_icon.svg</file>
+		<file>icons/dark/mimetypes/unknown_icon.svg</file>
+		<file>icons/dark/mimetypes/cleanup_icon.svg</file>
+		<file>icons/dark/mimetypes/psd_icon.svg</file>
+		<file>icons/dark/mimetypes/svg_icon.svg</file>
+		<file>icons/dark/mimetypes/audio_icon.svg</file>
+		<file>icons/dark/mimetypes/script_icon.svg</file>
+        <file>icons/dark/mimetypes/broken_icon.svg</file>
+        <file>icons/dark/mimetypes/json_icon.svg</file>
 
 		<!-- Render -->
 		<file>icons/dark/actions/16/render.svg</file>
-		<file>icons/dark/actions/16/render_clapboard.svg</file>
-		<file>icons/dark/actions/16/render_add.svg</file>
 		<file>icons/dark/actions/16/output_settings.svg</file>
 		<file>icons/dark/actions/16/fast_render_mp4.svg</file>
 		<file>icons/dark/actions/16/save_previewed_frames.svg</file>
@@ -216,6 +224,7 @@
 		<file>icons/dark/actions/16/stop.svg</file>
 		<file>icons/dark/actions/16/record.svg</file>
 		<file>icons/dark/actions/16/loop.svg</file>
+		<file>icons/dark/actions/16/pingpong.svg</file>
 		<file>icons/dark/actions/16/framefirst.svg</file>
 		<file>icons/dark/actions/16/framelast.svg</file>
 		<file>icons/dark/actions/16/frameprev.svg</file>
@@ -225,7 +234,9 @@
 		<file>icons/dark/actions/16/nextstep.svg</file>
 		<file>icons/dark/actions/16/prevstep.svg</file>
 		<file>icons/dark/actions/16/nextkey.svg</file>
-		<file>icons/dark/actions/16/prevkey.svg</file>
+    <file>icons/dark/actions/16/prevkey.svg</file>
+    <file>icons/dark/actions/16/blankframes.svg</file>
+    <file>icons/dark/actions/16/inbetween_flip.svg</file>
 
 		<file>icons/dark/actions/16/snapshot.svg</file>
 		<file>icons/dark/actions/16/compare.svg</file>
@@ -268,6 +279,7 @@
 		<file>icons/dark/actions/16/output.svg</file>
 		<file>icons/dark/actions/16/fx_logo.svg</file>
 		<file>icons/dark/actions/16/fx_settings.svg</file>
+		<file>icons/dark/actions/16/preset.svg</file>
 		<file>icons/dark/actions/20/switchport.svg</file>
 		<file>icons/dark/actions/20/switchport_on.svg</file>
 		<file>icons/dark/actions/20/switchport_over.svg</file>
@@ -295,6 +307,8 @@
 		<file>icons/dark/actions/16/flipvert.svg</file>
 		<file>icons/dark/actions/16/actual_pixel_size.svg</file>
 		<file>icons/dark/actions/16/fit_to_window.svg</file>
+		<file>icons/dark/actions/16/zoom_reset.svg</file>
+		<file>icons/dark/actions/16/rotate_reset.svg</file>
 
 		<!-- XSheet & Cells -->
 		<file>icons/dark/actions/16/reverse.svg</file>
@@ -303,6 +317,7 @@
 		<file>icons/dark/actions/16/repeat.svg</file>
 		<file>icons/dark/actions/16/time_stretch.svg</file>
 		<file>icons/dark/actions/16/set_key.svg</file>
+		<file>icons/dark/actions/16/global_key.svg</file>
 		<file>icons/dark/actions/16/shift_keys_down.svg</file>
 		<file>icons/dark/actions/16/shift_keys_up.svg</file>
 		<file>icons/dark/actions/16/insert_multiple_keys.svg</file>
@@ -313,12 +328,13 @@
 		<file>icons/dark/actions/16/remove_empty_columns.svg</file>
 		<file>icons/dark/actions/16/merge.svg</file>
 
-		<file>icons/dark/actions/16/new_document.svg</file>
+		<file>icons/dark/actions/16/new_level.svg</file>
 		<file>icons/dark/actions/16/new_raster_level.svg</file>
 		<file>icons/dark/actions/16/new_note_level.svg</file>
 		<file>icons/dark/actions/16/new_vector_level.svg</file>
 		<file>icons/dark/actions/16/new_toonz_raster_level.svg</file>
-		<file>icons/dark/actions/16/save_level.svg</file>
+    <file>icons/dark/actions/16/new_folder_column.svg</file>
+    <file>icons/dark/actions/16/save_level.svg</file>
 		<file>icons/dark/actions/16/save_level_as.svg</file>
 		<file>icons/dark/actions/16/save_all_levels.svg</file>
 		<file>icons/dark/actions/16/replace_level.svg</file>
@@ -329,8 +345,10 @@
     <file>icons/dark/actions/16/auto_stretch_on.svg</file>
     <file>icons/dark/actions/16/create_in_hold.svg</file>
     <file>icons/dark/actions/16/create_in_hold_on.svg</file>
+    <file>icons/dark/actions/16/implicit_hold.svg</file>
+    <file>icons/dark/actions/16/implicit_hold_on.svg</file>
 
-		<file>icons/dark/actions/16/on_1s.svg</file>
+    <file>icons/dark/actions/16/on_1s.svg</file>
 		<file>icons/dark/actions/16/on_2s.svg</file>
 		<file>icons/dark/actions/16/on_3s.svg</file>
 		<file>icons/dark/actions/16/on_4s.svg</file>
@@ -360,7 +378,7 @@
 		<file>icons/dark/actions/16/remove_cell.svg</file>
 		<file>icons/dark/actions/16/remove_cells.svg</file>
 		<file>icons/dark/actions/16/duplicate_drawing.svg</file>
-		<file>icons/dark/actions/16/tracking_options.svg</file>
+		<file>icons/dark/actions/16/stop_frame_hold.svg</file>
 
 		<file>icons/dark/actions/16/camera_settings.svg</file>
 		<file>icons/dark/actions/16/autoexpose.svg</file>
@@ -380,6 +398,27 @@
 		<file>icons/dark/actions/30/sound_header.svg</file>
 		<file>icons/dark/actions/30/sound_header_on.svg</file>
 		<file>icons/dark/actions/74/notelevel.svg</file>
+
+		<file>icons/dark/actions/30/folder_arrow_left.svg</file>
+		<file>icons/dark/actions/30/folder_arrow_right.svg</file>
+		<file>icons/dark/actions/30/folder_arrow_up.svg</file>
+		<file>icons/dark/actions/30/folder_arrow_down.svg</file>
+
+ 		<file>icons/dark/actions/16/connect.svg</file>
+		<file>icons/dark/actions/16/disconnect.svg</file>
+		<file>icons/dark/actions/16/xsheet_connect.svg</file>
+		<file>icons/dark/actions/16/xsheet_disconnect.svg</file>
+		<file>icons/dark/actions/16/cache_fx.svg</file>
+		<file>icons/dark/actions/16/uncache_fx.svg</file>
+		<file>icons/dark/actions/16/link.svg</file>
+		<file>icons/dark/actions/16/unlink.svg</file>
+		<file>icons/dark/actions/16/macro.svg</file>
+
+		<file>icons/dark/actions/16/toggle_nav_tag.svg</file>
+		<file>icons/dark/actions/16/next_nav_tag.svg</file>
+		<file>icons/dark/actions/16/prev_nav_tag.svg</file>
+
+    <file>icons/dark/actions/16/toggle_sub_nav.svg</file>
 
 		<!-- Modes, Types, Options -->
 		<file>icons/dark/actions/16/ink_check.svg</file>
@@ -406,7 +445,12 @@
 		<file>icons/dark/actions/20/fill_mode_areas.svg</file>
 		<file>icons/dark/actions/20/fill_mode_lines.svg</file>
 		<file>icons/dark/actions/20/fill_mode_lines_areas.svg</file>
-		<file>icons/dark/actions/16/fill_auto.svg</file>
+		<file>icons/dark/actions/20/fill_freepick.svg</file>
+		<file>icons/dark/actions/16/toggle_autofill.svg</file>
+
+		<file>icons/dark/actions/20/stylepicker_areas.svg</file>
+		<file>icons/dark/actions/20/stylepicker_lines.svg</file>
+		<file>icons/dark/actions/20/stylepicker_lines_areas.svg</file>
 
 		<file>icons/dark/actions/20/paintbrush_mode_areas.svg</file>
 		<file>icons/dark/actions/20/paintbrush_mode_lines.svg</file>
@@ -433,14 +477,28 @@
 		<file>icons/dark/actions/20/selection_freehand.svg</file>
 
     <file>icons/dark/actions/20/type_lasso.svg</file>
+		<file>icons/dark/actions/20/type_pickerlasso.svg</file>
 		<file>icons/dark/actions/20/type_rectangular.svg</file>
 		<file>icons/dark/actions/20/type_polyline.svg</file>
 		<file>icons/dark/actions/20/type_normal.svg</file>
+		<file>icons/dark/actions/20/type_erase_segment.svg</file>
+
+		<file>icons/dark/actions/20/tape_rectangular.svg</file>
+		<file>icons/dark/actions/20/tape_freehand.svg</file>
+		<file>icons/dark/actions/20/tape_polyline.svg</file>
+		<file>icons/dark/actions/20/tape_normal.svg</file>
+		<file>icons/dark/actions/16/tape_end_to_end.svg</file>
+		<file>icons/dark/actions/16/tape_end_to_line.svg</file>
+		<file>icons/dark/actions/16/tape_line_to_line.svg</file>
+
+		<file>icons/dark/actions/16/current_on_top.svg</file>
 
 		<file>icons/dark/actions/16/shift_and_trace.svg</file>
 		<file>icons/dark/actions/16/shift_and_trace_edit.svg</file>
 		<file>icons/dark/actions/16/shift_and_trace_no_shift.svg</file>
 		<file>icons/dark/actions/16/shift_and_trace_reset.svg</file>
+
+		<file>icons/dark/actions/16/light_table.svg</file>
 
 		<!-- Folders -->
 		<file>icons/dark/actions/18/folder.svg</file>
@@ -459,12 +517,16 @@
 		<file>icons/dark/actions/18/folder_preset.svg</file>
 
 		<!-- Palette -->
-		<file>icons/dark/actions/20/newstyle.svg</file>
-		<file>icons/dark/actions/20/newpage.svg</file>
+		<file>icons/dark/actions/16/newstyle.svg</file>
+		<file>icons/dark/actions/16/newpage.svg</file>
 		<file>icons/dark/actions/16/palette.svg</file>
 		<file>icons/dark/actions/16/palette_tab.svg</file>
 		<file>icons/dark/actions/20/dragpalette.svg</file>
 		<file>icons/dark/actions/16/palettegizmo.svg</file>
+		<file>icons/dark/actions/16/delete_unused_styles.svg</file>
+		<file>icons/dark/actions/16/paste_color.svg</file>
+		<file>icons/dark/actions/16/paste_name.svg</file>
+		<file>icons/dark/actions/16/paste_color_and_name.svg</file>
 
 		<!-- Titlebars -->
 		<file>icons/dark/actions/20/pane_table.svg</file>
@@ -478,6 +540,8 @@
 		<file>icons/dark/actions/20/pane_3d.svg</file>
 		<file>icons/dark/actions/20/pane_minimize.svg</file>
 		<file>icons/dark/actions/20/pane_close.svg</file>
+		<file>icons/dark/actions/20/pane_symmetry.svg</file>
+		<file>icons/dark/actions/20/pane_perspective.svg</file>
 
 		<!-- Textstyle -->
 		<file>icons/dark/actions/16/bold.svg</file>
@@ -491,7 +555,7 @@
 		<file>icons/dark/actions/16/printer.svg</file>
 		<file>icons/dark/actions/16/scanner.svg</file>
 		<file>icons/dark/actions/16/scanner_settings.svg</file>
-		<file>icons/dark/actions/16/define_scanner.svg</file>
+		<file>icons/dark/actions/16/scanner_define.svg</file>
 
 		<!-- Misc -->
 		<file>icons/dark/actions/16/minus.svg</file>
@@ -524,8 +588,8 @@
 		<file>icons/dark/actions/16/opentoonz.svg</file>
 		<file>icons/dark/actions/16/manual.svg</file>
 		<file>icons/dark/actions/16/filebrowser.svg</file>
-		<file>icons/dark/actions/16/function_editor.svg</file>
 		<file>icons/dark/actions/16/scenecast.svg</file>
+		<file>icons/dark/actions/16/function_editor.svg</file>
 		<file>icons/dark/actions/20/segment_linked.svg</file>
 		<file>icons/dark/actions/20/segment_linked_on.svg</file>
 		<file>icons/dark/actions/11/menu_toggle.svg</file>
@@ -534,7 +598,6 @@
 		<file>icons/dark/actions/48/colorchiporder_leftup.svg</file>
 		<file>icons/dark/actions/48/colorchiporder_lowleft.svg</file>
 		<file>icons/dark/actions/48/colorchiporder_upleft.svg</file>
-		<file>icons/dark/misc/startup.png</file>
     <file>icons/dark/actions/20/touch.svg</file>
 		<file>icons/dark/actions/16/quit.svg</file>
 		<file>icons/dark/actions/16/clear_cache.svg</file>
@@ -550,6 +613,27 @@
 		<file>icons/dark/actions/16/view_file.svg</file>
 		<file>icons/dark/actions/16/level_strip.svg</file>
     <file>icons/dark/actions/17/syncscale.svg</file>
+		<file>icons/dark/actions/16/new_project.svg</file>
+		<file>icons/dark/actions/16/project_settings.svg</file>
+		<file>icons/dark/actions/16/save_default_settings.svg</file>
+		<file>icons/dark/actions/16/zero_thick_lines.svg</file>
+    <file>icons/dark/actions/16/table.svg</file>
+    <file>icons/dark/actions/16/motion_path.svg</file>
+
+    <file>icons/dark/actions/16/clipping_mask.svg</file>
+
+    <file>icons/dark/actions/16/export_oca.svg</file>
+    <file>icons/dark/actions/16/export_xdts.svg</file>
+    <file>icons/dark/actions/16/export_tvpaint.svg</file>
+    <file>icons/dark/actions/16/export_soundtrack.svg</file>
+    <file>icons/dark/actions/16/export_cameratrack.svg</file>
+    <file>icons/dark/actions/16/export_xsheetpdf.svg</file>
+    <file>icons/dark/actions/16/export_smimages.svg</file>
+
+    <file>icons/dark/actions/16/set_linear_cp.svg</file>
+    <file>icons/dark/actions/16/set_nonlinear_cp.svg</file>
+
+    <file>icons/dark/actions/16/import_oca.svg</file>
 
     <!-- Keyframe -->
 		<file>icons/dark/actions/20/key_off.svg</file>
@@ -559,9 +643,7 @@
 
 		<!-- ===================================================== -->
 		<!-- Light =============================================== -->
-
-		<file>icons/light/misc/startup.png</file>
-		<file>icons/light/misc/footermemo.svg</file>
+		
 		<!-- ===================================================== -->
 		<!-- Legacy resources ==================================== -->
 		
@@ -581,6 +663,7 @@
 		<file>Resources/brush.png</file>
 		<file>Resources/camera.svg</file>
 		<file>Resources/camera_small.svg</file>
+		<file>Resources/camera_snap.wav</file>
 		<file>Resources/center.png</file>
 		<file>Resources/clapboard.png</file>
 		<file>Resources/curve.svg</file>
@@ -591,7 +674,6 @@
 		<file>Resources/iron.png</file>
 		<file>Resources/iconplay.png</file>
 		<file>Resources/iconpause.png</file>
-		<file>Resources/key.svg</file>
 		<file>Resources/magnet.png</file>
 		<file>Resources/motionpath.svg</file>
 		<file>Resources/motionpath_delete.svg</file>
@@ -602,6 +684,7 @@
 		<file>Resources/no_specialstyle.png</file>
 		<file>Resources/no_vectorbrush.png</file>
 		<file>Resources/no_mypaintbrush.png</file>
+		<file>Resources/no_texturestyle.png</file>
 		<file>Resources/palette_header.svg</file>
 		<file>Resources/paletteicon.svg</file>
 		<file>Resources/pan.png</file>
@@ -628,18 +711,18 @@
 		<file>Resources/schematic_spin_arrows.svg</file>
 		<file>Resources/schematic_spline_aim_rhomb.svg</file>
 		<file>Resources/schematic_spline_aim_square.svg</file>
-		<file>Resources/selected_key.svg</file>
 		<file>Resources/selection_add.png</file>
 		<file>Resources/selection_convert.png</file>
 		<file>Resources/shear.png</file>
-		<file>Resources/splash.svg</file>
-		<file>Resources/splash2.svg</file>
-		<file>Resources/startup.png</file>
-		<file>Resources/startup.svg</file>
+		<file>Resources/tahoma2d_splash.svg</file>
+		<file>Resources/tahoma2d_about.png</file>
+		<file>Resources/tahoma2d_startup.svg</file>
 		<file>Resources/stroke_select.png</file>
 		<file>Resources/tape.png</file>
 		<file>Resources/type_in.png</file>
 		<file>Resources/type_out.png</file>
+		<file>Resources/tzpicon.png</file>
+		<file>Resources/tzuicon.png</file>
 		<file>Resources/work.png</file>
 		<file>Resources/zoom.png</file>
 		<file>Resources/browser_scene_open.svg</file>

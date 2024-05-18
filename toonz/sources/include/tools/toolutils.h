@@ -171,7 +171,8 @@ protected:
 public:
   TToolUndo(TXshSimpleLevel *level, const TFrameId &frameId,
             bool createdFrame = false, bool createdLevel = false,
-            const TPaletteP &oldPalette = 0);
+            const TPaletteP &oldPalette = 0,
+            bool renumberedLevel        = TTool::m_isLevelRenumbererd);
   ~TToolUndo();
 
   virtual QString getToolName() { return QString("Tool"); }
@@ -182,6 +183,8 @@ public:
         .arg(QString::fromStdWString(m_level->getName()))
         .arg(QString::number(m_frameId.getNumber()));
   }
+    
+  void onAdd() override;
 };
 
 //================================================================================================
@@ -396,8 +399,11 @@ class UndoControlPointEditor final : public TToolUndo {
   int m_row;
   int m_column;
 
+  bool m_clearSelection;
+
 public:
-  UndoControlPointEditor(TXshSimpleLevel *level, const TFrameId &frameId);
+  UndoControlPointEditor(TXshSimpleLevel *level, const TFrameId &frameId,
+                         bool clearSelection = true);
   ~UndoControlPointEditor();
 
   void onAdd() override;

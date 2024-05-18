@@ -14,12 +14,14 @@
 @accent: darken(@bg, 15);
 @text-color: #000;
 
-@hl-bg-color: #8FA0B2;
+@hl-bg-color: rgb(193, 96, 153);
 @hl-text-color: #000;
 @hl-bg-color-secondary: rgba(255, 255, 255, 0.15);
 
 @dock-bg-color: darken(@bg, 30);
 @label-title: rgb(0, 0, 0);
+
+@lock-color: #bd5454;
 
 // -----------------------------------------------------------------------------
 // Tabs
@@ -112,8 +114,7 @@
 @toolbutton-border-color-checked-hover: @toolbutton-border-color-checked;
 
 // Lock
-@toolbutton-lock-bg-color-checked: #bd5454;
-@toolbutton-lock-border-color-checked: darken(@toolbutton-lock-bg-color-checked, 20);
+@toolbutton-lock-border-color-checked: darken(@lock-color, 20);
 @toolbutton-lock-border-color-checked-hover: @toolbutton-lock-border-color-checked;
 
 // -----------------------------------------------------------------------------
@@ -199,6 +200,7 @@
 @xsheet-bg-color:                           darken(@bg, 4);
 @xsheet-LightLine-color:                    rgba(0, 0, 0, 0.15);
 @xsheet-MarkerLine-color:                   rgba(255, 255, 255, 0.2);
+@xsheet-SecMarkerLine-color:                rgba(255, 255, 255, 0.35);
 @xsheet-PreviewFrameText-color:             #17239c;
 @xsheet-OnionSkinAreaBG-color:              darken(@bg, 8);
 @xsheet-EmptyCell-color:                    @xsheet-OnionSkinAreaBG-color;
@@ -217,6 +219,8 @@
 // Level Type Colors Adjustment
 @columnBorderDesaturation:                  0;
 @columnBorderDarkness:                      15;
+
+@xsheet-ImplicitCellAlpha:                  75;
 
 @xsheet-LevelColumn-color:                  #78a578;
 @xsheet-VectorColumn-color:                 #a7637d;
@@ -261,6 +265,8 @@
 
 // Function Curve Panel
 @function-panel-bg-color: darken(@bg, 15);
+@function-panel-ValueLine-color: darken(@function-panel-bg-color, 4);
+@function-panel-FrameLine-color: darken(@function-panel-bg-color, 8);
 @function-panel-OtherCurves-color: rgb(197, 197, 197);
 @function-panel-RulerBG-color: darken(@bg, 10);
 @function-panel-Sub-color: rgb(255, 255, 255);

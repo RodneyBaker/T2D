@@ -34,6 +34,7 @@
 #include "toonz/dpiscale.h"
 #include "toonz/palettecontroller.h"
 #include "toonz/tonionskinmaskhandle.h"
+#include "toutputproperties.h"
 
 // TnzCore includes
 #include "tvectorimage.h"
@@ -313,6 +314,11 @@ TImage *TTool::touchImage() {
   TFrameHandle *currentFrame    = m_application->getCurrentFrame();
   TXshLevelHandle *currentLevel = m_application->getCurrentLevel();
 
+  TFrameId tmplFId = m_application->getCurrentScene()
+                         ->getScene()
+                         ->getProperties()
+                         ->formatTemplateFIdForInput();
+
   if (currentFrame->isEditingLevel()) {
     // Editing level
 
@@ -331,6 +337,8 @@ TImage *TTool::touchImage() {
 
       // create a new drawing
       img = sl->createEmptyFrame();
+      // modify frameId to be with the same frame format as existing frames
+      sl->formatFId(fid, tmplFId);
       sl->setFrame(fid, img);
       currentLevel->notifyLevelChange();
       m_isFrameCreated = true;
@@ -353,6 +361,11 @@ TImage *TTool::touchImage() {
   if (!xsh) return 0;
 
   TXshCell cell       = xsh->getCell(row, col);
+  bool isImplicitCell = xsh->isImplicitCell(row, col);
+
+  // Stop frames cannot be modified
+  if (cell.getFrameId().isStopFrame()) return 0;
+
   TXshSimpleLevel *sl = cell.getSimpleLevel();
 
   if (sl) {
@@ -380,7 +393,9 @@ TImage *TTool::touchImage() {
       // measure the hold length (starting from the current row) : r0-r1
       int r0 = row, r1 = row;
       if (isAutoStretchEnabled)
-        while (xsh->getCell(r1 + 1, col) == cell) r1++;
+        while (!cell.getFrameId().isStopFrame() &&
+               xsh->getCell(r1 + 1, col, false) == cell)
+          r1++;
       // find the proper frameid (possibly addisng suffix, in order to avoid a
       // fid already used)
       // find the proper frameid
@@ -407,6 +422,8 @@ TImage *TTool::touchImage() {
       // create the new drawing
       TImageP img      = sl->createEmptyFrame();
       m_isFrameCreated = true;
+      // modify frameId to be with the same frame format as existing frames
+      sl->formatFId(fid, tmplFId);
       // insert the drawing in the level
       sl->setFrame(fid, img);
       // update the cell
@@ -418,7 +435,10 @@ TImage *TTool::touchImage() {
       currentXsheet->notifyXsheetChanged();
       currentScene->notifyCastChange();
       currentLevel->notifyLevelChange();
-      m_cellsData.push_back({r0, r1, CellOps::ExistingToNew});
+      if (isImplicitCell)
+        m_cellsData.push_back({r0, r1, CellOps::BlankToNew});
+      else
+        m_cellsData.push_back({r0, r1, CellOps::ExistingToNew});
     }
     // if the level does not contain a frame in the current cell
     // (i.e. drawing on the cell with red numbers)
@@ -454,6 +474,8 @@ TImage *TTool::touchImage() {
     int a = row - 1, b = row + 1;
     while (a >= r0 && xsh->getCell(a, col).isEmpty()) a--;
     while (b <= r1 && xsh->getCell(b, col).isEmpty()) b++;
+
+    if (a >= r0 && xsh->getCell(a, col).getFrameId().isStopFrame()) a = r0 - 1;
 
     // find the level we must attach to
     if (a >= r0) {
@@ -495,6 +517,9 @@ TImage *TTool::touchImage() {
       // create the new drawing
       TImageP img      = sl->createEmptyFrame();
       m_isFrameCreated = true;
+
+      // modify frameId to be with the same frame format as existing frames
+      sl->formatFId(fid, tmplFId);
       // insert the drawing in the level
       sl->setFrame(fid, img);
       // update the cell
@@ -549,6 +574,8 @@ TImage *TTool::touchImage() {
   TFrameId fid = animationSheetEnabled ? getNewFrameId(sl, row) : TFrameId(1);
   TImageP img  = sl->createEmptyFrame();
   m_isFrameCreated = true;
+  // modify frameId to be with the same frame format as existing frames
+  sl->formatFId(fid, tmplFId);
   sl->setFrame(fid, img);
   cell = TXshCell(sl, fid);
   xsh->setCell(row, col, cell);
@@ -728,7 +755,8 @@ TFrameId TTool::getCurrentFid() const {
   int col = m_application->getCurrentColumn()->getColumnIndex();
   TXshCell cell =
       m_application->getCurrentXsheet()->getXsheet()->getCell(row, col);
-  if (cell.isEmpty()) return TFrameId::NO_FRAME;
+  if (cell.isEmpty() || cell.getFrameId().isStopFrame())
+    return TFrameId::NO_FRAME;
 
   return cell.getFrameId();
 }
@@ -889,12 +917,13 @@ QString TTool::updateEnabled(int rowIndex, int columnIndex) {
   // find the nearest level before it
   if (levelType == NO_XSHLEVEL &&
       !m_application->getCurrentFrame()->isEditingLevel()) {
-      if (!column || (column && !column->getSoundColumn())) {
-          TXshCell cell = xsh->getCell(rowIndex, columnIndex);
-          xl = cell.isEmpty() ? 0 : (TXshLevel*)(&cell.m_level);
-          sl = cell.isEmpty() ? 0 : cell.getSimpleLevel();
-          levelType = cell.isEmpty() ? NO_XSHLEVEL : cell.m_level->getType();
-      }
+    if (!column ||
+        (column && !column->getSoundColumn() && !column->getFolderColumn())) {
+      TXshCell cell = xsh->getCell(rowIndex, columnIndex);
+      xl            = cell.isEmpty() ? 0 : (TXshLevel *)(&cell.m_level);
+      sl            = cell.isEmpty() ? 0 : cell.getSimpleLevel();
+      levelType     = cell.isEmpty() ? NO_XSHLEVEL : cell.m_level->getType();
+    }
   }
 
   bool spline = m_application->getCurrentObject()->isSpline();
@@ -911,7 +940,8 @@ QString TTool::updateEnabled(int rowIndex, int columnIndex) {
     // find the nearest level before it
     if (levelType == NO_XSHLEVEL &&
         !m_application->getCurrentFrame()->isEditingLevel()) {
-        if (!column || (column && !column->getSoundColumn())) {
+      if (!column ||
+          (column && !column->getSoundColumn() && !column->getFolderColumn())) {
             int r0, r1;
             xsh->getCellRange(columnIndex, r0, r1);
             for (int r = std::min(r1, rowIndex); r > r0; r--) {
@@ -989,6 +1019,10 @@ QString TTool::updateEnabled(int rowIndex, int columnIndex) {
           QObject::tr(
               "Note columns can only be edited in the xsheet or timeline."));
 
+    else if (column->getFolderColumn())
+      return (enable(false),
+              QObject::tr("It is not possible to edit the folder column."));
+
     if (toolType == TTool::ColumnTool) {
       // Check column target
       if (column->getLevelColumn() && !(targetType & LevelColumns))
@@ -1060,10 +1094,10 @@ QString TTool::updateEnabled(int rowIndex, int columnIndex) {
       // Test for Mesh-deformed levels
       const TStageObjectId &parentId = obj->getParent();
       if (parentId.isColumn() && obj->getParentHandle()[0] != 'H') {
-        TXshSimpleLevel *parentSl =
-            xsh->getCell(rowIndex, parentId.getIndex()).getSimpleLevel();
-        if (parentSl && parentSl->getType() == MESH_XSHLEVEL &&
-            m_name != T_Selection)
+        TXshCell parentCell       = xsh->getCell(rowIndex, parentId.getIndex());
+        TXshSimpleLevel *parentSl = parentCell.getSimpleLevel();
+        if (!parentCell.getFrameId().isStopFrame() && parentSl &&
+            parentSl->getType() == MESH_XSHLEVEL && m_name != T_Selection)
           return (
               enable(false),
               QObject::tr(
@@ -1080,12 +1114,7 @@ QString TTool::updateEnabled(int rowIndex, int columnIndex) {
                     "The current frame is locked: any editing is forbidden."));
 
       // Check level type write support
-      if (sl->getPath().getType() ==
-              "psd" ||  // We don't have the API to write psd files
-          sl->getPath().getType() == "gif" ||
-          sl->getPath().getType() == "mp4" ||
-          sl->getPath().getType() == "webm" ||
-          sl->getPath().getType() == "mov" ||
+      if (sl->getPath().isUneditable() ||
           sl->is16BitChannelLevel() ||  // Inherited by previous
                                         // implementation.
                                         // Could be fixed?
@@ -1107,6 +1136,13 @@ QString TTool::updateEnabled(int rowIndex, int columnIndex) {
                     QObject::tr("The current tool cannot be used on empty "
                                 "frames of a Single Frame level."));
         }
+      }
+ 
+      // Stop frames cannot be modified
+      if (xsh->getCell(rowIndex, columnIndex).getFrameId().isStopFrame()) {
+        return (
+            enable(false),
+            QObject::tr("The current tool cannot be used on a stop frame."));
       }
     }
   }
@@ -1392,9 +1428,9 @@ void TTool::tweenGuideStrokeToSelected() {
   StrokeSelection *strokeSelection =
       dynamic_cast<StrokeSelection *>(getSelection());
   if (!strokeSelection || strokeSelection->isEmpty()) return;
-  const std::set<int> &selectedStrokeIdxs = strokeSelection->getSelection();
-  const std::set<int>::iterator it        = selectedStrokeIdxs.begin();
-  int cStrokeIdx                          = *it;
+  const std::vector<int> &selectedStrokeIdxs = strokeSelection->getSelection();
+  std::vector<int>::const_iterator it        = selectedStrokeIdxs.begin();
+  int cStrokeIdx                             = *it;
 
   TStroke *cStroke = cvi->getStroke(cStrokeIdx);
   if (!cStroke) return;

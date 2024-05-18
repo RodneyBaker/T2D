@@ -447,6 +447,7 @@ ToolOptionPopupButton::ToolOptionPopupButton(TTool *tool,
     QAction *action = addItem(createQIcon(items[i].iconName.toUtf8()));
     // make the tooltip text
     action->setToolTip(items[i].UIName);
+    action->setIconVisibleInMenu(true);
   }
   setCurrentIndex(0);
   updateStatus();
@@ -601,10 +602,10 @@ void ColorChipCombo::updateStatus() {
 //-----------------------------------------------------------------------------
 
 void ColorChipCombo::onActivated(int index) {
-  const TColorChipProperty::ColorChips &chips = m_property->getColorChips();
-  if (index < 0 || index >= (int)chips.size()) return;
+  const TColorChipProperty::Range &range = m_property->getRange();
+  if (index < 0 || index >= (int)range.size()) return;
 
-  std::wstring item = chips[index].UIName.toStdWString();
+  std::wstring item = range[index];
   m_property->setValue(item);
   notifyTool();
 }

@@ -21,6 +21,29 @@
     </message>
 </context>
 <context>
+    <name>FlowLineStrokeStyle</name>
+    <message>
+        <source>Density</source>
+        <translation>密度</translation>
+    </message>
+    <message>
+        <source>Extension</source>
+        <translation>扩展</translation>
+    </message>
+    <message>
+        <source>Width Scale</source>
+        <translation>宽度缩放</translation>
+    </message>
+    <message>
+        <source>Straighten Ends</source>
+        <translation>拉直末端</translation>
+    </message>
+    <message>
+        <source>Flow Line</source>
+        <translation>流水线</translation>
+    </message>
+</context>
+<context>
     <name>MovingSolidColor</name>
     <message>
         <source>Offset</source>
@@ -552,11 +575,11 @@
     </message>
     <message>
         <source>X Position</source>
-        <translation>水平位置</translation>
+        <translation>X 水平位置</translation>
     </message>
     <message>
         <source>Y Position</source>
-        <translation>垂直位置</translation>
+        <translation>Y 垂直位置</translation>
     </message>
     <message>
         <source>Radius</source>

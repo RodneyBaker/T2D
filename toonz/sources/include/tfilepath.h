@@ -36,7 +36,8 @@ class DVAPI TFrameId {
 public:
   enum {
     EMPTY_FRAME = -1,  // es. pippo..tif
-    NO_FRAME    = -2   // es. pippo.tif
+    NO_FRAME    = -2,  // es. pippo.tif
+    STOP_FRAME  = -3
   };
 
   enum FrameFormat {
@@ -86,6 +87,7 @@ public:
 
   bool isEmptyFrame() const { return m_frame == EMPTY_FRAME; }
   bool isNoFrame() const { return m_frame == NO_FRAME; }
+  bool isStopFrame() const { return m_frame == STOP_FRAME; }
 
   // operator string() const;
   std::string expand(FrameFormat format = FOUR_ZEROS) const;
@@ -245,6 +247,7 @@ If the path is "<alpha>:" a slash will be added*/
 
   TFrameId getFrame() const;
   bool isFfmpegType() const;
+  bool isUneditable() const;
   bool isLevelName()
       const;  //{return getFrame() == TFrameId(TFrameId::EMPTY_FRAME);};
   bool isAbsolute() const;
@@ -280,6 +283,9 @@ type is a string that indicate the filename extension(ex:. bmp or .bmp)*/
   TFilePath withNoFrame() const {
     return withFrame(TFrameId(TFrameId::NO_FRAME));
   }  // pippo.tif
+  TFilePath withStopFrame() const {
+    return withFrame(TFrameId(TFrameId::STOP_FRAME));
+  }
 
   TFilePath operator+(const TFilePath &fp) const;
   TFilePath &operator+=(const TFilePath &fp) /*{*this=*this+fp;return *this;}*/;
@@ -311,6 +317,8 @@ type is a string that indicate the filename extension(ex:. bmp or .bmp)*/
   void split(std::wstring &head, TFilePath &tail) const;
 
   TFilePathInfo analyzePath() const;
+
+  QChar getSepChar() const;
 };
 
 //-----------------------------------------------------------------------------

@@ -24,6 +24,7 @@
 #include "toonzqt/tabbar.h"
 #include "toonzqt/glwidget_for_highdpi.h"
 #include "toonzqt/dvdialog.h"
+#include "toonzqt/hexcolornames.h"
 
 // Qt includes
 #include <QWidget>
@@ -78,19 +79,6 @@ class StyleEditor;
 class LutCalibrator;
 
 //=============================================
-
-class HexLineEdit : public QLineEdit {
-  Q_OBJECT
-
-public:
-  HexLineEdit(const QString &contents, QWidget *parent)
-      : QLineEdit(contents, parent) {}
-  ~HexLineEdit() {}
-
-protected:
-  void focusInEvent(QFocusEvent *event) override;
-  void showEvent(QShowEvent *event) override;
-};
 
 //=============================================================================
 namespace StyleEditorGUI {
@@ -257,13 +245,13 @@ signals:
 //=============================================================================
 /*! \brief The ColorSlider is used to set a color channel.
 
-                Inherits \b QSlider.
+                Inherits \b QAbstractSlider.
 
                 This object show a bar which colors differ from minimum to
    maximum channel color
                 value.
 */
-class DVAPI ColorSlider final : public QSlider {
+class DVAPI ColorSlider final : public QAbstractSlider {
   Q_OBJECT
 public:
   ColorSlider(Qt::Orientation orientation, QWidget *parent = 0);
@@ -278,6 +266,9 @@ protected:
   void paintEvent(QPaintEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
   void mouseReleaseEvent(QMouseEvent *event) override;
+  void mouseMoveEvent(QMouseEvent *event) override;
+
+  void chandleMouse(int x, int y);
 
   //	QIcon getFirstArrowIcon();
   //	QIcon getLastArrowIcon();
@@ -287,6 +278,8 @@ protected:
 private:
   ColorChannel m_channel;
   ColorModel m_color;
+  static int s_chandle_size;
+  static int s_chandle_tall;
 };
 
 //=============================================================================
@@ -560,6 +553,43 @@ protected:
   bool m_allowFavorite = false;
   bool m_external      = false;
 
+  enum ChipType {
+    COMMONCHIP = 0,  // Common chip
+    SOLIDCHIP  = 1   // Solid/Nobrush chip
+  };
+
+  QColor m_commonChipBoxColor;
+  QColor m_solidChipBoxColor;
+  QColor m_selectedChipBoxColor;
+  QColor m_selectedChipBox2Color;
+
+  Q_PROPERTY(QColor CommonChipBoxColor READ getCommonChipBoxColor WRITE
+                 setCommonChipBoxColor)
+  Q_PROPERTY(QColor SolidChipBoxColor READ getSolidChipBoxColor WRITE
+                 setSolidChipBoxColor)
+  Q_PROPERTY(QColor SelectedChipBoxColor READ getSelectedChipBoxColor WRITE
+                 setSelectedChipBoxColor)
+  Q_PROPERTY(QColor SelectedChipBox2Color READ getSelectedChipBox2Color WRITE
+                 setSelectedChipBox2Color)
+
+  QColor getCommonChipBoxColor() const { return m_commonChipBoxColor; }
+  QColor getSolidChipBoxColor() const { return m_solidChipBoxColor; }
+  QColor getSelectedChipBoxColor() const { return m_selectedChipBoxColor; }
+  QColor getSelectedChipBox2Color() const { return m_selectedChipBox2Color; }
+
+  void setSolidChipBoxColor(const QColor &color) {
+    m_solidChipBoxColor = color;
+  }
+  void setCommonChipBoxColor(const QColor &color) {
+    m_commonChipBoxColor = color;
+  }
+  void setSelectedChipBoxColor(const QColor &color) {
+    m_selectedChipBoxColor = color;
+  }
+  void setSelectedChipBox2Color(const QColor &color) {
+    m_selectedChipBox2Color = color;
+  }
+
 public:
   StyleChooserPage(TFilePath styleFolder, QWidget *parent = 0);
 
@@ -593,7 +623,11 @@ public:
   virtual bool isLoading() { return false; }
   virtual int getChipCount() const = 0;
 
-  virtual void drawChip(QPainter &p, QRect rect, int index) = 0;
+  virtual int drawChip(QPainter &p, QRect rect, int index) = 0;
+
+  virtual void applyFilter(){};
+  virtual void applyFilter(const QString text){};
+
   virtual void onSelect(int index) {}
 
   virtual void removeSelectedStylesFromSet(std::vector<int> selection){};
@@ -628,13 +662,15 @@ protected:
   void resizeEvent(QResizeEvent *) override { computeSize(); }
 
   void mousePressEvent(QMouseEvent *event) override;
-  void mouseMoveEvent(QMouseEvent *event) override {}
+  void mouseMoveEvent(QMouseEvent *event) override;
   void mouseReleaseEvent(QMouseEvent *event) override;
   void contextMenuEvent(QContextMenuEvent *event) override;
   void enterEvent(QEvent *event) override;
 
-protected slots:
+public slots:
   void computeSize();
+
+protected slots:
   void onTogglePage(bool toggled);
   void onRemoveStyleFromSet();
   void onEmptySet();
@@ -648,6 +684,7 @@ protected slots:
   void onReloadStyleSet();
   void onRenameStyleSet();
   void onLabelContextMenu(const QPoint &pos);
+
 signals:
   void styleSelected(const TColorStyle &style);
   void refreshFavorites();
@@ -787,6 +824,8 @@ private slots:
 // StyleEditor
 //-----------------------------------------------------------------------------
 
+enum StyleEditorTab { Color = 0, Raster, Texture, Vector, Settings, Empty };
+
 class DVAPI StyleEditor final : public QWidget, public SaveLoadQSettings {
   Q_OBJECT
   TApplication *m_app;
@@ -794,8 +833,8 @@ class DVAPI StyleEditor final : public QWidget, public SaveLoadQSettings {
   PaletteController *m_paletteController;
   TPaletteHandle *m_paletteHandle;
   TPaletteHandle *m_cleanupPaletteHandle;
-  HexLineEdit *m_hexLineEdit;
-  QWidgetAction *m_hexAction;
+  DVGui::HexLineEdit *m_hexLineEdit;
+  DVGui::HexColorNamesEditor *m_hexColorNamesEditor;
   QWidget *m_parent;
   TXshLevelHandle
       *m_levelHandle;  //!< for clearing the level cache when the color changed
@@ -807,7 +846,6 @@ class DVAPI StyleEditor final : public QWidget, public SaveLoadQSettings {
       *m_newColor;  //!< New style viewer (lower-right panel side).
   DVGui::StyleSample
       *m_oldColor;  //!< Old style viewer (lower-right panel side).
-  QFrame *m_fillColorWidget;
   QAction *m_toggleOrientationAction;
   QPushButton
       *m_autoButton;  //!< "Auto Apply" checkbox on the right panel side.
@@ -833,6 +871,19 @@ class DVAPI StyleEditor final : public QWidget, public SaveLoadQSettings {
   QAction *m_hsvAction;
   QAction *m_alphaAction;
   QAction *m_rgbAction;
+  QAction *m_hexAction;
+  QAction *m_searchAction;
+  QAction *m_hexEditorAction;
+
+  QFrame *m_textureSearchFrame;
+  QFrame *m_vectorsSearchFrame;
+  QFrame *m_mypaintSearchFrame;
+  QLineEdit *m_textureSearchText;
+  QLineEdit *m_vectorsSearchText;
+  QLineEdit *m_mypaintSearchText;
+  QPushButton *m_textureSearchClear;
+  QPushButton *m_vectorsSearchClear;
+  QPushButton *m_mypaintSearchClear;
 
   TColorStyleP
       m_oldStyle;  //!< A copy of current style \a before the last change.
@@ -870,6 +921,10 @@ class DVAPI StyleEditor final : public QWidget, public SaveLoadQSettings {
 
   RenameStyleSet *m_renameStyleSet;
 
+  QWidget *m_autoApplyWidget;
+  QAction *m_toggleAutoApply;
+  bool m_showAutoApply = true;
+
 public:
   StyleEditor(PaletteController *, QWidget *parent = 0);
   ~StyleEditor();
@@ -892,7 +947,8 @@ public:
   }
 
   // SaveLoadQSettings
-  virtual void save(QSettings &settings) const override;
+  virtual void save(QSettings &settings,
+                    bool forPopupIni = false) const override;
   virtual void load(QSettings &settings) override;
 
   void updateColorCalibration();
@@ -928,7 +984,7 @@ public:
   std::vector<StyleChooserPage *> *getStyleSetList(StylePageType pageType);
 
   void setUpdated(TFilePath setPath);
-  TFilePath getSetStyleFolder(QString setName);
+  TFilePath getSetStyleFolder(QString setName, StylePageType pageType);
 
   void updatePage(int pageIndex);
 
@@ -975,7 +1031,8 @@ protected slots:
   void onStyleSwitched();
   void onStyleChanged(bool isDragging);
   void onCleanupStyleChanged(bool isDragging);
-  void onOldStyleClicked(const TColorStyle &);
+  void onOldStyleClicked();
+  void onNewStyleClicked();
   void updateOrientationButton();
   void checkPaletteLock();
   // called (e.g.) by PaletteController when an other StyleEditor change the
@@ -1001,9 +1058,23 @@ protected slots:
   void onParamStyleChanged(bool isDragging);
 
   void onHexChanged();
+  void onHexEditor();
+
+  void onSearchVisible(bool on);
+
   void onHexEdited(const QString &text);
   void onHideMenu();
   void onPageChanged(int index);
+  void onToggleAutoApply();
+
+  void onTextureSearch(const QString &);
+  void onTextureClearSearch();
+
+  void onVectorsSearch(const QString &);
+  void onVectorsClearSearch();
+
+  void onMyPaintSearch(const QString &);
+  void onMyPaintClearSearch();
 
   void onToggleTextureSet(int checkedState);
   void onToggleVectorSet(int checkedState);

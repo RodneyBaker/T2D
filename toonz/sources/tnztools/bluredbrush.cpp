@@ -3,6 +3,7 @@
 #include "bluredbrush.h"
 #include "tropcm.h"
 #include "tpixelutils.h"
+#include "symmetrytool.h"
 
 #include <QColor>
 
@@ -50,15 +51,19 @@ void putOnRasterCM(const TRasterCM32P &out, const TRaster32P &in, int styleId,
                                outPix->getTone());
           continue;
         }
-        bool sameStyleId   = styleId == outPix->getInk();
+        bool sameStyleId = styleId == outPix->getInk();
+        // line with lock alpha : use original pixel's tone
         // line with the same style : multiply tones
         // line with different style : pick darker tone
-        int tone = sameStyleId ? outPix->getTone() * (255 - inPix->m) / 255
-                               : std::min(255 - inPix->m, outPix->getTone());
-        int ink = !sameStyleId && outPix->getTone() < 255 - inPix->m
-                      ? outPix->getInk()
-                      : styleId;
-        *outPix = TPixelCM32(ink, outPix->getPaint(), tone);
+        int tone = lockAlpha
+                       ? outPix->getTone()
+                       : sameStyleId
+                             ? outPix->getTone() * (255 - inPix->m) / 255
+                             : std::min(255 - inPix->m, outPix->getTone());
+        int ink  = !sameStyleId && outPix->getTone() < 255 - inPix->m
+                       ? outPix->getInk()
+                       : styleId;
+        *outPix  = TPixelCM32(ink, outPix->getPaint(), tone);
       }
     }
   } else if (drawOrderMode == 1) {  // UnderAll
@@ -79,15 +84,15 @@ void putOnRasterCM(const TRasterCM32P &out, const TRaster32P &in, int styleId,
                                outPix->getTone());
           continue;
         }
-        bool sameStyleId   = styleId == outPix->getInk();
+        bool sameStyleId = styleId == outPix->getInk();
         // line with the same style : multiply tones
         // line with different style : pick darker tone
         int tone = sameStyleId ? outPix->getTone() * (255 - inPix->m) / 255
                                : std::min(255 - inPix->m, outPix->getTone());
-        int ink = !sameStyleId && outPix->getTone() <= 255 - inPix->m
-                      ? outPix->getInk()
-                      : styleId;
-        *outPix = TPixelCM32(ink, outPix->getPaint(), tone);
+        int ink  = !sameStyleId && outPix->getTone() <= 255 - inPix->m
+                       ? outPix->getInk()
+                       : styleId;
+        *outPix  = TPixelCM32(ink, outPix->getPaint(), tone);
       }
     }
   } else {  // PaletteOrder
@@ -102,7 +107,7 @@ void putOnRasterCM(const TRasterCM32P &out, const TRaster32P &in, int styleId,
                                outPix->getTone());
           continue;
         }
-        bool sameStyleId   = styleId == outPix->getInk();
+        bool sameStyleId = styleId == outPix->getInk();
         // line with the same style : multiply tones
         // line with different style : pick darker tone
         int tone = sameStyleId ? outPix->getTone() * (255 - inPix->m) / 255
@@ -143,9 +148,9 @@ void eraseFromRasterCM(const TRasterCM32P &out, const TRaster32P &in,
           !selective || (selective && selectedStyleId == outPix->getPaint());
       int paint = eraseAreas && erasePaint ? 0 : outPix->getPaint();
       int tone  = inPix->m > 0 && eraseLine && eraseInk
-                     ? std::max(outPix->getTone(), (int)inPix->m)
-                     : outPix->getTone();
-      *outPix = TPixelCM32(outPix->getInk(), paint, tone);
+                      ? std::max(outPix->getTone(), (int)inPix->m)
+                      : outPix->getTone();
+      *outPix   = TPixelCM32(outPix->getInk(), paint, tone);
     }
   }
 }
@@ -165,7 +170,7 @@ TRasterP rasterFromQImage(
                        (TPixelGR8 *)image.bits(), false);
   return TRasterP();
 }
-}
+}  // namespace
 
 //=======================================================
 //
@@ -191,6 +196,19 @@ BluredBrush::BluredBrush(const TRaster32P &ras, int size,
 
 //----------------------------------------------------------------------------------
 
+BluredBrush::BluredBrush(BluredBrush *src) {
+  m_ras                  = src->m_ras;
+  m_rasImage             = rasterToQImage(m_ras, false);
+  m_size                 = src->m_size;
+  m_gradient             = src->m_gradient;
+  m_lastPoint            = src->m_lastPoint;
+  m_oldOpacity           = src->m_oldOpacity;
+  m_enableDynamicOpacity = src->m_enableDynamicOpacity;
+  m_aboveStyleIds        = src->m_aboveStyleIds;
+}
+
+//----------------------------------------------------------------------------------
+
 BluredBrush::~BluredBrush() {}
 
 //----------------------------------------------------------------------------------
@@ -204,9 +222,9 @@ void BluredBrush::addPoint(const TThickPoint &p, double opacity) {
   painter.setRenderHint(QPainter::Antialiasing);
   painter.setPen(Qt::NoPen);
   painter.setBrush(m_gradient);
-  painter.setMatrix(
-      QMatrix(scaleFactor, 0.0, 0.0, scaleFactor, p.x - radius, p.y - radius),
-      false);
+  painter.setTransform(QTransform(scaleFactor, 0.0, 0.0, scaleFactor,
+                                  p.x - radius, p.y - radius),
+                       false);
   if (m_enableDynamicOpacity) painter.setOpacity(opacity);
   painter.drawEllipse(0, 0, m_size, m_size);
   painter.end();
@@ -235,9 +253,9 @@ void BluredBrush::addArc(const TThickPoint &pa, const TThickPoint &pb,
     double radius      = point.thick * 0.5;
     double scaleFactor = radius / brushRadius;
 
-    painter.setMatrix(QMatrix(scaleFactor, 0.0, 0.0, scaleFactor,
-                              point.x - radius, point.y - radius),
-                      false);
+    painter.setTransform(QTransform(scaleFactor, 0.0, 0.0, scaleFactor,
+                                    point.x - radius, point.y - radius),
+                         false);
     if (m_enableDynamicOpacity) {
       double opacity = opacityA + ((opacityC - opacityA) * t);
       if (fabs(opacity - m_oldOpacity) > 0.01)
@@ -432,4 +450,189 @@ TRect BluredBrush::getBoundFromPoints(
   TRect rect(tfloor(rectD.x0), tfloor(rectD.y0), tceil(rectD.x1),
              tceil(rectD.y1));
   return rect;
+}
+
+//*******************************************************************************
+//    Blurred Brush implementation
+//*******************************************************************************
+
+RasterBlurredBrush::RasterBlurredBrush(const TRaster32P &ras, int size,
+                                       const QRadialGradient &gradient,
+                                       bool doDynamicOpacity)
+    : m_brushCount(0), m_rotation(0), m_useLineSymmetry(false) {
+  BluredBrush *brush = new BluredBrush(ras, size, gradient, doDynamicOpacity);
+  m_blurredBrushes.push_back(brush);
+
+  m_rasCenter = ras->getCenterD();
+}
+
+//------------------------------------------------------------------
+
+void RasterBlurredBrush::addSymmetryBrushes(double lines, double rotation,
+                                            TPointD centerPoint,
+                                            bool useLineSymmetry,
+                                            TPointD dpiScale) {
+  if (lines < 2) return;
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  if (!symmetryTool) return;
+
+  m_brushCount      = lines;
+  m_rotation        = rotation;
+  m_centerPoint     = centerPoint;
+  m_useLineSymmetry = useLineSymmetry;
+  m_dpiScale        = dpiScale;
+
+  for (int i = 1; i < m_brushCount; i++) {
+    BluredBrush *symmBlurredBrush = new BluredBrush(m_blurredBrushes[0]);
+    m_blurredBrushes.push_back(symmBlurredBrush);
+  }
+}
+
+//------------------------------------------------------------------
+
+void RasterBlurredBrush::setAboveStyleIds(QSet<int> &ids) {
+  for (int i = 0; i < m_blurredBrushes.size(); i++)
+    m_blurredBrushes[i]->setAboveStyleIds(ids);
+}
+
+//------------------------------------------------------------------
+
+TRect RasterBlurredBrush::getBoundFromPoints(
+    const std::vector<TThickPoint> &points) {
+  std::vector<TThickPoint> pts = points;
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  if (hasSymmetryBrushes() && symmetryTool) {
+    SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+    for (int i = 0; i < points.size(); i++) {
+      std::vector<TPointD> symmPts = symmetryTool->getSymmetryPoints(
+          points[i], m_rasCenter, m_dpiScale, m_brushCount, m_rotation,
+          m_centerPoint, m_useLineSymmetry);
+
+      for (int j = 0; j < symmPts.size(); j++)
+        pts.push_back(TThickPoint(symmPts[j], points[i].thick));
+    }
+  }
+
+  return m_blurredBrushes[0]->getBoundFromPoints(pts);
+}
+
+//------------------------------------------------------------------
+
+void RasterBlurredBrush::addPoint(const TThickPoint &p, double opacity) {
+  if (!hasSymmetryBrushes()) {
+    m_blurredBrushes[0]->addPoint(p, opacity);
+    return;
+  }
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  if (!symmetryTool) return;
+
+  SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+  std::vector<TPointD> symmPts = symmetryTool->getSymmetryPoints(
+      p, m_rasCenter, m_dpiScale, m_brushCount, m_rotation, m_centerPoint,
+      m_useLineSymmetry);
+
+  for (int i = 0; i < symmPts.size(); i++)
+    m_blurredBrushes[i]->addPoint(TThickPoint(symmPts[i], p.thick), opacity);
+}
+
+//------------------------------------------------------------------
+
+void RasterBlurredBrush::addArc(const TThickPoint &pa, const TThickPoint &pb,
+                                const TThickPoint &pc, double opacityA,
+                                double opacityC) {
+  if (!hasSymmetryBrushes()) {
+    m_blurredBrushes[0]->addArc(pa, pb, pc, opacityA, opacityC);
+    return;
+  }
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  if (!symmetryTool) return;
+
+  SymmetryObject symmObj = symmetryTool->getSymmetryObject();
+
+  std::vector<TPointD> symmPtsA = symmetryTool->getSymmetryPoints(
+      pa, m_rasCenter, m_dpiScale, m_brushCount, m_rotation, m_centerPoint,
+      m_useLineSymmetry);
+  std::vector<TPointD> symmPtsB = symmetryTool->getSymmetryPoints(
+      pb, m_rasCenter, m_dpiScale, m_brushCount, m_rotation, m_centerPoint,
+      m_useLineSymmetry);
+  std::vector<TPointD> symmPtsC = symmetryTool->getSymmetryPoints(
+      pc, m_rasCenter, m_dpiScale, m_brushCount, m_rotation, m_centerPoint,
+      m_useLineSymmetry);
+
+  for (int i = 0; i < m_blurredBrushes.size(); i++)
+    m_blurredBrushes[i]->addArc(
+        TThickPoint(symmPtsA[i], pa.thick), TThickPoint(symmPtsB[i], pb.thick),
+        TThickPoint(symmPtsC[i], pc.thick), opacityA, opacityC);
+}
+
+//------------------------------------------------------------------
+
+void RasterBlurredBrush::updateDrawing(const TRasterCM32P rasCM,
+                                       const TRasterCM32P rasBackupCM,
+                                       const TRect &bbox, int styleId,
+                                       int drawOrderMode, bool lockAlpha) {
+  for (int i = 0; i < m_blurredBrushes.size(); i++)
+    m_blurredBrushes[i]->updateDrawing(rasCM, rasBackupCM, bbox, styleId,
+                                       drawOrderMode, lockAlpha);
+}
+
+//------------------------------------------------------------------
+
+void RasterBlurredBrush::eraseDrawing(const TRasterCM32P rasCM,
+                                      const TRasterCM32P rasBackupCM,
+                                      const TRect &bbox, bool selective,
+                                      int selectedStyleId,
+                                      const std::wstring &mode) {
+  for (int i = 0; i < m_blurredBrushes.size(); i++)
+    m_blurredBrushes[i]->eraseDrawing(rasCM, rasBackupCM, bbox, selective,
+                                      selectedStyleId, mode);
+}
+
+//------------------------------------------------------------------
+
+void RasterBlurredBrush::updateDrawing(const TRasterP ras,
+                                       const TRasterP rasBackup,
+                                       const TPixel32 &color, const TRect &bbox,
+                                       double opacity) {
+  for (int i = 0; i < m_blurredBrushes.size(); i++)
+    m_blurredBrushes[i]->updateDrawing(ras, rasBackup, color, bbox, opacity);
+}
+
+//------------------------------------------------------------------
+
+void RasterBlurredBrush::eraseDrawing(const TRasterP ras,
+                                      const TRasterP rasBackup,
+                                      const TRect &bbox, double opacity) {
+  for (int i = 0; i < m_blurredBrushes.size(); i++)
+    m_blurredBrushes[i]->eraseDrawing(ras, rasBackup, bbox, opacity);
+}
+
+//------------------------------------------------------------------
+
+std::vector<TThickPoint> RasterBlurredBrush::getSymmetryPoints(
+    const std::vector<TThickPoint> &points) {
+  std::vector<TThickPoint> pts;
+
+  SymmetryTool *symmetryTool = dynamic_cast<SymmetryTool *>(
+      TTool::getTool("T_Symmetry", TTool::RasterImage));
+  if (!hasSymmetryBrushes() || !symmetryTool) return pts;
+
+  for (int i = 0; i < points.size(); i++) {
+    std::vector<TPointD> symmPts = symmetryTool->getSymmetryPoints(
+        points[i], m_rasCenter, m_dpiScale, m_brushCount, m_rotation,
+        m_centerPoint, m_useLineSymmetry);
+
+    pts.insert(pts.end(), symmPts.begin(), symmPts.end());
+  }
+
+  return pts;
 }

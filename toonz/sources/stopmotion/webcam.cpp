@@ -146,6 +146,14 @@ bool Webcam::getWebcamImage(TRaster32P& tempImage) {
       cv::cvtColor(imgCorrected, imgCorrected, cv::COLOR_GRAY2BGRA);
     }
 
+    // perform calibration
+    if (m_useCalibration) {
+      cv::remap(imgCorrected, imgCorrected, m_calibrationMapX,
+                m_calibrationMapY, cv::INTER_LINEAR);
+    }
+
+    m_webcamImage = imgCorrected;
+
     int width  = m_cvWebcam.get(3);
     int height = m_cvWebcam.get(4);
     int size   = imgCorrected.total() * imgCorrected.elemSize();
@@ -212,6 +220,7 @@ void Webcam::refreshWebcamResolutions() {
     m_webcamResolutions.push_back(QSize(1600, 896));
     m_webcamResolutions.push_back(QSize(1600, 900));
     m_webcamResolutions.push_back(QSize(1920, 1080));
+    m_webcamResolutions.push_back(QSize(3840, 2160));
   }
 }
 

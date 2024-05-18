@@ -96,6 +96,9 @@ class CellArea final : public QWidget {
 
   RenameCellField *m_renameCell;
 
+  bool m_dragBeginEase, m_dragEndEase, m_dragKeyframe;
+  QPoint m_keyHighlight;
+
   void drawCells(QPainter &p, const QRect toBeUpdated);
   void drawNonEmptyBackground(QPainter &p) const;
   void drawFoldedColumns(QPainter &p, int layerAxis,
@@ -103,11 +106,12 @@ class CellArea final : public QWidget {
   void drawSelectionBackground(QPainter &p) const;
   void drawExtenderHandles(QPainter &p);
 
-  void drawDragHandle(QPainter &p, const QPoint &xy,
-                      const QColor &sideColor) const;
+  void drawDragHandle(QPainter &p, bool isStart, bool isLastRow,
+                      const QPoint &xy, const QColor &sideColor) const;
   void drawEndOfDragHandle(QPainter &p, bool isEnd, const QPoint &xy,
                            const QColor &cellColor) const;
-  void drawLockedDottedLine(QPainter &p, bool isLocked, const QPoint &xy,
+  void drawLockedDottedLine(QPainter &p, bool isLocked, bool isStart,
+                            bool isLastRow, const QPoint &xy,
                             const QColor &cellColor) const;
 
   void drawFrameSeparator(QPainter &p, int row, int col, bool emptyFrame,
@@ -120,6 +124,7 @@ class CellArea final : public QWidget {
   void drawSoundCell(QPainter &p, int row, int col, bool isReference = false);
   void drawSoundTextColumn(QPainter &p, int r0, int r1, int col);
   void drawPaletteCell(QPainter &p, int row, int col, bool isReference = false);
+  void drawFolderColumn(QPainter &p, int r0, int r1, int col);
 
   void drawKeyframe(QPainter &p, const QRect toBeUpdated);
   void drawKeyframeLine(QPainter &p, int col, const NumberRange &rows) const;
@@ -130,22 +135,25 @@ class CellArea final : public QWidget {
                                 bool isFolded = false);
 
   void drawFrameMarker(QPainter &p, const QPoint &xy, QColor color,
-                       bool isKeyFrame = false, bool isCamera = false);
+                       bool isKeyFrame = false, bool isCamera = false,
+                       bool keyHighlight = false);
+  void drawEndOfLevelMarker(QPainter &p, QRect rect, bool isNextEmpty,
+                            bool isStopFrame = false);
+  void drawCellMarker(QPainter &p, int markId, QRect rect,
+                      bool hasFrame = false, bool isNextEmpty = true);
 
   // Restistusce true
   bool getEaseHandles(int r0, int r1, double e0, double e1, int &rh0, int &rh1);
 
-  bool isKeyFrameArea(int col, int row, QPoint mouseInCell);
+  bool isKeyFrameArea(int col, int row, QPoint mouseInCell, bool withFrameLine = false);
 
   DragTool *getDragTool() const;
   void setDragTool(DragTool *dragTool);
 
+  void updateKeyHighlight(int row, int col);
+
 public:
-#if QT_VERSION >= 0x050500
-  CellArea(XsheetViewer *parent, Qt::WindowFlags flags = 0);
-#else
-  CellArea(XsheetViewer *parent, Qt::WFlags flags = 0);
-#endif
+  CellArea(XsheetViewer *parent, Qt::WindowFlags flags = Qt::WindowFlags());
   ~CellArea();
 
   void mouseMoveEvent(QMouseEvent *event) override;
@@ -183,7 +191,7 @@ protected:
 cella,
 distinguendo i due casi: cella piena, cella vuota.*/
   void createCellMenu(QMenu &menu, bool isCellSelected, TXshCell cell, int row,
-                      int col);
+                      int col, bool isImplicitCell);
   //! Crea il menu' del tasto destro che si visualizza si clicca su un key
   //! frame.
   void createKeyMenu(QMenu &menu);

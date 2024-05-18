@@ -243,7 +243,9 @@ commandline += " -id " + task->m_id;*/
     RunningTasks[task->m_id] = process;
   }
 
-  process->start(task->getCommandLine());
+  process->setProgram(task->getCommandLinePrgName());
+  process->setArguments(task->getCommandLineArgumentsList());
+  process->start();
   process->waitForFinished(-1);
 
   {
@@ -288,7 +290,10 @@ void BatchesController::setTasksTree(TaskTreeModel *tree) {
 
 //------------------------------------------------------------------------------
 
-inline bool isMovieType(std::string type) { return (type == "avi" || type == "mp4" || type == "webm" || type == "mov"); }
+inline bool isMovieType(std::string type) {
+  return (type == "mov" || type == "avi" || type == "3gp" || type == "mp4" ||
+          type == "webm");
+}
 
 //------------------------------------------------------------------------------
 
@@ -316,6 +321,7 @@ void BatchesController::addCleanupTask(const TFilePath &taskFilePath) {
   try {
     BatchesController::instance()->addTask(id, taskGroup);
   } catch (TException &) {
+  } catch (...) {
   }
 }
 
@@ -327,6 +333,7 @@ void BatchesController::addComposerTask(const TFilePath &_taskFilePath) {
   try {
     taskFilePath = TSystem::toUNC(_taskFilePath);
   } catch (TException &) {
+  } catch (...) {
   }
 
   ToonzScene scene;
@@ -345,8 +352,9 @@ void BatchesController::addComposerTask(const TFilePath &_taskFilePath) {
   out.getRange(r0, r1, step);
 
   int sceneFrameCount = scene.getFrameCount();
-  if (r0 < 0) r0      = 0;
-  if (r1 >= sceneFrameCount)
+  if (r0 < 0) r0 = 0;
+  if (!Preferences::instance()->isImplicitHoldEnabled() &&
+      r1 >= sceneFrameCount)
     r1 = sceneFrameCount - 1;
   else if (r1 < r0)
     r1 = sceneFrameCount - 1;
@@ -355,6 +363,8 @@ void BatchesController::addComposerTask(const TFilePath &_taskFilePath) {
   int shrink = rs.m_shrinkX;
 
   int multimedia       = out.getMultimediaRendering();
+  bool renderKeysOnly  = out.isRenderKeysOnly();
+  bool renderToFolders = out.isRenderToFolders();
   int threadsIndex     = out.getThreadIndex();
   int maxTileSizeIndex = out.getMaxTileSizeIndex();
 
@@ -380,12 +390,14 @@ void BatchesController::addComposerTask(const TFilePath &_taskFilePath) {
   TFarmTaskGroup *taskGroup = new TFarmTaskGroup(
       id, name, TSystem::getUserName(), TSystem::getHostName(), sceneFrameCount,
       50, taskFilePath, outputPath, r0, r1, step, shrink, multimedia,
-      taskChunkSize, threadsIndex, maxTileSizeIndex);
+      renderKeysOnly, renderToFolders, taskChunkSize, threadsIndex,
+      maxTileSizeIndex);
 
   try {
     BatchesController::instance()->addTask(id, taskGroup);
   } catch (TException &) {
     // TMessage::error(toString(e.getMessage()));
+  } catch (...) {
   }
   // m_data->m_scene.setProject( mainprogramProj);
   // TModalPopup::closePopup();
@@ -476,7 +488,7 @@ namespace {
 void DeleteTask(const std::pair<QString, TFarmTask *> &mapItem) {
   if (mapItem.second->m_parentId.isEmpty()) delete mapItem.second;
 }
-}
+}  // namespace
 
 void BatchesController::removeAllTasks() {
   std::map<QString, TFarmTask *>::iterator tt, tEnd(m_tasks.end());
@@ -555,7 +567,7 @@ void BatchesController::setDirtyFlag(bool state) {
   if (FirstTime) {
     FirstTime = false;
     bool ret  = connect(TApp::instance()->getMainWindow(), SIGNAL(exit(bool &)),
-                       SLOT(onExit(bool &)));
+                        SLOT(onExit(bool &)));
     assert(ret);
   }
 
@@ -707,7 +719,7 @@ void BatchesController::stop(const QString &taskId) {
     int count = task->getTaskCount();
     if (count > 1) {
       for (int i = 0; i < count; ++i) {
-        TFarmTask *subtask                                  = task->getTask(i);
+        TFarmTask *subtask = task->getTask(i);
         if (subtask->m_status == Waiting) subtask->m_status = Suspended;
         if ((it = RunningTasks.find(subtask->m_id)) != RunningTasks.end()) {
           it->second->kill();
@@ -870,7 +882,7 @@ void BatchesController::saveas() {
   }
 
   static SaveTaskListPopup *popup = 0;
-  if (!popup) popup               = new SaveTaskListPopup();
+  if (!popup) popup = new SaveTaskListPopup();
 
   popup->exec();
 }
@@ -929,7 +941,7 @@ void BatchesController::detach(BatchesController::Observer *obs) {
 namespace {
 
 void notifyObserver(BatchesController::Observer *obs) { obs->update(); }
-}
+}  // namespace
 
 void BatchesController::notify() {
   std::for_each(m_observers.begin(), m_observers.end(), notifyObserver);
@@ -992,6 +1004,9 @@ void BatchesController::update() {
         }
       }
     } catch (TException &e) {
+      ControllerFailureMsg(e).send();
+    } catch (...) {
+      TException e("Unhandled exception encountered");
       ControllerFailureMsg(e).send();
     }
   }

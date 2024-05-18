@@ -117,6 +117,9 @@ public:
               //! data
   //!  must be accompanied by a tile of the suitable type. \sa
   //!  TRasterFx::compute().
+
+  bool m_linearColorSpace;  // compute in linear color space (gamma 2.2)
+
   int m_maxTileSize;  //!< Maximum size (in MegaBytes) of a tile cachable during
                       //! a render process.
   //!  Used by the predictive cache manager to subdivide an fx calculation into
@@ -146,9 +149,14 @@ public:
   bool m_applyShrinkToViewer;  //!< Whether shrink must be considered.   \note
                                //! Should be moved to TOutputProperties.
 
-  /*-- カメラサイズ --*/
+  // when this flag is true, TLevelColumnFx::doGetBBox returns full image sized
+  // box instead of the bounding box. It takes effect only for Toonz Raster /
+  // Raster levels. Currently used only in Tile Fx Iwa. (see iwa_tilefx.cpp)
+  bool m_getFullSizeBBox;
+
+  /*-- camera size --*/
   TRectD m_cameraBox;
-  /*-- 途中でPreview計算がキャンセルされたときのフラグ --*/
+  /*-- Flag when Preview calculation is canceled during the process --*/
   int *m_isCanceled;
 
   // pointer to QOffscreenSurface which is created on
@@ -156,6 +164,15 @@ public:
   // for offscreen rendering to be done in non-GUI thread.
   // For now it is used only in the plasticDeformerFx.
   std::shared_ptr<QOffscreenSurface> m_offScreenSurface;
+
+  double m_colorSpaceGamma;
+
+  bool m_applyMask;
+  bool m_invertedMask;
+  bool m_useMaskBox;
+  bool m_plasticMask;
+
+  int m_lastFrame;
 
 public:
   TRenderSettings();
@@ -268,6 +285,13 @@ public:
   void enableCache(bool on);
   bool isCacheEnabled() const;
 
+  void enableComputeInFloat(bool on);
+  bool canComputeInFloat() const;
+  virtual bool toBeComputedInLinearColorSpace(bool settingsIsLinear,
+                                              bool tileIsLinear) const {
+    return false;
+  }
+
   // resituisce una stringa che identifica univocamente il sottoalbero
   // avente come radice l'effetto
   std::string getAlias(double frame,
@@ -350,6 +374,9 @@ public:
   void transform(double frame, int port, const TRectD &rectOnOutput,
                  const TRenderSettings &infoOnOutput, TRectD &rectOnInput,
                  TRenderSettings &infoOnInput) override;
+
+  bool toBeComputedInLinearColorSpace(bool settingsIsLinear,
+                                      bool tileIsLinear) const override;
 };
 
 //-------------------------------------------------------------------

@@ -9,6 +9,7 @@
 #include "tcommon.h"
 #include "tgeometry.h"
 #include "tpixel.h"
+#include "tfilepath.h"
 
 // TnzLib includes
 #include "toonz/levelproperties.h"
@@ -36,7 +37,6 @@
 
 //    Forward declarations
 
-class TFilePath;
 class QSettings;
 
 //==============================================================
@@ -192,15 +192,22 @@ public:
     return PathAliasPriority(getIntValue(pathAliasPriority));
   }
 
+  bool isShowAdvancedOptionsEnabled() const {
+    return getBoolValue(showAdvancedOptions);
+  }
+
   // Interface  tab
   QStringList getStyleSheetList() const { return m_styleSheetList; }
   bool getIconTheme() const { return getBoolValue(iconTheme); }
-  void storeOldUnits();  // OK
-  void resetOldUnits();  // OK
+  void storeOldUnits();
+  void resetOldUnits();
   QStringList getLanguageList() const { return m_languageList; }
   QMap<int, QString> getRoomMap() const { return m_roomMaps; }
 
-  QString getCurrentStyleSheetPath() const;  // OK
+  QString getCurrentStyleSheet() const;
+  QString getAdditionalStyleSheet() const {
+    return getStringValue(additionalStyleSheet);
+  }
   bool getPixelsOnly() const { return getBoolValue(pixelsOnly); }
   QString getOldUnits() const { return getStringValue(oldUnits); }
   QString getOldCameraUnits() const { return getStringValue(oldCameraUnits); }
@@ -234,6 +241,7 @@ public:
   }
   void setColorCalibrationLutPath(QString monitorName, QString path);
   QString getColorCalibrationLutPath(QString &monitorName) const;
+  bool is30bitDisplayEnabled() const { return getBoolValue(displayIn30bit); }
 
   bool isViewerIndicatorEnabled() const {
     return getBoolValue(viewerIndicatorEnabled);
@@ -253,8 +261,8 @@ public:
     return getBoolValue(removeSceneNumberFromLoadedLevelName);
   }
   bool isIgnoreImageDpiEnabled() const { return getBoolValue(IgnoreImageDpi); }
-  int getInitialLoadTlvCachingBehavior() const {
-    return getIntValue(initialLoadTlvCachingBehavior);
+  int getRasterLevelCachingBehavior() const {
+    return getIntValue(rasterLevelCachingBehavior);
   }
   ColumnIconLoadingPolicy getColumnIconLoadingPolicy() const {
     return ColumnIconLoadingPolicy(getIntValue(columnIconLoadingPolicy));
@@ -289,11 +297,13 @@ public:
   QString getFfmpegPath() const { return getStringValue(ffmpegPath); }
   int getFfmpegTimeout() { return getIntValue(ffmpegTimeout); }
   QString getFastRenderPath() const { return getStringValue(fastRenderPath); }
+  bool getFfmpegMultiThread() const { return getBoolValue(ffmpegMultiThread); }
   QString getRhubarbPath() const { return getStringValue(rhubarbPath); }
   int getRhubarbTimeout() { return getIntValue(rhubarbTimeout); }
 
   // Drawing  tab
-  QString getScanLevelType() const { return getStringValue(scanLevelType); }
+  QString getDefRasterFormat() const { return getStringValue(DefRasterFormat); }
+  // QString getScanLevelType() const { return getStringValue(scanLevelType); }
   int getDefLevelType() const { return getIntValue(DefLevelType); }
   bool isNewLevelSizeToCameraSizeEnabled() const {
     return getBoolValue(newLevelSizeToCameraSizeEnabled);
@@ -304,6 +314,9 @@ public:
   bool isAutoCreateEnabled() const { return getBoolValue(EnableAutocreation); }
   int getNumberingSystem() const { return getIntValue(NumberingSystem); }
   bool isAutoStretchEnabled() const { return getBoolValue(EnableAutoStretch); }
+  bool isImplicitHoldEnabled() const {
+    return getBoolValue(EnableImplicitHold);
+  }
   bool isCreationInHoldCellsEnabled() const {
     return getBoolValue(EnableCreationInHoldCells);
   }
@@ -354,6 +367,9 @@ public:
   int getTempToolSwitchtimer() const {
     return getIntValue(temptoolswitchtimer);
   }
+  bool isMagnetNonLinearSliderEnabled() const {
+    return getBoolValue(magnetNonLinearSliderEnabled);
+  }
 
   // Xsheet  tab
   QString getXsheetLayoutPreference() const {
@@ -369,6 +385,7 @@ public:
     return getBoolValue(xsheetAutopanEnabled);
   }  //!< Returns whether xsheet pans during playback.
   int getDragCellsBehaviour() const { return getIntValue(DragCellsBehaviour); }
+  int getPasteCellsBehavior() const { return getIntValue(pasteCellsBehavior); }
   bool isIgnoreAlphaonColumn1Enabled() const {
     return getBoolValue(ignoreAlphaonColumn1Enabled);
   }
@@ -390,11 +407,17 @@ public:
   bool isShowQuickToolbarEnabled() const {
     return getBoolValue(showQuickToolbar);
   }
+  bool isShowXsheetBreadcrumbsEnabled() const {
+    return getBoolValue(showXsheetBreadcrumbs);
+  }
   bool isExpandFunctionHeaderEnabled() const {
     return getBoolValue(expandFunctionHeader);
   }
   bool isShowColumnNumbersEnabled() const {
     return getBoolValue(showColumnNumbers);
+  }
+  bool isParentColorsInXsheetColumnEnabled() const {
+    return getBoolValue(parentColorsInXsheetColumn);
   }
   bool isSyncLevelRenumberWithXsheetEnabled() const {
     return getBoolValue(syncLevelRenumberWithXsheet);
@@ -405,6 +428,9 @@ public:
   void getCurrentColumnData(TPixel &color) const {
     color = getColorValue(currentColumnColor);
   }
+  void getCurrentCellData(TPixel &color) const {
+    color = getColorValue(currentCellColor);
+  }
 
   LevelNameDisplayType getLevelNameDisplayType() const {
     return LevelNameDisplayType(getIntValue(levelNameDisplayType));
@@ -414,6 +440,12 @@ public:
   }
   bool isShowFrameNumberWithLettersEnabled() const {
     return getBoolValue(showFrameNumberWithLetters);
+  }
+  bool isShowDragBarsEnabled() const {
+    return getBoolValue(showDragBars);
+  }
+  QString getTimelineLayoutPreference() const {
+    return getStringValue(timelineLayoutPreference);
   }
 
   // Animation  tab
@@ -440,6 +472,10 @@ public:
   bool isGeneratedMovieViewEnabled() const {
     return getBoolValue(generatedMovieViewEnabled);
   }
+  int getInbetweenFlipDrawingCount() const {
+    return getIntValue(inbetweenFlipDrawingCount);
+  }
+  int getInbetweenFlipSpeed() const { return getIntValue(inbetweenFlipSpeed); }
 
   // Onion Skin  tab
   bool isOnionSkinEnabled() const { return getBoolValue(onionSkinEnabled); }

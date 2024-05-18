@@ -94,11 +94,7 @@ QString fidToFrameNumberWithLetter(int f) {
 // Filmstrip
 //-----------------------------------------------------------------------------
 
-#if QT_VERSION >= 0x050500
 FilmstripFrames::FilmstripFrames(QScrollArea *parent, Qt::WindowFlags flags)
-#else
-FilmstripFrames::FilmstripFrames(QScrollArea *parent, Qt::WFlags flags)
-#endif
     : QFrame(parent, flags)
     , m_scrollArea(parent)
     , m_selection(new TFilmstripSelection())
@@ -1293,15 +1289,22 @@ void FilmstripFrames::contextMenuEvent(QContextMenuEvent *event) {
   menu->addAction(cm->getAction(MI_ExposeResource));
   if (!isSubsequenceLevel && !isReadOnly) {
     menu->addAction(cm->getAction(MI_AddFrames));
+    if (sl && sl->getType() == PLI_XSHLEVEL) {
+      QMenu *inbetweenMenu = new QMenu(tr("Inbetween"), this);
+      {
+        inbetweenMenu->addAction(cm->getAction(MI_InbetweenLinear));
+        inbetweenMenu->addAction(cm->getAction(MI_InbetweenEaseIn));
+        inbetweenMenu->addAction(cm->getAction(MI_InbetweenEaseOut));
+        inbetweenMenu->addAction(cm->getAction(MI_InbetweenEaseInOut));
+      }
+      menu->addMenu(inbetweenMenu);
+    }
     menu->addAction(cm->getAction(MI_Renumber));
     if (sl && sl->getType() == TZP_XSHLEVEL)
       menu->addAction(cm->getAction(MI_RevertToCleanedUp));
   }
-  if (sl &&
-      (sl->getType() == TZP_XSHLEVEL || sl->getType() == PLI_XSHLEVEL ||
-       (sl->getType() == OVL_XSHLEVEL && sl->getPath().getType() != "gif" &&
-        sl->getPath().getType() != "mp4" && sl->getPath().getType() != "webm" &&
-        sl->getPath().getType() != "mov")))
+  if (sl && (sl->getType() == TZP_XSHLEVEL || sl->getType() == PLI_XSHLEVEL ||
+             (sl->getType() == OVL_XSHLEVEL && !sl->getPath().isUneditable())))
     menu->addAction(cm->getAction(MI_RevertToLastSaved));
   menu->addSeparator();
   createSelectLevelMenu(menu);
@@ -1530,12 +1533,7 @@ void FilmstripFrames::inbetween() {
 // Filmstrip
 //-----------------------------------------------------------------------------
 
-#if QT_VERSION >= 0x050500
-Filmstrip::Filmstrip(QWidget *parent, Qt::WindowFlags flags)
-#else
-Filmstrip::Filmstrip(QWidget *parent, Qt::WFlags flags)
-#endif
-    : QWidget(parent) {
+Filmstrip::Filmstrip(QWidget *parent, Qt::WindowFlags flags) : QWidget(parent) {
   setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
 
   m_frameArea        = new QScrollArea(this);
@@ -1700,7 +1698,7 @@ void Filmstrip::updateCurrentLevelComboItem() {
   TXshSimpleLevel *currentLevel =
       TApp::instance()->getCurrentLevel()->getSimpleLevel();
   if (!currentLevel) {
-    int noLevelIndex = m_chooseLevelCombo->findText(tr("- No Current Level -"));
+    int noLevelIndex = m_chooseLevelCombo->findText(tr("- No Level -"));
     m_chooseLevelCombo->setCurrentIndex(noLevelIndex);
     return;
   }
@@ -1718,7 +1716,7 @@ void Filmstrip::updateCurrentLevelComboItem() {
     }
   }
 
-  int noLevelIndex = m_chooseLevelCombo->findText(tr("- No Current Level -"));
+  int noLevelIndex = m_chooseLevelCombo->findText(tr("- No Level -"));
   m_chooseLevelCombo->setCurrentIndex(noLevelIndex);
 }
 
@@ -1949,7 +1947,7 @@ void Filmstrip::setOrientation(bool isVertical) {
 }
 
 // SaveLoadQSettings
-void Filmstrip::save(QSettings &settings) const {
+void Filmstrip::save(QSettings &settings, bool forPopupIni) const {
   UINT orientation = 0;
   orientation      = m_isVertical ? 1 : 0;
   settings.setValue("vertical", orientation);

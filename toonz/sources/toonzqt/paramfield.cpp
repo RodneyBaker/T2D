@@ -9,6 +9,7 @@
 #include "toonzqt/doublepairfield.h"
 #include "toonzqt/tonecurvefield.h"
 #include "toonzqt/checkbox.h"
+#include "toonzqt/menubarcommand.h"
 
 #include "tdoubleparam.h"
 #include "tnotanimatableparam.h"
@@ -1321,7 +1322,7 @@ ModeSensitiveBox::ModeSensitiveBox(QWidget *parent, QCheckBox *checkBox)
 //-----------------------------------------------------------------------------
 
 void ModeSensitiveBox::onModeChanged(int modeValue) {
-  bool wasVisible = isVisible();
+  bool wasVisible = isVisibleTo(parentWidget());
   m_currentMode   = modeValue;
   if (wasVisible == m_modes.contains(modeValue)) return;
   setVisible(!wasVisible);
@@ -1387,7 +1388,6 @@ void EnumParamField::onChange(const QString &str) {
 
   emit currentParamChanged();
   emit actualParamChanged();
-
   emit modeChanged(m_actualParam->getValue());
 
   if (undo) TUndoManager::manager()->add(undo);
@@ -1420,6 +1420,10 @@ void EnumParamField::update(int frame) {
     return;
   }
 }
+
+//-----------------------------------------------------------------------------
+
+int EnumParamField::getValue() const { return m_actualParam->getValue(); }
 
 //=============================================================================
 // BoolParamField
@@ -1561,6 +1565,9 @@ void IntParamField::update(int frame) {
 
 namespace component {
 
+MyTextEdit::MyTextEdit(const QString &text, QWidget *parent)
+    : QTextEdit(text, parent) {}
+
 void MyTextEdit::keyPressEvent(QKeyEvent *event) {
   QTextEdit::keyPressEvent(event);
   if (event->key() == Qt::Key_Return) emit edited();
@@ -1570,6 +1577,7 @@ void MyTextEdit::focusOutEvent(QFocusEvent *event) {
   QTextEdit::focusOutEvent(event);
   emit edited();
 }
+
 };  // namespace component
 
 StringParamField::StringParamField(QWidget *parent, QString name,

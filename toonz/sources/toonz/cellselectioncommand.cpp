@@ -33,6 +33,7 @@
 #include "toonz/childstack.h"
 #include "toonz/tframehandle.h"
 #include "toonz/tcolumnhandle.h"
+#include "toonz/tstageobjectcmd.h"
 
 // TnzCore includes
 #include "tsystem.h"
@@ -77,7 +78,7 @@ public:
 //-----------------------------------------------------------------------------
 
 void ReverseUndo::redo() const {
-  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0, return );
+  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0, return);
 
   TApp::instance()->getCurrentXsheet()->getXsheet()->reverseCells(m_r0, m_c0,
                                                                   m_r1, m_c1);
@@ -130,12 +131,17 @@ void SwingUndo::redo() const {
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection)
+    cellSelection->selectCells(m_r0, m_c0, (m_r0 + ((m_r1 - m_r0) * 2)), m_c1);
 }
 
 //-----------------------------------------------------------------------------
 
 void SwingUndo::undo() const {
-  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0, return );
+  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0, return);
 
   for (int c = m_c0; c <= m_c1; ++c)
     TApp::instance()->getCurrentXsheet()->getXsheet()->removeCells(m_r1 + 1, c,
@@ -143,6 +149,10 @@ void SwingUndo::undo() const {
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection) cellSelection->selectCells(m_r0, m_c0, m_r1, m_c1);
 }
 
 }  // namespace
@@ -188,7 +198,7 @@ public:
 //-----------------------------------------------------------------------------
 
 void IncrementUndo::redo() const {
-  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0, return );
+  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0, return);
 
   m_undoCells.clear();
   m_ok = TApp::instance()->getCurrentXsheet()->getXsheet()->incrementCells(
@@ -201,7 +211,7 @@ void IncrementUndo::redo() const {
 //-----------------------------------------------------------------------------
 
 void IncrementUndo::undo() const {
-  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0 && m_ok, return );
+  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0 && m_ok, return);
 
   TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
 
@@ -209,12 +219,16 @@ void IncrementUndo::undo() const {
     const TRect &r = m_undoCells[i].first;
     int size       = r.x1 - r.x0 + 1;
 
-    if (m_undoCells[i].second.isEmpty())
+    if (m_undoCells[i].second.getFrameId().isNoFrame())
       xsh->removeCells(r.x0, r.y0, size);
     else {
       xsh->insertCells(r.x0, r.y0, size);
-      for (int j = 0; j < size; ++j)
-        xsh->setCell(r.x0 + j, r.y0, m_undoCells[i].second);
+      for (int j = 0; j < size; ++j) {
+        if (j > 0 && Preferences::instance()->isImplicitHoldEnabled())
+          xsh->setCell(r.x0 + j, r.y0, TXshCell(0, TFrameId::EMPTY_FRAME));
+        else
+          xsh->setCell(r.x0 + j, r.y0, m_undoCells[i].second);
+      }
     }
   }
 
@@ -276,7 +290,7 @@ public:
 
 RandomUndo::RandomUndo(int r0, int c0, int r1, int c1)
     : m_r0(r0), m_c0(c0), m_r1(r1), m_c1(c1) {
-  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0, return );
+  TCG_ASSERT(m_r1 >= m_r0 && m_c1 >= m_c0, return);
 
   int r, rowCount = r1 - r0 + 1;
   std::vector<std::pair<unsigned int, int>> rndTable(rowCount);
@@ -387,29 +401,37 @@ StepUndo::StepUndo(int r0, int c0, int r1, int c1, int step)
   assert(m_rowsCount > 0 && m_colsCount > 0 && step > 0);
   assert(m_cells);
 
-  int k = 0;
+  TXsheetP xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+  int k        = 0;
   for (int r = r0; r <= r1; ++r)
-    for (int c = c0; c <= c1; ++c)
-      m_cells[k++] =
-          TApp::instance()->getCurrentXsheet()->getXsheet()->getCell(r, c);
+    for (int c = c0; c <= c1; ++c) {
+      const TXshCell &cell = xsh->getCell(r, c, false);
+      m_cells[k++] = cell;
+    }
 }
 
 //-----------------------------------------------------------------------------
 
 void StepUndo::redo() const {
-  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0, return );
+  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0, return);
 
   TApp::instance()->getCurrentXsheet()->getXsheet()->stepCells(m_r0, m_c0, m_r1,
                                                                m_c1, m_step);
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection)
+    cellSelection->selectCells(m_r0, m_c0, (m_r0 + (m_rowsCount * m_step) - 1),
+                               m_c1);
 }
 
 //-----------------------------------------------------------------------------
 
 void StepUndo::undo() const {
-  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0 && m_cells, return );
+  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0 && m_cells, return);
 
   TApp *app    = TApp::instance();
   TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
@@ -427,6 +449,11 @@ void StepUndo::undo() const {
     }
   app->getCurrentXsheet()->notifyXsheetChanged();
   app->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection)
+    cellSelection->selectCells(m_r0, m_c0, (m_r0 + (m_rowsCount - 1)), m_c1);
 }
 
 }  // namespace
@@ -441,7 +468,6 @@ void TCellSelection::stepCells(int step) {
   TUndoManager::manager()->add(undo);
 
   undo->redo();
-  m_range.m_r1 += (step - 1) * m_range.getRowCount();
 }
 
 //*********************************************************************************
@@ -489,29 +515,38 @@ EachUndo::EachUndo(int r0, int c0, int r1, int c1, int each)
   assert(m_rowsCount > 0 && m_colsCount > 0 && each > 0);
   assert(m_cells);
 
-  int k = 0;
+  int k        = 0;
+  TXsheetP xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
   for (int r = r0; r <= r1; ++r)
-    for (int c = c0; c <= c1; ++c)
-      m_cells[k++] =
-          TApp::instance()->getCurrentXsheet()->getXsheet()->getCell(r, c);
+    for (int c = c0; c <= c1; ++c) {
+      const TXshCell &cell = xsh->getCell(r, c, false);
+      m_cells[k++] = cell;
+    }
 }
 
 //-----------------------------------------------------------------------------
 
 void EachUndo::redo() const {
-  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0, return );
+  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0, return);
 
   TApp::instance()->getCurrentXsheet()->getXsheet()->eachCells(m_r0, m_c0, m_r1,
                                                                m_c1, m_each);
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection) {
+    int newR = m_r0 + (m_r1 - m_r0 + m_each) / m_each - 1;
+    cellSelection->selectCells(m_r0, m_c0, newR, m_c1);
+  }
 }
 
 //-----------------------------------------------------------------------------
 
 void EachUndo::undo() const {
-  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0 && m_cells, return );
+  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0 && m_cells, return);
 
   TApp *app    = TApp::instance();
   TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
@@ -531,6 +566,11 @@ void EachUndo::undo() const {
 
   app->getCurrentXsheet()->notifyXsheetChanged();
   app->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection)
+    cellSelection->selectCells(m_r0, m_c0, (m_r0 + (m_rowsCount - 1)), m_c1);
 }
 
 }  // namespace
@@ -540,12 +580,14 @@ void EachUndo::undo() const {
 void TCellSelection::eachCells(int each) {
   if (isEmpty() || areAllColSelectedLocked()) return;
 
+  // Do nothing if they select less than Each #
+  if ((m_range.m_r1 - m_range.m_r0 + 1) < each) return;
+
   TUndo *undo = new EachUndo(m_range.m_r0, m_range.m_c0, m_range.m_r1,
                              m_range.m_c1, each);
   TUndoManager::manager()->add(undo);
 
   undo->redo();
-  m_range.m_r1 = m_range.m_r0 + (m_range.m_r1 - m_range.m_r0 + each) / each - 1;
 }
 
 //*********************************************************************************
@@ -556,31 +598,36 @@ namespace {
 
 class ReframeUndo final : public TUndo {
   int m_r0, m_r1;
-  int m_type;
-  int m_nr;
+  int m_c0, m_c1;
+  int m_step;
+
+  std::vector<int> m_orgRows;
+  std::vector<int> m_newRows;
+  int m_maximumRows;
+
   int m_withBlank;
   std::unique_ptr<TXshCell[]> m_cells;
-
-public:
-  std::vector<int> m_newRows;
-
   std::vector<int> m_columnIndeces;
 
-  ReframeUndo(int r0, int r1, std::vector<int> columnIndeces, int type,
+public:
+  ReframeUndo(int r0, int r1, std::vector<int> columnIndeces, int step,
               int withBlank = -1);
   ~ReframeUndo();
   void undo() const override;
   void redo() const override;
+  void onAdd() override;  // run initial reframing
+  int maximumRows() { return m_maximumRows; }
+  bool isValid() { return !m_columnIndeces.empty(); }
   void repeat() const;
 
   int getSize() const override { return sizeof(*this); }
 
   QString getHistoryString() override {
     if (m_withBlank == -1)
-      return QObject::tr("Reframe to %1's").arg(QString::number(m_type));
+      return QObject::tr("Reframe to %1's").arg(QString::number(m_step));
     else
       return QObject::tr("Reframe to %1's with %2 blanks")
-          .arg(QString::number(m_type))
+          .arg(QString::number(m_step))
           .arg(QString::number(m_withBlank));
   }
   int getHistoryType() override { return HistoryType::Xsheet; }
@@ -589,22 +636,62 @@ public:
 //-----------------------------------------------------------------------------
 
 ReframeUndo::ReframeUndo(int r0, int r1, std::vector<int> columnIndeces,
-                         int type, int withBlank)
+                         int step, int withBlank)
     : m_r0(r0)
     , m_r1(r1)
-    , m_type(type)
-    , m_nr(0)
+    , m_step(step)
     , m_columnIndeces(columnIndeces)
     , m_withBlank(withBlank) {
-  m_nr = m_r1 - m_r0 + 1;
-  assert(m_nr > 0);
-  m_cells.reset(new TXshCell[m_nr * (int)m_columnIndeces.size()]);
+  TXsheet *xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
+
+  // check if columns are cell column and not empty
+  auto colItr = m_columnIndeces.begin();
+  while (colItr != m_columnIndeces.end()) {
+    if (xsh->isColumnEmpty(*colItr) ||
+        !xsh->getColumn(*colItr)->getCellColumn())
+      colItr = m_columnIndeces.erase(colItr);
+    else
+      colItr++;
+  }
+  if (m_columnIndeces.empty()) return;
+
+  int orgCellAmount = 0;
+  // if the bottom cells are followed by hold cells, include them as target rows
+  // for each column
+  for (auto colIndex : m_columnIndeces) {
+    int rTo                = m_r1;
+    TXshCellColumn *column = xsh->getColumn(colIndex)->getCellColumn();
+    int colLen0, colLen1;
+    column->getRange(colLen0, colLen1);
+    TXshCell tmpCell = column->getCell(m_r1);
+    // For the purposes counting cells at the end, treat stop frames as empty
+    // cells
+    if (tmpCell.getFrameId().isStopFrame())
+      tmpCell = TXshCell(0, TFrameId::EMPTY_FRAME);
+    while (rTo < colLen1) {
+      TXshCell nextCell = column->getCell(rTo + 1);
+      if (nextCell.getFrameId().isStopFrame())
+        nextCell = TXshCell(0, TFrameId::EMPTY_FRAME);
+      if (nextCell != tmpCell) break;
+      rTo++;
+    }
+    int nr = rTo - m_r0 + 1;
+    m_orgRows.push_back(nr);
+    orgCellAmount += nr + 1;
+  }
+  m_cells.reset(new TXshCell[orgCellAmount]);
   assert(m_cells);
-  int k = 0;
-  for (int r = r0; r <= r1; r++)
-    for (int c     = 0; c < (int)m_columnIndeces.size(); c++)
-      m_cells[k++] = TApp::instance()->getCurrentXsheet()->getXsheet()->getCell(
-          r, m_columnIndeces[c]);
+  int k        = 0;
+  m_c0         = std::numeric_limits<int>::max();
+  m_c1         = -1;
+  for (int c = 0; c < (int)m_columnIndeces.size(); c++) {
+    for (int r = r0; r < r0 + m_orgRows[c] + 1; r++) {
+      const TXshCell &cell = xsh->getCell(r, m_columnIndeces[c], false);
+      m_cells[k++]         = cell;
+    }
+    m_c0 = std::min(m_c0, m_columnIndeces[c]);
+    m_c1 = std::max(m_c1, m_columnIndeces[c]);
+  }
 
   m_newRows.clear();
 }
@@ -619,22 +706,23 @@ void ReframeUndo::undo() const {
   TApp *app    = TApp::instance();
   TXsheet *xsh = app->getCurrentXsheet()->getXsheet();
   int rowCount = m_r1 - m_r0;
-  if (rowCount < 0 || m_columnIndeces.size() < 1) return;
+  if (rowCount < 0 || m_columnIndeces.empty()) return;
 
   for (int c = 0; c < m_columnIndeces.size(); c++) {
     /*-- コマンド後に縮んだカラムはその分引き伸ばす --*/
-    if (m_newRows[c] < m_nr)
+    if (m_newRows[c] < m_orgRows[c])
       xsh->insertCells(m_r0 + m_newRows[c], m_columnIndeces[c],
-                       m_nr - m_newRows[c]);
+                       m_orgRows[c] - m_newRows[c]);
     /*-- コマンド後に延びたカラムはその分縮める --*/
-    else if (m_newRows[c] > m_nr)
-      xsh->removeCells(m_r1 + 1, m_columnIndeces[c], m_newRows[c] - m_nr);
+    else if (m_newRows[c] > m_orgRows[c])
+      xsh->removeCells(m_r0 + m_orgRows[c], m_columnIndeces[c],
+                       m_newRows[c] - m_orgRows[c]);
   }
 
   if (m_cells) {
     int k = 0;
-    for (int r = m_r0; r <= m_r1; r++)
-      for (int c = 0; c < m_columnIndeces.size(); c++) {
+    for (int c = 0; c < m_columnIndeces.size(); c++)
+      for (int r = m_r0; r < m_r0 + m_orgRows[c] + 1; r++) {
         if (m_cells[k].isEmpty())
           xsh->clearCells(r, m_columnIndeces[c]);
         else
@@ -643,25 +731,109 @@ void ReframeUndo::undo() const {
       }
   }
   app->getCurrentXsheet()->notifyXsheetChanged();
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection)
+    cellSelection->selectCells(m_r0, m_c0, (m_r0 + rowCount), m_c1);
 }
 
 //-----------------------------------------------------------------------------
 
 void ReframeUndo::redo() const {
-  if (m_r1 - m_r0 < 0 || m_columnIndeces.size() < 1) return;
+  if (m_r1 - m_r0 < 0 || m_columnIndeces.empty()) return;
 
   TApp *app = TApp::instance();
 
-  for (int c = 0; c < m_columnIndeces.size(); c++)
-    app->getCurrentXsheet()->getXsheet()->reframeCells(
-        m_r0, m_r1, m_columnIndeces[c], m_type, m_withBlank);
+  int rows = m_r1 - m_r0;
+  for (int c = 0; c < m_columnIndeces.size(); c++) {
+    rows = app->getCurrentXsheet()->getXsheet()->reframeCells(
+        m_r0, m_r0 + m_orgRows[c] - 1, m_columnIndeces[c], m_step, m_withBlank);
+  }
 
+  app->getCurrentXsheet()->notifyXsheetChanged();
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection)
+    cellSelection->selectCells(m_r0, m_c0, (m_r0 + rows - 1), m_c1);
+}
+//-----------------------------------------------------------------------------
+
+void ReframeUndo::onAdd() {
+  if (m_r1 - m_r0 < 0 || m_columnIndeces.empty()) return;
+
+  TApp *app = TApp::instance();
+
+  m_maximumRows = 0;
+
+  for (int c = 0; c < m_columnIndeces.size(); c++) {
+    int nrows = app->getCurrentXsheet()->getXsheet()->reframeCells(
+        m_r0, m_r0 + m_orgRows[c] - 1, m_columnIndeces[c], m_step, m_withBlank);
+    m_newRows.push_back(nrows);
+    m_maximumRows = std::max(m_maximumRows, nrows);
+  }
+
+  app->getCurrentScene()->setDirtyFlag(true);
   app->getCurrentXsheet()->notifyXsheetChanged();
 }
 
 //-----------------------------------------------------------------------------
 
 void ReframeUndo::repeat() const {}
+
+//-----------------------------------------------------------------------------
+// return true if
+// 1) cells in the range contain at least one blank cell, OR
+// 2) for each column in the col-range, all cells in the row-range are identical
+bool hasBlankOrAllIdentical(const TXsheet *xsh,
+                            const TCellSelection::Range &range) {
+  bool isIdentical = true;
+  for (int c = range.m_c0; c <= range.m_c1; c++) {
+    if (xsh->isColumnEmpty(c)) return true;
+    int colRange0, colRange1;
+    TXshCellColumn *column = xsh->getColumn(c)->getCellColumn();
+    if (!column) return true;
+    column->getRange(colRange0, colRange1);
+    if (range.m_r0 > colRange1) return true;
+
+    TXshCell cell = column->getCell(range.m_r0);
+    int rTo       = std::min(range.m_r1, colRange1);
+    for (int r = range.m_r0; r <= rTo; r++) {
+      if (column->isCellEmpty(r)) return true;
+      TXshCell tempCell = column->getCell(r);
+      if (tempCell.getFrameId().isStopFrame()) return true;
+      if (isIdentical && cell != tempCell) isIdentical = false;
+    }
+  }
+  return isIdentical;
+}
+
+//-----------------------------------------------------------------------------
+// return true if
+// 1) columns in the vector contain at least one blank cell, OR
+// 2) for each column, all cells are identical
+bool hasBlankOrAllIdentical(const TXsheet *xsh,
+                            const std::vector<int> &colIndices) {
+  bool isIdentical = true;
+  for (auto c : colIndices) {
+    if (xsh->isColumnEmpty(c)) return true;
+    int colRange0, colRange1;
+    TXshCellColumn *column = xsh->getColumn(c)->getCellColumn();
+    if (!column) return true;
+    column->getRange(colRange0, colRange1);
+    // if the columns starts with blank cell, then return true
+    if (colRange0 != 0) return true;
+    TXshCell cell = column->getCell(colRange0);
+    for (int r = colRange0 + 1; r <= colRange1; r++) {
+      if (column->isCellEmpty(r)) return true;
+      TXshCell tempCell = column->getCell(r);
+      if (tempCell.getFrameId().isStopFrame()) return true;
+      if (isIdentical && cell != tempCell) isIdentical = false;
+    }
+  }
+  return isIdentical;
+}
 
 }  // namespace
 
@@ -676,16 +848,15 @@ void TCellSelection::reframeCells(int count) {
   ReframeUndo *undo =
       new ReframeUndo(m_range.m_r0, m_range.m_r1, colIndeces, count);
 
-  for (int c = m_range.m_c0; c <= m_range.m_c1; c++) {
-    int nrows = TApp::instance()->getCurrentXsheet()->getXsheet()->reframeCells(
-        m_range.m_r0, m_range.m_r1, c, count);
-    undo->m_newRows.push_back(nrows);
+  if (!undo->isValid()) {
+    delete undo;
+    return;
   }
 
+  // reframing executed on adding undo
   TUndoManager::manager()->add(undo);
 
-  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
-  TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+  m_range.m_r1 = m_range.m_r0 + undo->maximumRows() - 1;
 }
 
 void TColumnSelection::reframeCells(int count) {
@@ -700,16 +871,13 @@ void TColumnSelection::reframeCells(int count) {
 
   ReframeUndo *undo = new ReframeUndo(0, rowCount - 1, colIndeces, count);
 
-  for (int c = 0; c < (int)colIndeces.size(); c++) {
-    int nrows = TApp::instance()->getCurrentXsheet()->getXsheet()->reframeCells(
-        0, rowCount - 1, colIndeces[c], count);
-    undo->m_newRows.push_back(nrows);
+  if (!undo->isValid()) {
+    delete undo;
+    return;
   }
 
+  // reframing executed on adding undo
   TUndoManager::manager()->add(undo);
-
-  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
-  TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
 }
 
 //=============================================================================
@@ -722,7 +890,17 @@ void TCellSelection::reframeWithEmptyInbetweens() {
 
   // destruction of m_reframePopup will be done along with the main window
   if (!m_reframePopup) m_reframePopup = new ReframePopup();
-  int ret                             = m_reframePopup->exec();
+
+  // check if the reframe popup should show the "insert blank" field.
+  // The field will be hidden when;
+  // 1) selected cells contain blank cell, OR
+  // 2) for each column, all selected cells are identical
+  bool showInsertBlankField = !hasBlankOrAllIdentical(
+      TApp::instance()->getCurrentXsheet()->getXsheet(), m_range);
+
+  m_reframePopup->showInsertBlankField(showInsertBlankField);
+
+  int ret = m_reframePopup->exec();
   if (ret == QDialog::Rejected) return;
 
   int step, blank;
@@ -731,27 +909,17 @@ void TCellSelection::reframeWithEmptyInbetweens() {
   ReframeUndo *undo =
       new ReframeUndo(m_range.m_r0, m_range.m_r1, colIndeces, step, blank);
 
-  int maximumRow = 0;
-  for (int c = m_range.m_c0; c <= m_range.m_c1; c++) {
-    int nrows = TApp::instance()->getCurrentXsheet()->getXsheet()->reframeCells(
-        m_range.m_r0, m_range.m_r1, c, step, blank);
-    undo->m_newRows.push_back(nrows);
-    if (maximumRow < nrows) maximumRow = nrows;
-  }
-
-  if (maximumRow == 0) {
+  if (!undo->isValid()) {
     delete undo;
     return;
   }
 
+  // reframing executed on adding undo
   TUndoManager::manager()->add(undo);
 
   // select reframed range
-  selectCells(m_range.m_r0, m_range.m_c0, m_range.m_r0 + maximumRow - 1,
-              m_range.m_c1);
-
-  TApp::instance()->getCurrentScene()->setDirtyFlag(true);
-  TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
+  selectCells(m_range.m_r0, m_range.m_c0,
+              m_range.m_r0 + undo->maximumRows() - 1, m_range.m_c1);
 }
 
 void TColumnSelection::reframeWithEmptyInbetweens() {
@@ -765,7 +933,17 @@ void TColumnSelection::reframeWithEmptyInbetweens() {
     colIndeces.push_back(*it);
 
   if (!m_reframePopup) m_reframePopup = new ReframePopup();
-  int ret                             = m_reframePopup->exec();
+
+  // check if the reframe popup should show the "insert blank" field.
+  // The field will be hidden when;
+  // 1) selected columns contain blank cell, OR
+  // 2) for each column, all contained cells are identical
+  bool showInsertBlankField = !hasBlankOrAllIdentical(
+      TApp::instance()->getCurrentXsheet()->getXsheet(), colIndeces);
+
+  m_reframePopup->showInsertBlankField(showInsertBlankField);
+
+  int ret = m_reframePopup->exec();
   if (ret == QDialog::Rejected) return;
 
   int step, blank;
@@ -773,20 +951,35 @@ void TColumnSelection::reframeWithEmptyInbetweens() {
 
   ReframeUndo *undo = new ReframeUndo(0, rowCount - 1, colIndeces, step, blank);
 
-  bool commandExecuted = false;
-  for (int c = 0; c < (int)colIndeces.size(); c++) {
-    int nrows = TApp::instance()->getCurrentXsheet()->getXsheet()->reframeCells(
-        0, rowCount - 1, colIndeces[c], step, blank);
-    undo->m_newRows.push_back(nrows);
-    if (nrows > 0) commandExecuted = true;
-  }
-
-  if (!commandExecuted) {
+  if (!undo->isValid()) {
     delete undo;
     return;
   }
 
+  // reframing executed on adding undo
   TUndoManager::manager()->add(undo);
+}
+
+//=============================================================================
+
+void TColumnSelection::renumberColumns() {
+  if (isEmpty()) return;
+
+  int rowCount =
+    TApp::instance()->getCurrentXsheet()->getXsheet()->getFrameCount();
+  std::vector<int> colIndeces;
+  std::set<int>::const_iterator it;
+
+  TUndoManager *undoManager = TUndoManager::manager();
+  undoManager->beginBlock();
+
+  for (it = m_indices.begin(); it != m_indices.end(); it++) {
+    TCellSelection selection;
+    selection.selectCells(0, *it, rowCount, *it);
+    selection.dRenumberCells();
+  }
+
+  undoManager->endBlock();
 
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
@@ -834,10 +1027,10 @@ ResetStepUndo::ResetStepUndo(int r0, int c0, int r1, int c1)
     TXshCell prevCell;
     m_insertedCells[c] = 0;
 
+    TXsheetP xsh = app->getCurrentXsheet()->getXsheet();
     for (int r = r0; r <= r1; ++r) {
-      const TXshCell &cell =
-          app->getCurrentXsheet()->getXsheet()->getCell(r, c);
-      m_cells[k++] = cell;
+      const TXshCell &cell = xsh->getCell(r, c);
+      m_cells[k++] = xsh->getCell(r, c, false);
 
       if (prevCell != cell) {
         prevCell = cell;
@@ -850,13 +1043,22 @@ ResetStepUndo::ResetStepUndo(int r0, int c0, int r1, int c1)
 //-----------------------------------------------------------------------------
 
 void ResetStepUndo::redo() const {
-  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0, return );
+  TCG_ASSERT(m_rowsCount > 0 && m_colsCount > 0, return);
 
   TApp::instance()->getCurrentXsheet()->getXsheet()->resetStepCells(m_r0, m_c0,
                                                                     m_r1, m_c1);
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection) {
+    int newR = 1;
+    for (int c = m_c0; c <= m_c1; ++c)
+      newR = std::max(newR, m_insertedCells[c]);
+    cellSelection->selectCells(m_r0, m_c0, (m_r0 + newR - 1), m_c1);
+  }
 }
 
 //-----------------------------------------------------------------------------
@@ -875,6 +1077,11 @@ void ResetStepUndo::undo() const {
 
   app->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection)
+    cellSelection->selectCells(m_r0, m_c0, (m_r0 + (m_rowsCount - 1)), m_c1);
 }
 
 }  // namespace
@@ -934,10 +1141,10 @@ IncreaseStepUndo::IncreaseStepUndo(int r0, int c0, int r1, int c1)
     TXshCell prevCell;
     m_insertedCells[c] = 0;
 
+    TXsheetP xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
     for (int r = r0; r <= r1; ++r) {
-      const TXshCell &cell =
-          TApp::instance()->getCurrentXsheet()->getXsheet()->getCell(r, c);
-      m_cells[k++] = cell;
+      const TXshCell &cell = xsh->getCell(r, c);
+      m_cells[k++] = xsh->getCell(r, c, false);
 
       if (prevCell != cell) {
         prevCell = cell;
@@ -956,6 +1163,10 @@ void IncreaseStepUndo::redo() const {
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection) cellSelection->selectCells(m_r0, m_c0, m_newR1, m_c1);
 }
 
 //-----------------------------------------------------------------------------
@@ -974,6 +1185,11 @@ void IncreaseStepUndo::undo() const {
 
   app->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection)
+    cellSelection->selectCells(m_r0, m_c0, (m_r0 + (m_rowsCount - 1)), m_c1);
 }
 
 }  // namespace
@@ -1000,11 +1216,6 @@ void TCellSelection::increaseStepCells() {
   TUndoManager::manager()->add(undo);
 
   undo->redo();
-
-  if (undo->m_newR1 != m_range.m_r1) {
-    m_range.m_r1 = undo->m_newR1;
-    TApp::instance()->getCurrentSelection()->notifySelectionChanged();
-  }
 }
 
 //*********************************************************************************
@@ -1016,6 +1227,7 @@ namespace {
 class DecreaseStepUndo final : public TUndo {
   int m_r0, m_c0, m_r1, m_c1;
   int m_rowsCount, m_colsCount;
+  bool m_singleRow = false;
 
   std::unique_ptr<TXshCell[]> m_cells;
   QMap<int, int> m_removedCells;
@@ -1039,27 +1251,33 @@ DecreaseStepUndo::DecreaseStepUndo(int r0, int c0, int r1, int c1)
     , m_c0(c0)
     , m_r1(r1)
     , m_c1(c1)
-    , m_rowsCount(m_r1 - m_r0 + 1)
-    , m_colsCount(m_c1 - m_c0 + 1)
-    , m_cells(new TXshCell[m_rowsCount * m_colsCount])
-    , m_newR1(m_r1) {
+    , m_colsCount(m_c1 - m_c0 + 1) {
   assert(m_cells);
 
-  int k = 0;
+  if (r0 == r1) {
+    m_singleRow = true;
+    m_r1++;
+  }
+
+  m_newR1     = m_r1;
+  m_rowsCount = (m_r1 - m_r0 + 1);
+  m_cells =
+      std::unique_ptr<TXshCell[]>(new TXshCell[m_rowsCount * m_colsCount]);
+
+  int k        = 0;
+  TXsheetP xsh = TApp::instance()->getCurrentXsheet()->getXsheet();
   for (int c = c0; c <= c1; ++c) {
-    TXshCell prevCell =
-        TApp::instance()->getCurrentXsheet()->getXsheet()->getCell(r0, c);
+    TXshCell prevCell = xsh->getCell(r0, c);
     m_removedCells[c] = 0;
 
     bool removed = false;
-    m_cells[k++] = prevCell;
+    m_cells[k++] = xsh->getCell(r0, c, false);
 
-    for (int r = r0 + 1; r <= r1; ++r) {
-      const TXshCell &cell =
-          TApp::instance()->getCurrentXsheet()->getXsheet()->getCell(r, c);
-      m_cells[k++] = cell;
+    for (int r = m_r0 + 1; r <= m_r1; ++r) {
+      const TXshCell &cell = xsh->getCell(r, c);
+      m_cells[k++] = xsh->getCell(r, c, false);
 
-      if (prevCell == cell) {
+      if (prevCell == cell && !cell.isEmpty()) {
         if (!removed) {
           removed = true;
           m_removedCells[c]++;
@@ -1081,6 +1299,11 @@ void DecreaseStepUndo::redo() const {
 
   TApp::instance()->getCurrentXsheet()->notifyXsheetChanged();
   TApp::instance()->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (m_singleRow) m_newR1 = m_r0;
+  if (cellSelection) cellSelection->selectCells(m_r0, m_c0, m_newR1, m_c1);
 }
 
 //-----------------------------------------------------------------------------
@@ -1099,6 +1322,13 @@ void DecreaseStepUndo::undo() const {
 
   app->getCurrentXsheet()->notifyXsheetChanged();
   app->getCurrentScene()->setDirtyFlag(true);
+
+  TCellSelection *cellSelection = dynamic_cast<TCellSelection *>(
+      TApp::instance()->getCurrentSelection()->getSelection());
+  if (cellSelection) {
+    int newR1 = m_singleRow ? m_r0 : (m_r0 + (m_rowsCount - 1));
+    cellSelection->selectCells(m_r0, m_c0, newR1, m_c1);
+  }
 }
 
 }  // namespace
@@ -1120,7 +1350,8 @@ void TCellSelection::decreaseStepCells() {
     for (int i = 1; sameCells; i++) {
       nextCell = xsh->getCell(row + i, col);
       if (nextCell.m_frameId == cell.m_frameId &&
-          nextCell.m_level == cell.m_level) {
+          nextCell.m_level == cell.m_level &&
+          !xsh->isImplicitCell(row + i, col)) {
         r1 = row + i;
       } else
         sameCells = false;
@@ -1129,18 +1360,12 @@ void TCellSelection::decreaseStepCells() {
     m_range.m_r1 = r1;
     m_range.m_c0 = col;
     m_range.m_c1 = col;
-    TApp::instance()->getCurrentSelection()->notifySelectionChanged();
   }
   DecreaseStepUndo *undo = new DecreaseStepUndo(m_range.m_r0, m_range.m_c0,
                                                 m_range.m_r1, m_range.m_c1);
   TUndoManager::manager()->add(undo);
 
   undo->redo();
-
-  if (undo->m_newR1 != m_range.m_r1) {
-    m_range.m_r1 = undo->m_newR1;
-    TApp::instance()->getCurrentSelection()->notifySelectionChanged();
-  }
 }
 
 //*********************************************************************************
@@ -1237,6 +1462,8 @@ void TCellSelection::setKeyframes() {
 
   int row = m_range.m_r0, col = m_range.m_c0;
 
+  if (xsh->getColumn(col) && xsh->getColumn(col)->getFolderColumn()) return;
+
   const TXshCell &cell = xsh->getCell(row, col);
   if (cell.getSoundLevel() || cell.getSoundTextLevel()) return;
 
@@ -1299,9 +1526,8 @@ public:
   void undo() const override;
 
   int getSize() const override {
-    return sizeof *this +
-           (sizeof(TXshLevelP) + sizeof(TXshSimpleLevel *)) *
-               m_insertedLevels.size();
+    return sizeof *this + (sizeof(TXshLevelP) + sizeof(TXshSimpleLevel *)) *
+                              m_insertedLevels.size();
   }
 
   QString getHistoryString() override {
@@ -1531,12 +1757,7 @@ void CloneLevelUndo::cloneLevels() const {
       assert(lt->first && !lt->second.empty());
 
       TXshSimpleLevel *srcSl = lt->first;
-      if (srcSl->getPath().getType() == "psd" ||
-          srcSl->getPath().getType() == "gif" ||
-          srcSl->getPath().getType() == "mp4" ||
-          srcSl->getPath().getType() == "webm" ||
-          srcSl->getPath().getType() == "mov")
-        continue;
+      if (srcSl->getPath().isUneditable()) continue;
 
       const TFilePath &srcPath = srcSl->getPath();
 
@@ -1595,20 +1816,31 @@ void CloneLevelUndo::insertCells() const {
     m_insertedColumns.insert(colIndex);
   }
 
+  bool useImplicitHold = Preferences::instance()->isImplicitHoldEnabled();
+
   // Now, re-traverse the selected range, and add corresponding cells
   // in the destination range
   for (int c = m_range.m_c0; c <= m_range.m_c1; ++c) {
+    TXshLevelP lastLevel = 0;
     for (int r = m_range.m_r0; r <= m_range.m_r1; ++r) {
-      const TXshCell &srcCell = xsh->getCell(r, c);
+      TXshCell srcCell = xsh->getCell(r, c, false);
+      if (srcCell.isEmpty() && useImplicitHold &&
+          xsh->isColumnEmpty(c + m_range.getColCount()))
+        srcCell = xsh->getCell(r, c, true);
       if (TXshSimpleLevel *srcSl = srcCell.getSimpleLevel()) {
         std::map<TXshSimpleLevel *, TXshLevelP>::iterator lt =
             m_insertedLevels.find(srcSl);
         if (lt != m_insertedLevels.end()) {
+          lastLevel = lt->second;
           TXshCell dstCell(lt->second, srcCell.getFrameId());
           xsh->setCell(r, c + m_range.getColCount(), dstCell);
         }
       }
     }
+    if (useImplicitHold &&
+        !xsh->getCell(m_range.m_r1, c + m_range.getColCount()).isEmpty())
+      xsh->setCell(m_range.m_r1 + 1, c + m_range.getColCount(),
+                   TXshCell(lastLevel, TFrameId::STOP_FRAME));
   }
 }
 
@@ -1676,9 +1908,29 @@ void CloneLevelUndo::undo() const {
 //-----------------------------------------------------------------------------
 
 void TCellSelection::cloneLevel() {
+  TUndoManager::manager()->beginBlock();
+
   std::unique_ptr<CloneLevelUndo> undo(new CloneLevelUndo(m_range));
 
-  if (undo->redo(), undo->m_ok) TUndoManager::manager()->add(undo.release());
+  if (undo->redo(), undo->m_ok) {
+    TUndoManager::manager()->add(undo.release());
+
+    // Clone level always adds new columns after the column selection.
+    TApplication *app = TApp::instance();
+    for (int col = m_range.m_c0; col <= m_range.m_c1; col++) {
+      int newCol              = col + m_range.getColCount();
+      TStageObjectId columnId = TStageObjectId::ColumnId(newCol);
+      TXsheet *xsh            = app->getCurrentXsheet()->getXsheet();
+      TXshCell cell           = xsh->getCell(m_range.m_r0, newCol);
+      if (cell.isEmpty()) continue;
+      TXshSimpleLevel *level  = cell.getSimpleLevel();
+      std::string columnName =
+          QString::fromStdWString(level->getName()).toStdString();
+      TStageObjectCmd::rename(columnId, columnName, app->getCurrentXsheet());
+    }
+  }
+
+  TUndoManager::manager()->endBlock();
 }
 
 //=============================================================================

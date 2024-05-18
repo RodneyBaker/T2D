@@ -40,6 +40,7 @@ class QOpenGLFramebufferObject;
 class LutCalibrator;
 class StopMotion;
 class TStopWatch;
+class QElapsedTimer;
 
 namespace ImageUtils {
 class FullScreenWidget;
@@ -195,7 +196,6 @@ class SceneViewer final : public GLWidgetForHighDpi,
     TOP_3D,
   } m_current3DDevice;
 
-  LocatorPopup *m_locator;
   bool m_isLocator;
   bool m_isStyleShortcutSwitchable;
 
@@ -306,6 +306,7 @@ public:
   // the viewer
   // when using the stylepicker and the finger tools
   TRectD getGeometry() const override;
+  TRectD getCameraRect() const override;
 
   void setFocus(Qt::FocusReason reason) { QWidget::setFocus(reason); };
 
@@ -354,6 +355,7 @@ protected:
   void drawViewerIndicators();
 
   void drawScene();
+  void drawSceneOverlay();
   void drawToolGadgets();
 
 protected:

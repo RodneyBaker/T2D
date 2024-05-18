@@ -20,10 +20,12 @@ enum PreferencesItemId {
   projectRoot,
   customProjectRoot,
   pathAliasPriority,
+  showAdvancedOptions,
 
   //----------
   // Interface
   CurrentStyleSheetName,
+  additionalStyleSheet,
   iconTheme,
   pixelsOnly,
   oldUnits,
@@ -45,6 +47,7 @@ enum PreferencesItemId {
   colorCalibrationEnabled,
   colorCalibrationLutPaths,
   showIconsInMenu,
+  displayIn30bit,
   viewerIndicatorEnabled,
 
   //----------
@@ -59,7 +62,8 @@ enum PreferencesItemId {
   subsceneFolderEnabled,
   removeSceneNumberFromLoadedLevelName,
   IgnoreImageDpi,
-  initialLoadTlvCachingBehavior,
+  rasterLevelCachingBehavior,
+  // initialLoadTlvCachingBehavior, // deprecated
   columnIconLoadingPolicy,
   levelFormats,  // need to be handle separately
   autoRemoveUnusedLevels,
@@ -69,18 +73,22 @@ enum PreferencesItemId {
   rasterBackgroundColor,
   resetUndoOnSavingLevel,
   defaultProjectPath,
+  recordFileHistory,
+  recordAsUsername,
 
   //----------
   // Import / Export
   ffmpegPath,
   ffmpegTimeout,
   fastRenderPath,
+  ffmpegMultiThread,
   rhubarbPath,
   rhubarbTimeout,
 
   //----------
   // Drawing
-  scanLevelType,
+  DefRasterFormat,
+  // scanLevelType,// deprecated
   DefLevelType,
   newLevelSizeToCameraSizeEnabled,
   DefLevelWidth,
@@ -90,6 +98,7 @@ enum PreferencesItemId {
   EnableAutocreation,
   NumberingSystem,
   EnableAutoStretch,
+  EnableImplicitHold,
   EnableCreationInHoldCells,
   EnableAutoRenumber,
   vectorSnappingTarget,
@@ -111,6 +120,7 @@ enum PreferencesItemId {
   levelBasedToolsDisplay,
   useCtrlAltToResizeBrush,
   temptoolswitchtimer,
+  magnetNonLinearSliderEnabled,
 
   //----------
   // Xsheet
@@ -118,6 +128,7 @@ enum PreferencesItemId {
   xsheetStep,
   xsheetAutopanEnabled,
   DragCellsBehaviour,
+  pasteCellsBehavior,
   ignoreAlphaonColumn1Enabled,
   showKeyframesOnXsheetCellArea,
   showXsheetCameraColumn,
@@ -125,13 +136,19 @@ enum PreferencesItemId {
   inputCellsWithoutDoubleClickingEnabled,
   shortcutCommandsWhileRenamingCellEnabled,
   showQuickToolbar,
+  showXsheetBreadcrumbs,
   expandFunctionHeader,
   showColumnNumbers,
+  parentColorsInXsheetColumn,
+  highlightLineEverySecond,
   syncLevelRenumberWithXsheet,
   currentTimelineEnabled,
   currentColumnColor,
+  currentCellColor,
   levelNameDisplayType,
   showFrameNumberWithLetters,
+  showDragBars,
+  timelineLayoutPreference,
 
   //----------
   // Animation
@@ -148,6 +165,8 @@ enum PreferencesItemId {
   fitToFlipbook,
   generatedMovieViewEnabled,
   shortPlayFrameCount,
+  inbetweenFlipDrawingCount,
+  inbetweenFlipSpeed,
 
   //----------
   // Onion Skin

@@ -7,6 +7,7 @@
 #include "timage.h"
 #include "trastercm.h"
 #include "tgl.h"
+#include "tstencilcontrol.h"
 
 // TnzExt includes
 #include "ext/plasticvisualsettings.h"
@@ -106,7 +107,8 @@ public:
   // used in Toonz derivative works such as Tab or LineTest. They deal with
   // OpenGL stencil buffer.
 
-  virtual void enableMask()  = 0;
+  virtual void enableMask(
+      TStencilControl::MaskType maskType = TStencilControl::SHOW_INSIDE) = 0;
   virtual void disableMask() = 0;
 
   virtual void beginMask() = 0;
@@ -141,6 +143,7 @@ struct DVAPI VisitArgs {
   TRasterImageP m_lineupImage   = 0;
   Stage::Player m_liveViewPlayer;
   Stage::Player m_lineupPlayer;
+  bool m_currentDrawingOnTop;
 
 public:
   VisitArgs()
@@ -157,7 +160,8 @@ public:
       , m_isGuidedDrawingEnabled(0)
       , m_guidedFrontStroke(-1)
       , m_guidedBackStroke(-1)
-      , m_rasterizePli(false) {}
+      , m_rasterizePli(false)
+      , m_currentDrawingOnTop(false) {}
 };
 
 //=============================================================================
@@ -276,7 +280,8 @@ public:
 
   void beginMask() override;
   void endMask() override;
-  void enableMask() override;
+  void enableMask(TStencilControl::MaskType maskType =
+                      TStencilControl::SHOW_INSIDE) override;
   void disableMask() override;
 
   int getNodesCount();
@@ -317,7 +322,8 @@ public:
   void onRasterImage(TRasterImage *ri, const Stage::Player &data) override{};
   void beginMask() override;
   void endMask() override;
-  void enableMask() override;
+  void enableMask(TStencilControl::MaskType maskType =
+                      TStencilControl::SHOW_INSIDE) override;
   void disableMask() override;
 
   int getColumnIndex() const;
@@ -341,6 +347,8 @@ class DVAPI OpenGlPainter final : public Visitor  // Yep, the name sucks...
   bool m_isViewer, m_alphaEnabled, m_paletteHasChanged;
   double m_minZ;
 
+  bool m_singleColumnEnabled;
+
 public:
   OpenGlPainter(const TAffine &viewAff, const TRect &rect,
                 const ImagePainter::VisualSettings &vs, bool isViewer,
@@ -358,10 +366,14 @@ public:
 
   void beginMask() override;
   void endMask() override;
-  void enableMask() override;
+  void enableMask(TStencilControl::MaskType maskType =
+                      TStencilControl::SHOW_INSIDE) override;
   void disableMask() override;
 
   double getMinZ() const { return m_minZ; }
+
+  void enableSingleColumn(bool on) { m_singleColumnEnabled = on; }
+  bool isSingleColumnEnabled() const { return m_singleColumnEnabled; }
 };
 
 }  // namespace Stage

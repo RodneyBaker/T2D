@@ -18,7 +18,6 @@
 #include "tconvert.h"
 #include "tundo.h"
 #include "tbigmemorymanager.h"
-#include "tfilepath.h"
 #include "timage_io.h"
 
 // Qt includes
@@ -26,10 +25,8 @@
 #include <QStringList>
 #include <QAction>
 #include <QColor>
+#include <QTextStream>
 #include <QStandardPaths>
-
-// boost includes
-#include <boost/bind.hpp>
 
 //**********************************************************************************
 //    Local namespace  stuff
@@ -48,7 +45,8 @@ const char *s_name = "name", *s_regexp = "regexp", *s_priority = "priority";
 
 const char *s_dpiPolicy = "dpiPolicy", *s_dpi = "dpi",
            *s_subsampling = "subsampling", *s_antialias = "antialias",
-           *s_premultiply = "premultiply", *s_whiteTransp = "whiteTransp";
+           *s_premultiply = "premultiply", *s_whiteTransp = "whiteTransp",
+           *s_colorSpaceGamma = "colorSpaceGamma";
 
 //=================================================================
 
@@ -125,6 +123,7 @@ void setValue(QSettings &settings, const LevelOptions &lo) {
   settings.setValue(s_antialias, lo.m_antialias);
   settings.setValue(s_premultiply, int(lo.m_premultiply));
   settings.setValue(s_whiteTransp, int(lo.m_whiteTransp));
+  settings.setValue(s_colorSpaceGamma, lo.m_colorSpaceGamma);
 }
 
 //-----------------------------------------------------------------
@@ -139,6 +138,8 @@ void getValue(const QSettings &settings, LevelOptions &lo) {
       (settings.value(s_premultiply, lo.m_premultiply).toInt() != 0);
   lo.m_whiteTransp =
       (settings.value(s_whiteTransp, lo.m_whiteTransp).toInt() != 0);
+  lo.m_colorSpaceGamma =
+      settings.value(s_colorSpaceGamma, lo.m_colorSpaceGamma).toDouble();
 }
 
 //-----------------------------------------------------------------
@@ -206,7 +207,7 @@ void getValue(QSettings &settings,
         (*it).m_options.m_premultiply == true) {
       LevelOptions defaultValue;
       defaultValue.m_premultiply = true;
-      // if other parameters are the same as deafault, just erase the item
+      // if other parameters are the same as default, just erase the item
       if ((*it).m_options == defaultValue) it = lfv.erase(it);
       // if there are some adjustments by user, then disable only premultiply
       // option
@@ -279,7 +280,7 @@ void Preferences::load() {
             formatLess);           // enforced
 
   if (m_roomMaps.key(getStringValue(CurrentRoomChoice), -1) == -1) {
-    assert(!m_roomMaps.isEmpty());
+    // assert(!m_roomMaps.isEmpty());
     setValue(CurrentRoomChoice, m_roomMaps[0]);
   }
 
@@ -395,6 +396,8 @@ void Preferences::definePreferenceItems() {
   define(pathAliasPriority, "pathAliasPriority", QMetaType::Int,
          (int)ProjectFolderOnly);
 
+  define(showAdvancedOptions, "showAdvancedOptions", QMetaType::Bool, false);
+
   setCallBack(autosaveEnabled, &Preferences::enableAutosave);
   setCallBack(autosavePeriod, &Preferences::setAutosavePeriod);
   setCallBack(undoMemorySize, &Preferences::setUndoMemorySize);
@@ -402,6 +405,7 @@ void Preferences::definePreferenceItems() {
   // Interface
   define(CurrentStyleSheetName, "CurrentStyleSheetName", QMetaType::QString,
          "Dark");
+  define(additionalStyleSheet, "additionalStyleSheet", QMetaType::QString, "");
   define(iconTheme, "iconTheme", QMetaType::Bool, false);
   define(pixelsOnly, "pixelsOnly", QMetaType::Bool, true);
   define(oldUnits, "oldUnits", QMetaType::QString, "mm");
@@ -439,6 +443,7 @@ void Preferences::definePreferenceItems() {
          false);
   define(colorCalibrationLutPaths, "colorCalibrationLutPaths",
          QMetaType::QVariantMap, QVariantMap());
+  define(displayIn30bit, "displayIn30bit", QMetaType::Bool, false);
 
   // hide menu icons by default in macOS since the icon color may not match with
   // the system color theme
@@ -467,7 +472,7 @@ void Preferences::definePreferenceItems() {
   define(removeSceneNumberFromLoadedLevelName,
          "removeSceneNumberFromLoadedLevelName", QMetaType::Bool, false);
   define(IgnoreImageDpi, "IgnoreImageDpi", QMetaType::Bool, true);
-  define(initialLoadTlvCachingBehavior, "initialLoadTlvCachingBehavior",
+  define(rasterLevelCachingBehavior, "rasterLevelCachingBehavior",
          QMetaType::Int, 0);  // On Demand
   define(columnIconLoadingPolicy, "columnIconLoadingPolicy", QMetaType::Int,
          (int)LoadAtOnce);
@@ -489,18 +494,25 @@ void Preferences::definePreferenceItems() {
   define(defaultProjectPath, "defaultProjectPath", QMetaType::QString,
          documentsPath);
 
+  define(recordFileHistory, "recordFileHistory", QMetaType::Bool, true);
+
+  QString userName = TSystem::getUserName();
+  define(recordAsUsername, "recordAsUsername", QMetaType::QString, userName);
+
   // Import / Export
   define(ffmpegPath, "ffmpegPath", QMetaType::QString, "");
   define(ffmpegTimeout, "ffmpegTimeout", QMetaType::Int, 0, 0,
          std::numeric_limits<int>::max());
   define(fastRenderPath, "fastRenderPath", QMetaType::QString, "desktop");
+  define(ffmpegMultiThread, "ffmpegMultiThread", QMetaType::Bool, false);
   define(rhubarbPath, "rhubarbPath", QMetaType::QString, "");
   define(rhubarbTimeout, "rhubarbTimeout", QMetaType::Int, 0, 0,
          std::numeric_limits<int>::max());
 
   // Drawing
-  define(scanLevelType, "scanLevelType", QMetaType::QString, "tif");
-  define(DefLevelType, "DefLevelType", QMetaType::Int, TZP_XSHLEVEL);
+  define(DefRasterFormat, "DefRasterFormat", QMetaType::QString, "png");
+  // define(scanLevelType, "scanLevelType", QMetaType::QString, "tif");
+  define(DefLevelType, "DefLevelType", QMetaType::Int, OVL_XSHLEVEL);
   define(newLevelSizeToCameraSizeEnabled, "newLevelSizeToCameraSizeEnabled",
          QMetaType::Bool, true);
   define(DefLevelWidth, "DefLevelWidth", QMetaType::Double,
@@ -512,7 +524,8 @@ void Preferences::definePreferenceItems() {
 
   define(EnableAutocreation, "EnableAutocreation", QMetaType::Bool, true);
   define(NumberingSystem, "NumberingSystem", QMetaType::Int, 0);  // Incremental
-  define(EnableAutoStretch, "EnableAutoStretch", QMetaType::Bool, true);
+  define(EnableAutoStretch, "EnableAutoStretch", QMetaType::Bool, false);
+  define(EnableImplicitHold, "EnableImplicitHold", QMetaType::Bool, true);
   define(EnableCreationInHoldCells, "EnableCreationInHoldCells",
          QMetaType::Bool, true);
   define(EnableAutoRenumber, "EnableAutoRenumber", QMetaType::Bool, true);
@@ -546,9 +559,11 @@ void Preferences::definePreferenceItems() {
   define(levelBasedToolsDisplay, "levelBasedToolsDisplay", QMetaType::Int,
          0);  // Default
   define(useCtrlAltToResizeBrush, "useCtrlAltToResizeBrush", QMetaType::Bool,
-         true);
+         false);
   define(temptoolswitchtimer, "temptoolswitchtimer", QMetaType::Int, 500, 1,
          std::numeric_limits<int>::max());
+  define(magnetNonLinearSliderEnabled, "magnetNonLinearSliderEnabled",
+         QMetaType::Bool, false);
 
   // Xsheet
   define(xsheetLayoutPreference, "xsheetLayoutPreference", QMetaType::QString,
@@ -558,6 +573,8 @@ void Preferences::definePreferenceItems() {
   define(xsheetAutopanEnabled, "xsheetAutopanEnabled", QMetaType::Bool, true);
   define(DragCellsBehaviour, "DragCellsBehaviour", QMetaType::Int,
          1);  // Cells and Column Data
+  define(pasteCellsBehavior, "pasteCellsBehavior", QMetaType::Int,
+         0);  // Insert paste whole cell data
   define(ignoreAlphaonColumn1Enabled, "ignoreAlphaonColumn1Enabled",
          QMetaType::Bool, false);
   define(showKeyframesOnXsheetCellArea, "showKeyframesOnXsheetCellArea",
@@ -570,21 +587,32 @@ void Preferences::definePreferenceItems() {
          "inputCellsWithoutDoubleClickingEnabled", QMetaType::Bool, false);
   define(shortcutCommandsWhileRenamingCellEnabled,
          "shortcutCommandsWhileRenamingCellEnabled", QMetaType::Bool, false);
-  define(showQuickToolbar, "showQuickToolbar", QMetaType::Bool, false);
+  define(showQuickToolbar, "showQuickToolbar", QMetaType::Bool, true);
+  define(showXsheetBreadcrumbs, "showXsheetBreadcrumbs", QMetaType::Bool,
+         false);
   define(expandFunctionHeader, "expandFunctionHeader", QMetaType::Bool, false);
   define(showColumnNumbers, "showColumnNumbers", QMetaType::Bool, false);
+  define(parentColorsInXsheetColumn, "parentColorsInXsheetColumn",
+         QMetaType::Bool, true);
+  define(highlightLineEverySecond, "highlightLineEverySecond", QMetaType::Bool,
+         false);
   define(syncLevelRenumberWithXsheet, "syncLevelRenumberWithXsheet",
          QMetaType::Bool, true);
   define(currentTimelineEnabled, "currentTimelineEnabled", QMetaType::Bool,
          true);
   define(currentColumnColor, "currentColumnColor", QMetaType::QColor,
-         QColor(Qt::yellow));
+         QColor(Qt::cyan));
+  define(currentCellColor, "currentCellColor", QMetaType::QColor,
+         QColor(Qt::cyan));
   // define(levelNameOnEachMarkerEnabled, "levelNameOnEachMarkerEnabled",
   //  QMetaType::Bool, false);
   define(levelNameDisplayType, "levelNameDisplayType", QMetaType::Int,
          0);  // default
   define(showFrameNumberWithLetters, "showFrameNumberWithLetters",
          QMetaType::Bool, false);
+  define(showDragBars, "showDragBars", QMetaType::Bool, false);
+  define(timelineLayoutPreference, "timelineLayoutPreference", QMetaType::QString,
+         "NoDragCompact");
 
   // Animation
   define(keyframeType, "keyframeType", QMetaType::Int, 2);  // Linear
@@ -602,6 +630,10 @@ void Preferences::definePreferenceItems() {
   define(fitToFlipbook, "fitToFlipbook", QMetaType::Bool, true);
   define(generatedMovieViewEnabled, "generatedMovieViewEnabled",
          QMetaType::Bool, true);
+  define(inbetweenFlipDrawingCount, "inbetweenFlipDrawingCount", QMetaType::Int,
+         3, 3, 9);
+  define(inbetweenFlipSpeed, "inbetweenFlipSpeed", QMetaType::Int, 200, 100,
+         400);
 
   // Onion Skin
   define(onionSkinEnabled, "onionSkinEnabled", QMetaType::Bool, true);
@@ -653,7 +685,7 @@ void Preferences::definePreferenceItems() {
 
   // Others (not appeared in the popup)
   // Shortcut popup settings
-  define(shortcutPreset, "shortcutPreset", QMetaType::QString, "defopentoonz");
+  define(shortcutPreset, "shortcutPreset", QMetaType::QString, "deftahoma2d");
   // Viewer context menu
   define(guidedDrawingType, "guidedDrawingType", QMetaType::Int, 0);  // Off
   define(guidedAutoInbetween, "guidedAutoInbetween", QMetaType::Bool,
@@ -782,6 +814,22 @@ void Preferences::resolveCompatibility() {
       setValue(levelNameDisplayType, ShowLevelNameOnEachMarker);
     else  // Default (level name on top of each cell block)
       setValue(levelNameDisplayType, ShowLevelName_Default);
+  }
+  // "scanLevelType" is changed to "DefRasterFormat", enabling to specify
+  // default format for both the Scan and the Raster levels.
+  if (m_settings->contains("scanLevelType") &&
+      !m_settings->contains("DefRasterFormat")) {
+    setValue(DefRasterFormat, m_settings->value("scanLevelType").toString());
+  }
+  // "initialLoadTlvCachingBehavior" is changed to "rasterLevelCachingBehavior"
+  // , Now this setting also applies to raster levels (previously only Toonz
+  // raster levels). It also applies to any operation that loads a level, such
+  // as loading scene or loading a recent level. (Previously, this was only
+  // available from the Load Level popup.)
+  if (m_settings->contains("initialLoadTlvCachingBehavior") &&
+      !m_settings->contains("rasterLevelCachingBehavior")) {
+    setValue(rasterLevelCachingBehavior,
+             m_settings->value("initialLoadTlvCachingBehavior").toInt());
   }
 }
 
@@ -954,8 +1002,10 @@ void Preferences::setRasterBackgroundColor() {
 //-----------------------------------------------------------------
 
 void Preferences::storeOldUnits() {
-  setValue(oldUnits, getStringValue(linearUnits));
-  setValue(oldCameraUnits, getStringValue(cameraUnits));
+  QString linearU = getStringValue(linearUnits);
+  if (linearU != "pixel") setValue(oldUnits, linearU);
+  QString cameraU = getStringValue(cameraUnits);
+  if (cameraU != "pixel") setValue(oldCameraUnits, cameraU);
 }
 
 //-----------------------------------------------------------------
@@ -980,13 +1030,61 @@ QString Preferences::getCurrentLanguage() const {
 
 //-----------------------------------------------------------------
 
-QString Preferences::getCurrentStyleSheetPath() const {
+QString Preferences::getCurrentStyleSheet() const {
   QString currentStyleSheetName = getStringValue(CurrentStyleSheetName);
   if (currentStyleSheetName.isEmpty()) return QString();
   TFilePath path(TEnv::getConfigDir() + "qss");
   QString string = currentStyleSheetName + QString("/") +
                    currentStyleSheetName + QString(".qss");
-  return QString("file:///" + path.getQString() + "/" + string);
+  QString styleSheetPath = path.getQString() + "/" + string;
+
+  // Set base stylesheet settings. This is used to correct QT styling
+  // issues between different versions/OSes. Stylesheets and Additional
+  // stylesheets can override these settings.
+  QString baseSheetStr = "";
+
+  // Qt has a bug in recent versions that Menu item Does not show correctly
+  // (QTBUG-90242) Since the current OT is made to handle such issue, so we need
+  // to apply an extra adjustment when it is run on the older versions (5.9.x)
+  // of Qt
+  // Update: confirmed that the bug does not appear at least in Qt 5.12.8
+#if QT_VERSION < QT_VERSION_CHECK(5, 12, 9)
+  baseSheetStr += "QMenu::Item{ padding: 3 28 3 28; }";
+#else
+  baseSheetStr += "QMenu::Item{ padding: 3 28 3 8; }";
+#endif
+
+// Linux system font size appears a lot smaller than it should be despite
+// setting QApplication's setPixelSize = 12 in main.cpp. We'll correct it using
+// the additional stylesheet.
+#if defined(LINUX) || defined(FREEBSD)
+  baseSheetStr += "QWidget{ font: 12px; }QToolTip{ font: 12px; }";
+#endif
+
+
+  QString styleSheetStr = baseSheetStr;
+
+  // Load style sheet from the file and add to base style sheet
+  QFile f(styleSheetPath);
+  if (f.open(QFile::ReadOnly | QFile::Text)) {
+    QTextStream ts(&f);
+    styleSheetStr += ts.readAll();
+  }
+
+  // If there is any additional style sheet, append to loaded stylesheet
+  styleSheetStr += getStringValue(additionalStyleSheet);
+
+  // here we will convert all relative paths to absolute paths
+  // or Qt will look for images relative to the current working directory
+  // since it has no idea where the style sheet comes from.
+
+  QString currentStyleFolderPath =
+      path.getQString().replace("\\", "/") + "/" + currentStyleSheetName;
+
+  styleSheetStr.replace(QRegExp("url\\(['\"]([^'\"]+)['\"]\\)"),
+                        "url(\"" + currentStyleFolderPath + QString("/\\1\")"));
+
+  return styleSheetStr;
 }
 
 //-----------------------------------------------------------------
@@ -1038,7 +1136,7 @@ int Preferences::levelFormatsCount() const {
 int Preferences::matchLevelFormat(const TFilePath &fp) const {
   LevelFormatVector::const_iterator lft =
       std::find_if(m_levelFormats.begin(), m_levelFormats.end(),
-                   boost::bind(&LevelFormat::matches, _1, boost::cref(fp)));
+                   [&fp](const LevelFormat &format) { return format.matches(fp); });
 
   return (lft != m_levelFormats.end()) ? lft - m_levelFormats.begin() : -1;
 }

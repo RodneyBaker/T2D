@@ -97,7 +97,7 @@ ProjectPopup::ProjectPopup(bool isModal)
   m_showSettingsButton->setFocusPolicy(Qt::NoFocus);
 
   m_useSubSceneCbs =
-      new CheckBox("*Separate assets into scene sub-folders");
+      new CheckBox(tr("*Separate assets into scene sub-folders"));
   m_useSubSceneCbs->setMaximumHeight(WidgetHeight);
 
   m_rulePreferenceBG       = new QButtonGroup(this);
@@ -114,7 +114,7 @@ ProjectPopup::ProjectPopup(bool isModal)
   m_rulePreferenceBG->addButton(customRB, Rule_Custom);
   m_rulePreferenceBG->setExclusive(true);
   standardRB->setToolTip(tr(
-      "In the standard mode files with the following file name are handled as sequencial images:\n\
+      "In the standard mode files with the following file name are handled as sequential images:\n\
 [LEVEL_NAME][\".\"or\"_\"][FRAME_NUMBER][SUFFIX].[EXTENSION]\n\
 For [SUFFIX] zero or one occurrences of alphabet (a-z, A-Z) can be used in the standard mode."));
   customRB->setToolTip(
@@ -493,6 +493,9 @@ void ProjectSettingsPopup::onSomethingChanged() {
   } catch (TSystemException se) {
     DVGui::warning(QString::fromStdWString(se.getMessage()));
     return;
+  } catch (...) {
+    DVGui::warning("Unhandled exception encountered");
+    return;
   }
   DvDirModel::instance()->refreshFolder(project->getProjectFolder());
 }
@@ -610,6 +613,9 @@ void ProjectCreatePopup::createProject() {
                        .arg(toQString(projectPath)));
   } catch (TSystemException se) {
     DVGui::warning(QString::fromStdWString(se.getMessage()));
+    return;
+  } catch (...) {
+    DVGui::warning("Unhandled exception encountered");
     return;
   }
   pm->setCurrentProjectPath(projectPath);

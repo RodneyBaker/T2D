@@ -10,6 +10,7 @@
 #include "toonzqt/dvscrollwidget.h"
 #include "toonzqt/studiopaletteviewer.h"
 #include "toonzqt/styleselection.h"
+#include "toonzqt/stylenameeditor.h"
 #include "palettedata.h"
 
 // TnzLib includes
@@ -106,6 +107,7 @@ PaletteViewer::PaletteViewer(QWidget *parent, PaletteViewType viewType,
     , m_frozen(false)
     , m_freezePaletteToolButton(0)
     , m_lockPaletteToolButton(0)
+    , m_styleNameEditor(nullptr)
     , m_app(0) {
   setObjectName("OnePixelMarginFrame");
   setFrameStyle(QFrame::StyledPanel);
@@ -308,6 +310,41 @@ void PaletteViewer::updateView() {
 
 //-----------------------------------------------------------------------------
 
+void PaletteViewer::save(QSettings &settings, bool forPopupIni) const {
+  int visibleParts = m_toolbarVisibleOtherParts;
+  int swatchSize   = m_pageViewer->getViewMode();
+  if (m_visibleKeysAction->isChecked()) visibleParts |= 0x01;
+  //  if (m_visibleNewAction->isChecked()) visibleParts |= 0x02;
+  if (m_visibleGizmoAction->isChecked()) visibleParts |= 0x04;
+  if (m_visibleNameAction->isChecked()) visibleParts |= 0x08;
+  settings.setValue("toolbarVisibleMsk", visibleParts);
+  settings.setValue("swatchSize", swatchSize);
+}
+
+void PaletteViewer::load(QSettings &settings) {
+  int visibleParts                = 3;  // Show keyframes and new style/page;
+  PageViewer::ViewMode swatchSize = PageViewer::SmallChips;
+  QVariant visibleVar             = settings.value("toolbarVisibleMsk");
+  QVariant swatchVar              = settings.value("swatchSize");
+  if (visibleVar.canConvert(QVariant::Int)) visibleParts = visibleVar.toInt();
+  if (swatchVar.canConvert(QVariant::Int))
+    swatchSize = (PageViewer::ViewMode)swatchVar.toInt();
+
+  m_visibleKeysAction->setChecked(visibleParts & 0x01);
+//  m_visibleNewAction->setChecked(visibleParts & 0x02);
+  m_visibleGizmoAction->setChecked(visibleParts & 0x04);
+  m_visibleNameAction->setChecked(visibleParts & 0x08);
+  m_toolbarVisibleOtherParts = visibleParts & ~0x0F;  // Reserve
+  m_pageViewer->setViewMode(swatchSize);
+
+  applyToolbarPartVisibility(TBVisKeyframe, visibleParts & 0x01);
+//  applyToolbarPartVisibility(TBVisNewStylePage, visibleParts & 0x02);
+  applyToolbarPartVisibility(TBVisPaletteGizmo, visibleParts & 0x04);
+  applyToolbarPartVisibility(TBVisNameEditor, visibleParts & 0x08);
+ }
+ 
+//-----------------------------------------------------------------------------
+
 void PaletteViewer::enableSaveAction(bool enable) {
   if (!m_savePaletteToolBar) return;
   QList<QAction *> actions;
@@ -325,6 +362,33 @@ void PaletteViewer::enableSaveAction(bool enable) {
         act->text() == tr("&Save As Default Palette"))
       act->setEnabled(enable);
   }
+}
+
+//-----------------------------------------------------------------------------
+
+void PaletteViewer::applyToolbarPartVisibility(int part, bool visible) {
+  assert(m_toolbarParts.contains(part));
+  for (QAction *action : m_toolbarParts.values(part)) {
+    action->setVisible(visible);
+  }
+}
+
+//-----------------------------------------------------------------------------
+
+void PaletteViewer::toggleKeyframeVisibility(bool checked) {
+  applyToolbarPartVisibility(TBVisKeyframe, checked);
+}
+
+//void PaletteViewer::toggleNewStylePageVisibility(bool checked) {
+//  applyToolbarPartVisibility(TBVisNewStylePage, checked);
+//}
+
+void PaletteViewer::togglePaletteGizmoVisibility(bool checked) {
+  applyToolbarPartVisibility(TBVisPaletteGizmo, checked);
+}
+
+void PaletteViewer::toggleNameEditorVisibility(bool checked) {
+  applyToolbarPartVisibility(TBVisNameEditor, checked);
 }
 
 //-----------------------------------------------------------------------------
@@ -350,6 +414,9 @@ void PaletteViewer::createPaletteToolBar() {
   m_paletteToolBar->setIconSize(QSize(20, 20));
   m_paletteToolBar->setLayoutDirection(Qt::LeftToRight);
 
+  m_toolbarParts.clear();
+
+  // m_toolbarParts.insert(TBVisNewStylePage, addPage);
   // QIcon newColorIcon = createQIcon("newstyle");
   // QAction* addColor =
   //    new QAction(newColorIcon, tr("&New Style"), m_paletteToolBar);
@@ -358,12 +425,14 @@ void PaletteViewer::createPaletteToolBar() {
   // m_paletteToolBar->addAction(addColor);
 
   // m_paletteToolBar->addSeparator();
+  // m_toolbarParts.insert(TBVisNewStylePage, addColor);
+  // m_toolbarParts.insert(TBVisNewStylePage, m_paletteToolBar->addSeparator());
 
   // KeyFrame button
   if (m_viewType != CLEANUP_PALETTE) {
     m_keyFrameButton = new PaletteKeyframeNavigator(m_paletteToolBar);
-    m_paletteToolBar->addWidget(m_keyFrameButton);
-    m_paletteToolBar->addSeparator();
+    m_toolbarParts.insert(TBVisKeyframe, m_paletteToolBar->addWidget(m_keyFrameButton));
+    m_toolbarParts.insert(TBVisKeyframe, m_paletteToolBar->addSeparator());
     m_keyFrameButton->setSelection(m_pageViewer->getSelection());
   }
 
@@ -393,6 +462,17 @@ void PaletteViewer::createPaletteToolBar() {
     m_paletteToolBar->setStyleSheet("QToolBar{spacing:3px;}");
     m_paletteToolBar->addWidget(m_freezePaletteToolButton);
 
+    m_paletteToolBar->addSeparator();
+    CommandManager *cmd = CommandManager::instance();
+    m_sharedGizmoAction = cmd->getAction("MI_OpenPltGizmo");
+
+    // Clone palette gizmo action so visibility can be control
+    QAction *palGizmo = new DVAction(m_sharedGizmoAction->icon(),
+                                     m_sharedGizmoAction->text(), this);
+    connect(palGizmo, &QAction::triggered,
+            [&]() { m_sharedGizmoAction->trigger(); });
+    m_paletteToolBar->addAction(palGizmo);
+    m_toolbarParts.insert(TBVisPaletteGizmo, palGizmo);
   } else if (m_viewType == STUDIO_PALETTE) {
     QToolButton *toolButton = new QToolButton(this);
     toolButton->setPopupMode(QToolButton::InstantPopup);
@@ -416,7 +496,22 @@ void PaletteViewer::createPaletteToolBar() {
             SLOT(setChecked(bool)));
 
     m_paletteToolBar->addWidget(toolButton);
+    m_paletteToolBar->addSeparator();
   }
+
+  QAction *openStyleNameEditorAct = new QAction(tr("Name Editor"));
+  openStyleNameEditorAct->setIcon(createQIcon("rename", false, true));
+  connect(openStyleNameEditorAct, &QAction::triggered, [&]() {
+    if (!m_styleNameEditor) {
+      m_styleNameEditor = new StyleNameEditor(this);
+      m_styleNameEditor->setPaletteHandle(getPaletteHandle());
+    }
+    m_styleNameEditor->show();
+    m_styleNameEditor->raise();
+    m_styleNameEditor->activateWindow();
+  });
+  m_paletteToolBar->addAction(openStyleNameEditorAct);
+  m_toolbarParts.insert(TBVisNameEditor, openStyleNameEditorAct);
 
   updatePaletteToolBar();
 }
@@ -506,23 +601,48 @@ void PaletteViewer::createSavePaletteToolBar() {
   });
   m_viewMode->addAction(m_showStyleIndex);
 
-  // QIcon saveAsPaletteIcon = createQIconOnOff("savepaletteas", false);
-  QIcon saveAsPaletteIcon = createQIcon("saveas");
-  QAction *saveAsPalette  = new QAction(
-      saveAsPaletteIcon, tr("&Save Palette As"), m_savePaletteToolBar);
-  saveAsPalette->setToolTip(tr("Save palette with a different name."));
-  // overwrite palette
-  QIcon savePaletteIcon = createQIcon("save");
-  QAction *savePalette =
-      new QAction(savePaletteIcon, tr("&Save Palette"), m_savePaletteToolBar);
-  savePalette->setToolTip(tr("Save the palette."));
-  QAction *saveDefaultPalette =
-      new QAction(tr("&Save As Default Palette"), m_savePaletteToolBar);
-  saveDefaultPalette->setToolTip(
-      tr("Save the palette as the default for new levels of the current level "
-         "type."));
+  m_viewMode->addSeparator();
+
+  // Add ability to show or hide buttons
+  QMenu *visibleButtons = new QMenu(tr("Visible Toolbar Buttons"));
+
+  m_visibleKeysAction = new QAction(tr("KeyFrame"));
+  m_visibleKeysAction->setCheckable(true);
+  m_visibleKeysAction->setChecked(true);
+  visibleButtons->addAction(m_visibleKeysAction);
+//  m_visibleNewAction = new QAction(tr("New Style/Page"));
+//  m_visibleNewAction->setCheckable(true);
+//  m_visibleNewAction->setChecked(true);
+//  visibleButtons->addAction(m_visibleNewAction);
+  m_visibleGizmoAction = new QAction(tr("Palette Gizmo"));
+  m_visibleGizmoAction->setCheckable(true);
+  m_visibleGizmoAction->setChecked(true);
+  visibleButtons->addAction(m_visibleGizmoAction);
+  m_visibleNameAction = new QAction(tr("Name Editor"));
+  m_visibleNameAction->setCheckable(true);
+  m_visibleNameAction->setChecked(true);
+  visibleButtons->addAction(m_visibleNameAction);
+  m_viewMode->addMenu(visibleButtons);
+
+  if (m_viewType == CLEANUP_PALETTE) m_visibleKeysAction->setVisible(false);
+
+  if (m_viewType != LEVEL_PALETTE) m_visibleGizmoAction->setVisible(false);
+
+  connect(m_visibleKeysAction, SIGNAL(toggled(bool)), this,
+          SLOT(toggleKeyframeVisibility(bool)));
+//  connect(m_visibleNewAction, SIGNAL(toggled(bool)), this,
+//          SLOT(toggleNewStylePageVisibility(bool)));
+  connect(m_visibleGizmoAction, SIGNAL(toggled(bool)), this,
+          SLOT(togglePaletteGizmoVisibility(bool)));
+  connect(m_visibleNameAction, SIGNAL(toggled(bool)), this,
+          SLOT(toggleNameEditorVisibility(bool)));
 
   if (m_viewType == STUDIO_PALETTE) {
+    QIcon savePaletteIcon = createQIcon("save", false, true);
+    QAction *savePalette =
+        new QAction(savePaletteIcon, tr("&Save Palette"), m_savePaletteToolBar);
+    savePalette->setToolTip(tr("Save the palette."));
+
     connect(savePalette, SIGNAL(triggered()), this, SLOT(saveStudioPalette()));
     // m_viewMode->addSeparator();
     // m_viewMode->addAction(savePalette);
@@ -532,21 +652,20 @@ void PaletteViewer::createSavePaletteToolBar() {
     m_viewMode->addSeparator();
 
     // overwrite palette
-    connect(savePalette, SIGNAL(triggered()),
-            CommandManager::instance()->getAction("MI_OverwritePalette"),
-            SIGNAL(triggered()));
+    QAction *savePalette =
+        new QAction(createQIcon("save", false, true), tr("&Save Palette"),
+                    m_savePaletteToolBar);
     m_viewMode->addAction(savePalette);
 
     // save palette as
-    connect(saveAsPalette, SIGNAL(triggered()),
-            CommandManager::instance()->getAction("MI_SavePaletteAs"),
-            SIGNAL(triggered()));
+    QAction *saveAsPalette =
+        new QAction(createQIcon("saveas", false, true), tr("&Save Palette As"),
+                    m_savePaletteToolBar);
     m_viewMode->addAction(saveAsPalette);
 
     // save as default palette
-    connect(saveDefaultPalette, SIGNAL(triggered()),
-            CommandManager::instance()->getAction("MI_SaveAsDefaultPalette"),
-            SIGNAL(triggered()));
+    QAction *saveDefaultPalette =
+        CommandManager::instance()->getAction("MI_SaveAsDefaultPalette");
     m_viewMode->addAction(saveDefaultPalette);
   }
 
@@ -649,12 +768,18 @@ void PaletteViewer::updateSavePaletteToolBar() {
                             : getPalette()
                                   ? getPalette()->getDefaultPaletteType()
                                   : UNKNOWN_XSHLEVEL;
+        if (levelType == UNKNOWN_XSHLEVEL)
+          levelType = Preferences::instance()->getDefLevelType();
         setSaveDefaultText(act, levelType);
+        if (levelType == PLT_XSHLEVEL) enable = false;
       }
       act->setEnabled(enable);
-    } else if (m_viewType != STUDIO_PALETTE && i == 1)  // move action
-      actions[i]->setVisible(enable);
-    else
+    } else if (m_viewType != STUDIO_PALETTE && i == 1) {  // move action
+      // Do not hide when palette is not visible otherwise it causes
+      // panel redistribution at startup
+      bool moveVisible = isVisible() ? enable : true;
+      actions[i]->setVisible(moveVisible);
+    } else
       actions[i]->setEnabled(true);
   }
 }
@@ -685,7 +810,10 @@ void PaletteViewer::updatePaletteMenu() {
                             : getPalette()
                                   ? getPalette()->getDefaultPaletteType()
                                   : UNKNOWN_XSHLEVEL;
+        if (levelType == UNKNOWN_XSHLEVEL)
+          levelType = Preferences::instance()->getDefLevelType();
         setSaveDefaultText(act, levelType);
+        if (levelType == PLT_XSHLEVEL) enable = false;
       }
       act->setEnabled(enable);
     } else
@@ -736,7 +864,6 @@ void PaletteViewer::setSaveDefaultText(QAction *action, int levelType) {
     action->setText(tr("&Save As Default Palette"));
     break;
   }
-  action->setIcon(createQIcon("save"));
 }
 
 void PaletteViewer::contextMenuEvent(QContextMenuEvent *event) {
@@ -746,7 +873,8 @@ void PaletteViewer::contextMenuEvent(QContextMenuEvent *event) {
 
   QMenu *menu = new QMenu(this);
   if (m_hasPageCommand) {
-    QAction *newPage = menu->addAction(tr("New Page"));
+    QAction *newPage =
+        menu->addAction(createQIcon("newpage", false, true), tr("New Page"));
     connect(newPage, SIGNAL(triggered()), SLOT(addNewPage()));
 
     if (m_pagesBar->geometry().contains(pos)) {
@@ -758,7 +886,8 @@ void PaletteViewer::contextMenuEvent(QContextMenuEvent *event) {
           canRemovePage = false;
         if (canRemovePage) {
           m_indexPageToDelete = tabIndex;
-          QAction *deletePage = menu->addAction(tr("Delete Page"));
+          QAction *deletePage = menu->addAction(
+              createQIcon("delete", false, true), tr("Delete Page"));
           connect(deletePage, SIGNAL(triggered()), SLOT(deletePage()));
         }
       }
@@ -773,14 +902,18 @@ void PaletteViewer::contextMenuEvent(QContextMenuEvent *event) {
     QAction *action =
         CommandManager::instance()->getAction("MI_SaveAsDefaultPalette");
     menu->addAction(action);
-
+    bool enable = true;
     if (m_levelHandle) {
       int levelType = m_levelHandle->getLevel()
                           ? m_levelHandle->getLevel()->getType()
                           : getPalette() ? getPalette()->getDefaultPaletteType()
                                          : UNKNOWN_XSHLEVEL;
+      if (levelType == UNKNOWN_XSHLEVEL)
+        levelType = Preferences::instance()->getDefLevelType();
       setSaveDefaultText(action, levelType);
+      if (levelType == PLT_XSHLEVEL) enable = false;
     }
+    action->setEnabled(enable);
   }
 
   if (m_viewType == LEVEL_PALETTE && !getPalette()->isLocked() &&

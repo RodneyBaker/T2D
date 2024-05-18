@@ -31,6 +31,8 @@ class QPushButton;
 class Orientation;
 class TApp;
 class TXsheet;
+class QCheckBox;
+class QGroupBox;
 
 //=============================================================================
 namespace XsheetGUI {
@@ -50,12 +52,7 @@ class MotionPathMenu final : public QWidget {
   QPoint m_pos;
 
 public:
-#if QT_VERSION >= 0x050500
-  MotionPathMenu(QWidget *parent = 0, Qt::WindowFlags flags = 0);
-#else
-  MotionPathMenu(QWidget *parent = 0, Qt::WFlags flags = 0);
-#endif
-
+  MotionPathMenu(QWidget *parent = 0, Qt::WindowFlags flags = Qt::WindowFlags());
   ~MotionPathMenu();
 
 protected:
@@ -93,10 +90,14 @@ protected:
   void wheelEvent(QWheelEvent *event) override;
   void focusOutEvent(QFocusEvent *e) override;
   void focusInEvent(QFocusEvent *e) override {}
-  void selectCurrent(const QString &text);
+
+  void addText(const QString &text, const QString &display);
+  void addText(const QString &text, const QColor &textColor);
+  void addText(const TStageObjectId &id, const QString &display,
+               const QColor &identColor);
 
 protected slots:
-  virtual void onTextChanged(const QString &) = 0;
+  virtual void onItemSelected(QListWidgetItem *) = 0;
 };
 
 //=============================================================================
@@ -112,8 +113,11 @@ public:
 
   void refresh() override;
 
+  static QString getNameTr(const TStageObjectId id);
+  void selectCurrent(const TStageObjectId &id);
+
 protected slots:
-  void onTextChanged(const QString &) override;
+  void onItemSelected(QListWidgetItem *) override;
 };
 
 //=============================================================================
@@ -128,9 +132,10 @@ public:
   ~ChangeObjectHandle();
 
   void refresh() override;
+  void selectCurrent(const QString &text);
 
 protected slots:
-  void onTextChanged(const QString &) override;
+  void onItemSelected(QListWidgetItem *) override;
 };
 
 //=============================================================================
@@ -217,15 +222,27 @@ class ColumnTransparencyPopup final : public QWidget {
   QComboBox *m_filterColorCombo;
 
   XsheetViewer *m_viewer;
-  QPushButton *m_lockBtn;
+  QPushButton *m_lockBtn, *m_lockExtraBtn;
+
+  QGroupBox *m_maskGroupBox;
+  QCheckBox *m_invertMask;
+  QCheckBox *m_renderMask;
+
+  QTimer *m_keepClosedTimer;
+  bool m_keepClosed;
 
 public:
   ColumnTransparencyPopup(XsheetViewer *viewer, QWidget *parent);
   void setColumn(TXshColumn *column);
+  TXshColumn *getcolumn() { return m_column; }
+
+  bool isKeepClosed() { return m_keepClosed; }
+  void setKeepClosed(bool keepClosed) { m_keepClosed = keepClosed; }
 
 protected:
   // void mouseMoveEvent ( QMouseEvent * e );
   void mouseReleaseEvent(QMouseEvent *e) override;
+  void hideEvent(QHideEvent *e) override;
 
 protected slots:
   void onSliderReleased();
@@ -233,8 +250,14 @@ protected slots:
   void onSliderValueChanged(int);
   void onValueChanged(const QString &);
 
-  void onFilterColorChanged(int id);
+  void onFilterColorChanged();
   void onLockButtonClicked(bool on);
+
+  void onMaskGroupBoxChanged(bool clicked);
+  void onInvertMaskCBChanged(int checkedState);
+  void onRenderMaskCBChanged(int checkedState);
+
+  void resetKeepClosed();
 };
 
 class SoundColumnPopup final : public QWidget {
@@ -276,6 +299,7 @@ class ColumnArea final : public QWidget {
   ColumnTransparencyPopup *m_columnTransparencyPopup;
   SoundColumnPopup *m_soundColumnPopup;
   QTimer *m_transparencyPopupTimer;
+  QTimer *m_openCloseFolderTimer;
   int m_doOnRelease;
   XsheetViewer *m_viewer;
   int m_col;
@@ -289,6 +313,8 @@ class ColumnArea final : public QWidget {
   QPoint m_pos;
   QString m_tooltip;
 
+  bool m_resizingHeader;
+
   RenameColumnField *m_renameColumnField;
 #ifndef LINETEST
   ChangeObjectParent *m_changeObjectParent;
@@ -301,6 +327,9 @@ class ColumnArea final : public QWidget {
   QAction *m_subsampling2;
   QAction *m_subsampling3;
   QAction *m_subsampling4;
+
+  int m_menuCol;
+  QTimer *m_menuTimer;
 
   DragTool *getDragTool() const;
   void setDragTool(DragTool *dragTool);
@@ -333,23 +362,22 @@ class ColumnArea final : public QWidget {
     void drawPreviewToggle(int opacity) const;
     void drawLock() const;
     void drawConfig() const;
+    void drawFolderIndicator() const;
     void drawColumnNumber() const;
     void drawColumnName() const;
     void drawThumbnail(QPixmap &iconPixmap) const;
     void drawPegbarName() const;
     void drawParentHandleName() const;
     void drawFilterColor() const;
+    void drawClippingMask() const;
 
     void drawSoundIcon(bool isPlaying) const;
     void drawVolumeControl(double volume) const;
+    void drawFolderStatusIcon(bool isOpen) const;
   };
 
 public:
-#if QT_VERSION >= 0x050500
-  ColumnArea(XsheetViewer *parent, Qt::WindowFlags flags = 0);
-#else
-  ColumnArea(XsheetViewer *parent, Qt::WFlags flags = 0);
-#endif
+  ColumnArea(XsheetViewer *parent, Qt::WindowFlags flags = Qt::WindowFlags());
   ~ColumnArea();
 
   void onControlPressed(bool pressed);
@@ -360,16 +388,24 @@ public:
   void drawSoundColumnHead(QPainter &p, int col);
   void drawPaletteColumnHead(QPainter &p, int col);
   void drawSoundTextColumnHead(QPainter &p, int col);
+  void drawFolderColumnHead(QPainter &p, int col);
+  void drawCurrentColumnFocus(QPainter &p, int col);
 
   QPixmap getColumnIcon(int columnIndex);
 
-  int getClickedColumn() { return m_col; }
+  int getMenuColumnTarget() { return m_menuCol; }
 
   class Pixmaps {
   public:
     static const QPixmap &sound();
     static const QPixmap &soundPlaying();
+    static const QPixmap &folder_arrow_left();
+    static const QPixmap &folder_arrow_right();
+    static const QPixmap &folder_arrow_up();
+    static const QPixmap &folder_arrow_down();
   };
+
+  void toggleFolderStatus(TXshColumn *column);
 
 protected:
   void select(int columnIndex, QMouseEvent *event);
@@ -391,7 +427,9 @@ protected slots:
   void onCameraColumnChangedTriggered();
   void onCameraColumnLockToggled(bool);
   void onXsheetCameraChange(int);
-  void onSetMask(int);
+  void onMenuAboutToHide();
+  void onResetContextMenuTarget();
+  void autoOpenCloseFolder();
 };
 
 //-----------------------------------------------------------------------------
